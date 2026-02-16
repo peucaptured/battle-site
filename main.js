@@ -78,19 +78,48 @@ el("connect").addEventListener("click", () => {
 
   setStatus("ok", "conectado");
 
-  // Players subcollection
-  const playersCol = collection(db, "rooms", rid, "players");
-  unsub.push(onSnapshot(playersCol, (snap) => {
-    const arr = [];
-    snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
-    arr.sort((a,b) =>
+  // ✅ Players (a partir do doc rooms/<rid>)
+  const roomDoc = doc(db, "rooms", rid);
+  unsub.push(onSnapshot(roomDoc, (snap) => {
+    const data = snap.exists() ? snap.data() : null;
+    if(!data){
+      el("players").textContent = pretty([]);
+      return;
+    }
+  
+    const out = [];
+  
+    // owner: { name: "Delta" }
+    if(data.owner && data.owner.name){
+      out.push({ role: "owner", trainer_name: String(data.owner.name) });
+    }
+  
+    // challengers: [ { name: "James HiBorn" }, { name: "Logan" } ]
+    if(Array.isArray(data.challengers)){
+      for(const ch of data.challengers){
+        const nm = ch && (ch.name ?? ch.trainer_name);
+        if(nm) out.push({ role: "challenger", trainer_name: String(nm) });
+      }
+    }
+  
+    // spectators: [ "Amber", ... ] (às vezes pode ser objeto também)
+    if(Array.isArray(data.spectators)){
+      for(const sp of data.spectators){
+        const nm = (typeof sp === "string") ? sp : (sp && (sp.name ?? sp.trainer_name));
+        if(nm) out.push({ role: "spectator", trainer_name: String(nm) });
+      }
+    }
+  
+    out.sort((a,b) =>
       (a.role||"").localeCompare(b.role||"") ||
       (a.trainer_name||"").localeCompare(b.trainer_name||"")
     );
-    el("players").textContent = pretty(arr);
+  
+    el("players").textContent = pretty(out);
   }, (err) => {
     el("players").textContent = "Erro: " + err.message;
   }));
+
 
   // public_state/state
   const stateDoc = doc(db, "rooms", rid, "public_state", "state");
