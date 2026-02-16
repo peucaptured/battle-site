@@ -45,11 +45,6 @@
 
     <div style="height:10px"></div>
 
-    <label>firebaseConfig (cole do Firebase Console → Project settings → Web app)</label>
-    <textarea id="cfg" placeholder='{"apiKey":"...","authDomain":"...","projectId":"..."}'></textarea>
-
-    <div style="height:10px"></div>
-
     <div class="row">
       <button id="connect">Conectar</button>
       <button id="disconnect" class="secondary">Desconectar</button>
@@ -57,7 +52,8 @@
 
     <div style="height:10px"></div>
     <div style="font-size:12px;color:#94a3b8">
-      Este viewer não autentica. Para permitir leitura, ajuste as Rules do Firestore (ex.: leitura pública só de rooms/&lt;rid&gt;/public_state).
+      Se aparecer “Missing or insufficient permissions”, ajuste as Rules do Firestore para permitir leitura em
+      <code>rooms/&lt;rid&gt;/players</code> e <code>rooms/&lt;rid&gt;/public_state</code>.
     </div>
   </div>
 
