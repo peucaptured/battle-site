@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Batalha — Sala</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;margin:0;background:#0b1220;color:#e5e7eb}
+    header{padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;gap:12px;align-items:center;justify-content:space-between}
+    .wrap{max-width:1200px;margin:0 auto;padding:16px}
+    .card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:14px;margin-bottom:12px}
+    label{display:block;font-size:12px;color:#9ca3af;margin-bottom:6px}
+    input, textarea, select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.25);color:#e5e7eb;outline:none}
+    textarea{min-height:92px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+    button{padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(59,130,246,.25);color:#e5e7eb;cursor:pointer;font-weight:650}
+    button.secondary{background:rgba(255,255,255,.06)}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    @media (min-width: 920px){.grid{grid-template-columns: 380px 1fr}}
+    .row{display:flex;gap:10px}
+    .row > *{flex:1}
+    pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.35}
+    .pill{display:inline-block;padding:4px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);font-size:12px;color:#cbd5e1;margin-right:6px}
+    .ok{color:#86efac}
+    .warn{color:#fbbf24}
+    .err{color:#f87171}
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <div style="font-weight:800">🏟️ Batalha (Realtime)</div>
+    <div style="font-size:12px;color:#94a3b8">Leitura do Firestore em tempo real (rooms/&lt;rid&gt;)</div>
+  </div>
+  <div id="status" class="pill warn">desconectado</div>
+</header>
+
+<div class="wrap grid">
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Código da sala (rid)</label>
+        <input id="rid" placeholder="ex.: 483920" />
+      </div>
+    </div>
+
+    <div style="height:10px"></div>
+
+    <label>firebaseConfig (cole do Firebase Console → Project settings → Web app)</label>
+    <textarea id="cfg" placeholder='{"apiKey":"...","authDomain":"...","projectId":"..."}'></textarea>
+
+    <div style="height:10px"></div>
+
+    <div class="row">
+      <button id="connect">Conectar</button>
+      <button id="disconnect" class="secondary">Desconectar</button>
+    </div>
+
+    <div style="height:10px"></div>
+    <div style="font-size:12px;color:#94a3b8">
+      Este viewer não autentica. Para permitir leitura, ajuste as Rules do Firestore (ex.: leitura pública só de rooms/&lt;rid&gt;/public_state).
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div style="font-weight:800">Players</div>
+        <div id="rid_badge" class="pill">—</div>
+      </div>
+      <div style="height:10px"></div>
+      <pre id="players">—</pre>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:800">public_state/state</div>
+      <div style="height:10px"></div>
+      <pre id="state">—</pre>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:800">public_state/battle</div>
+      <div style="height:10px"></div>
+      <pre id="battle">—</pre>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./main.js"></script>
+</body>
+</html>
