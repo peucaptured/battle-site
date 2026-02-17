@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PvP — Arena Tática</title>
+  <title>PvP â Arena TÃ¡tica</title>
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
   <style>
@@ -264,16 +264,16 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <div style="font-size:20px">🏟️</div>
+      <div style="font-size:20px">ðï¸</div>
       <div>
-        <div class="title">PvP — Arena Tática</div>
+        <div class="title">PvP â Arena TÃ¡tica</div>
         <div class="sub">Realtime via Firestore (rooms/&lt;rid&gt;)</div>
       </div>
     </div>
     <div class="top-actions">
-      <div class="pill">🧩 Sala <span id="rid_badge" style="font-weight:950">—</span></div>
-      <div class="pill">🎚️ Fase <span id="phase_badge" style="font-weight:950">—</span></div>
-      <div class="pill">📡 <span id="sync_badge" style="font-weight:950">—</span></div>
+      <div class="pill">ð§© Sala <span id="rid_badge" style="font-weight:950">â</span></div>
+      <div class="pill">ðï¸ Fase <span id="phase_badge" style="font-weight:950">â</span></div>
+      <div class="pill">ð¡ <span id="sync_badge" style="font-weight:950">â</span></div>
       <div id="status" class="pill warn">desconectado</div>
     </div>
   </header>
@@ -283,14 +283,14 @@
     <section class="panel" aria-label="Sua equipe">
       <div class="panel-inner">
         <div class="panel-title">
-          <h3>🧑‍🎓 Sua Equipe</h3>
-          <div class="pill mono" id="me_badge">by: —</div>
+          <h3>ð§âð Sua Equipe</h3>
+          <div class="pill mono" id="me_badge">by: â</div>
         </div>
 
         <div class="card" style="margin-bottom:12px">
           <div class="row" style="margin-bottom:10px">
             <div style="flex:1; min-width:0">
-              <label class="label" for="rid">Código da sala (rid)</label>
+              <label class="label" for="rid">CÃ³digo da sala (rid)</label>
               <input class="input" id="rid" placeholder="ex.: 360" autocomplete="off" />
             </div>
           </div>
@@ -305,51 +305,51 @@
             <button class="btn secondary" id="disconnect">Desconectar</button>
           </div>
           <div class="muted" style="margin-top:10px">
-            Dica: o <b>by</b> precisa bater com <code>piece.owner</code> para o painel reconhecer “sua equipe”.
+            Dica: o <b>by</b> precisa bater com <code>piece.owner</code> para o painel reconhecer âsua equipeâ.
           </div>
         </div>
 
         <div class="card" style="margin-bottom:12px">
           <div class="row spread" style="margin-bottom:10px">
-            <div style="font-weight:950">👤 Meu Avatar</div>
-            <div class="pill mono" id="role_badge">role: —</div>
+            <div style="font-weight:950">ð¤ Meu Avatar</div>
+            <div class="pill mono" id="role_badge">role: â</div>
           </div>
           <div class="row">
-            <div class="avatar" id="avatar_icon">🙂</div>
+            <div class="avatar" id="avatar_icon">ð</div>
             <div style="min-width:0">
-              <div style="font-weight:950" id="trainer_name">—</div>
-              <div class="muted">Selecionar peça no grid: <b>clique</b> • Mover: <b>clique no tile</b> ou <b>arraste</b></div>
+              <div style="font-weight:950" id="trainer_name">â</div>
+              <div class="muted">Selecionar peÃ§a no grid: <b>clique</b> â¢ Mover: <b>clique no tile</b> ou <b>arraste</b></div>
             </div>
           </div>
         </div>
 
-        <div id="team_list" aria-label="Peças do jogador"></div>
+        <div id="team_list" aria-label="PeÃ§as do jogador"></div>
       </div>
     </section>
 
     <!-- MIDDLE -->
-    <section class="mid" aria-label="Área central">
+    <section class="mid" aria-label="Ãrea central">
       <div class="tabs" role="tablist">
-        <div class="tab active" data-tab="arena" role="tab" aria-selected="true">🗺️ Arena</div>
-        <div class="tab" data-tab="combat" role="tab" aria-selected="false">⚔️ Combate</div>
-        <div class="tab" data-tab="initiative" role="tab" aria-selected="false">🧭 Iniciativa</div>
-        <div class="tab" data-tab="sheets" role="tab" aria-selected="false">📋 Fichas</div>
-        <div class="tab" data-tab="log" role="tab" aria-selected="false">📜 Log</div>
+        <div class="tab active" data-tab="arena" role="tab" aria-selected="true">ðºï¸ Arena</div>
+        <div class="tab" data-tab="combat" role="tab" aria-selected="false">âï¸ Combate</div>
+        <div class="tab" data-tab="initiative" role="tab" aria-selected="false">ð§­ Iniciativa</div>
+        <div class="tab" data-tab="sheets" role="tab" aria-selected="false">ð Fichas</div>
+        <div class="tab" data-tab="log" role="tab" aria-selected="false">ð Log</div>
       </div>
 
       <!-- Arena -->
       <section class="arena-card" id="tab_arena" role="tabpanel">
         <div class="arena-head">
           <div class="left">
-            <div style="font-size:18px">🗺️</div>
+            <div style="font-size:18px">ðºï¸</div>
             <div style="min-width:0">
               <div class="name">Arena</div>
-              <div class="meta" id="arena_meta">grid — • tema —</div>
+              <div class="meta" id="arena_meta">grid â â¢ tema â</div>
             </div>
           </div>
           <div class="row" style="gap:8px">
-            <button class="btn ghost" id="btn_zoom_fit" title="Zoom automático">🔎 Auto</button>
-            <button class="btn secondary" id="btn_center" title="Centralizar">🧭</button>
+            <button class="btn ghost" id="btn_zoom_fit" title="Zoom automÃ¡tico">ð Auto</button>
+            <button class="btn secondary" id="btn_center" title="Centralizar">ð§­</button>
           </div>
         </div>
 
@@ -359,12 +359,12 @@
           <div id="arena_dom" class="arena-dom" style="display:none"></div>
 
           <div class="floating-status">
-            <div class="pill mono" id="sel_badge">seleção: —</div>
-            <div class="pill mono" id="hover_badge">tile: —</div>
+            <div class="pill mono" id="sel_badge">seleÃ§Ã£o: â</div>
+            <div class="pill mono" id="hover_badge">tile: â</div>
           </div>
           <div class="arena-hint">
-            <div class="hint">Clique numa peça para selecionar • Clique num tile para mover • Arraste para mover</div>
-            <div class="hint">Envio sempre por <b>rooms/{rid}/actions</b> (front não mexe no state)</div>
+            <div class="hint">Clique numa peÃ§a para selecionar â¢ Clique num tile para mover â¢ Arraste para mover</div>
+            <div class="hint">Envio sempre por <b>rooms/{rid}/actions</b> (front nÃ£o mexe no state)</div>
           </div>
         </div>
       </section>
@@ -372,36 +372,36 @@
       <!-- Combat placeholder -->
       <section class="panel" id="tab_combat" role="tabpanel" style="display:none">
         <div class="panel-inner">
-          <div class="panel-title"><h3>⚔️ Combate</h3></div>
+          <div class="panel-title"><h3>âï¸ Combate</h3></div>
           <div class="card">
             <div style="font-weight:950;margin-bottom:6px">Placeholder conectado</div>
-            <div class="muted">Já escutando <code>public_state/battle</code>. Próximo passo: calculadora/ações avançadas.</div>
+            <div class="muted">JÃ¡ escutando <code>public_state/battle</code>. PrÃ³ximo passo: calculadora/aÃ§Ãµes avanÃ§adas.</div>
           </div>
-          <pre id="battle_preview">—</pre>
+          <pre id="battle_preview">â</pre>
         </div>
       </section>
 
       <!-- Initiative placeholder -->
       <section class="panel" id="tab_initiative" role="tabpanel" style="display:none">
         <div class="panel-inner">
-          <div class="panel-title"><h3>🧭 Iniciativa</h3></div>
+          <div class="panel-title"><h3>ð§­ Iniciativa</h3></div>
           <div class="card">
             <div style="font-weight:950;margin-bottom:6px">Placeholder conectado</div>
             <div class="muted">Estrutura pronta para consumir dados do battle/initiative e pieces.</div>
           </div>
-          <pre id="initiative_preview">—</pre>
+          <pre id="initiative_preview">â</pre>
         </div>
       </section>
 
       <!-- Sheets placeholder -->
       <section class="panel" id="tab_sheets" role="tabpanel" style="display:none">
         <div class="panel-inner">
-          <div class="panel-title"><h3>📋 Fichas</h3></div>
+          <div class="panel-title"><h3>ð Fichas</h3></div>
           <div class="card">
             <div style="font-weight:950;margin-bottom:6px">Placeholder conectado</div>
-            <div class="muted">Usa a seleção no grid para decidir qual ficha abrir (próxima etapa).</div>
+            <div class="muted">Usa a seleÃ§Ã£o no grid para decidir qual ficha abrir (prÃ³xima etapa).</div>
           </div>
-          <pre id="sheets_preview">—</pre>
+          <pre id="sheets_preview">â</pre>
         </div>
       </section>
 
@@ -409,7 +409,7 @@
       <section class="panel" id="tab_log" role="tabpanel" style="display:none">
         <div class="panel-inner log-wrap">
           <div class="panel-title">
-            <h3>📜 Log</h3>
+            <h3>ð Log</h3>
             <div class="pill mono" id="log_count">0</div>
           </div>
           <div class="card" style="margin-bottom:0">
@@ -423,19 +423,46 @@
         </div>
       </section>
 
-      <!-- Dev tools (colapsável) -->
+      <!-- Dev tools (colapsÃ¡vel) -->
       <details class="dev" id="devtools">
         <summary>
-          <span>🛠️ Dev tools (debug / ações manuais)</span>
-          <span class="pill mono" id="last_action">—</span>
+          <span>ð ï¸ Dev tools (debug / aÃ§Ãµes manuais)</span>
+          <span class="pill mono" id="last_action">â</span>
         </summary>
         <div class="dev-body">
           <div class="grid2">
             <div class="card" style="margin-bottom:0">
-              <div style="font-weight:950;margin-bottom:10px">Mover peça (MOVE_PIECE)</div>
+              <div style="font-weight:950;margin-bottom:10px">Mover peÃ§a (MOVE_PIECE)</div>
               <label class="label" for="pieceId">pieceId (id interno)</label>
               <input class="input mono" id="pieceId" placeholder="ex.: 3db901a3" />
               <div style="height:10px"></div>
+          <div class="grid2">
+            <div class="card" style="margin-bottom:0">
+              <div style="font-weight:950;margin-bottom:10px">Dex / Sprites (opcional)</div>
+              <div class="muted" style="margin-bottom:10px">
+                Se seus <code>pid</code> são IDs custom da sua Pokédex, o front precisa mapear <code>pid → Nome</code> para buscar sprite.
+                Você pode carregar um <b>JSON</b> no formato <code>{"218":"Bronzong","303":"Mawile"}</code> (ou similar).
+              </div>
+              <label class="label" for="dex_json_file">Carregar mapeamento (pokedex.json)</label>
+              <input class="input" id="dex_json_file" type="file" accept="application/json" />
+              <div style="height:10px"></div>
+              <button class="btn secondary" id="dex_clear">Limpar mapeamento</button>
+              <div class="muted" style="margin-top:10px">O mapeamento fica salvo no <code>localStorage</code> do navegador.</div>
+            </div>
+
+            <div class="card" style="margin-bottom:0">
+              <div style="font-weight:950;margin-bottom:10px">Mapa (opcional)</div>
+              <div class="muted" style="margin-bottom:10px">
+                Por padrão, o battle-site gera um mapa simples pelo <code>seed</code>/<code>theme</code>.
+                Se você tiver um PNG do mapa (ex.: gerado no Streamlit e publicado), coloque a URL aqui para renderizar como background.
+              </div>
+              <label class="label" for="map_url_override">Override de URL (PNG)</label>
+              <input class="input mono" id="map_url_override" placeholder="https://.../map.png" />
+              <div style="height:10px"></div>
+              <button class="btn secondary" id="map_url_apply">Aplicar</button>
+              <button class="btn ghost" id="map_url_clear" style="margin-left:8px">Limpar</button>
+            </div>
+          </div>
               <div class="row">
                 <div style="flex:1">
                   <label class="label" for="row">row</label>
@@ -452,30 +479,58 @@
             </div>
 
             <div class="card" style="margin-bottom:0">
-              <div style="font-weight:950;margin-bottom:10px">Últimas actions (para ver rejected/erro)</div>
-              <pre id="actions_log">—</pre>
+              <div style="font-weight:950;margin-bottom:10px">Ãltimas actions (para ver rejected/erro)</div>
+              <pre id="actions_log">â</pre>
             </div>
           </div>
 
           <div style="height:10px"></div>
           <div class="grid2">
             <div class="card" style="margin-bottom:0">
+              <div style="font-weight:950;margin-bottom:10px">Dex / Sprites (opcional)</div>
+              <div class="muted" style="margin-bottom:10px">
+                Se seus <code>pid</code> são IDs custom da sua Pokédex, o front precisa mapear <code>pid → Nome</code> para buscar sprite.
+                Você pode carregar um <b>JSON</b> no formato <code>{"218":"Bronzong","303":"Mawile"}</code> (ou similar).
+              </div>
+              <label class="label" for="dex_json_file">Carregar mapeamento (pokedex.json)</label>
+              <input class="input" id="dex_json_file" type="file" accept="application/json" />
+              <div style="height:10px"></div>
+              <button class="btn secondary" id="dex_clear">Limpar mapeamento</button>
+              <div class="muted" style="margin-top:10px">O mapeamento fica salvo no <code>localStorage</code> do navegador.</div>
+            </div>
+
+            <div class="card" style="margin-bottom:0">
+              <div style="font-weight:950;margin-bottom:10px">Mapa (opcional)</div>
+              <div class="muted" style="margin-bottom:10px">
+                Por padrão, o battle-site gera um mapa simples pelo <code>seed</code>/<code>theme</code>.
+                Se você tiver um PNG do mapa (ex.: gerado no Streamlit e publicado), coloque a URL aqui para renderizar como background.
+              </div>
+              <label class="label" for="map_url_override">Override de URL (PNG)</label>
+              <input class="input mono" id="map_url_override" placeholder="https://.../map.png" />
+              <div style="height:10px"></div>
+              <button class="btn secondary" id="map_url_apply">Aplicar</button>
+              <button class="btn ghost" id="map_url_clear" style="margin-left:8px">Limpar</button>
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="card" style="margin-bottom:0">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
                 <div style="font-weight:950">Players</div>
                 <div class="pill mono" id="players_count">0</div>
               </div>
-              <pre id="players">—</pre>
+              <pre id="players">â</pre>
             </div>
             <div class="card" style="margin-bottom:0">
               <div style="font-weight:950;margin-bottom:10px">public_state/state</div>
-              <pre id="state">—</pre>
+              <pre id="state">â</pre>
             </div>
           </div>
 
           <div style="height:10px"></div>
           <div class="card" style="margin-bottom:0">
             <div style="font-weight:950;margin-bottom:10px">public_state/battle</div>
-            <pre id="battle">—</pre>
+            <pre id="battle">â</pre>
           </div>
         </div>
       </details>
@@ -485,7 +540,7 @@
     <section class="panel" aria-label="Oponentes">
       <div class="panel-inner">
         <div class="panel-title">
-          <h3>🆚 Oponentes</h3>
+          <h3>ð Oponentes</h3>
           <div class="pill mono" id="opp_count">0</div>
         </div>
 
@@ -493,7 +548,7 @@
 
         <div class="card" style="margin-top:12px">
           <div style="font-weight:950;margin-bottom:6px">Info</div>
-          <div class="muted">Esta lateral pode mostrar mochila, status, ações do turno etc. (próxima etapa).</div>
+          <div class="muted">Esta lateral pode mostrar mochila, status, aÃ§Ãµes do turno etc. (prÃ³xima etapa).</div>
         </div>
       </div>
     </section>

@@ -61,3 +61,22 @@ firebase deploy
 
 - Sprites: tenta `piece.spriteUrl` se existir; caso contrário usa sprites do repositório PokeAPI (pode falhar em ids custom).
 - Performance: Firestore atualiza o estado local; o Canvas é desenhado em loop com `requestAnimationFrame`.
+
+## Dex (sprites) e mapa
+
+### Sprites com PID custom
+
+Se as peças no Firestore usam `pid` que não é o NatDex, você tem 2 opções:
+
+1) **Melhor**: adicionar `spriteUrl` em cada `piece` no `public_state/state` (server-side).
+2) **Sem mexer no backend**: carregar um JSON de mapeamento `pid -> nome` pelo Dev Tools:
+   - Crie um arquivo JSON como o exemplo em `assets/pokedex.example.json`.
+   - No site, abra **Dev tools** → **Dex / Sprites** e carregue o arquivo.
+
+O site então tenta buscar a imagem pelo nome (via sprites públicos) e faz cache no navegador.
+
+### Mapa
+
+- Se `public_state/state` tiver `mapUrl` (ou `backgroundUrl`), o canvas usa esse PNG como fundo.
+- Alternativamente, você pode forçar uma URL pelo Dev Tools em **Mapa (opcional)**.
+- Se não houver URL, o site gera um mapa procedural simples baseado em `seed` + `theme`.

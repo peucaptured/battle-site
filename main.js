@@ -123,6 +123,74 @@ const appState = {
   renderedLogKeys: new Set(),
 };
 
+// -------------------------
+// Dex / Map overrides (localStorage)
+// -------------------------
+const STORAGE_KEYS = {
+  dexMap: 'pvp_dex_map_json',
+  mapUrl: 'pvp_map_url_override',
+};
+
+let dexMap = null; // { pidStr: name }
+let mapUrlOverride = '';
+
+function loadDexMapFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.dexMap);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (obj && typeof obj === 'object') return obj;
+  } catch {}
+  return null;
+}
+
+function saveDexMapToStorage(obj) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.dexMap, JSON.stringify(obj || {}));
+  } catch {}
+}
+
+function loadMapOverrideFromStorage() {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.mapUrl) || '';
+  } catch {
+    return '';
+  }
+}
+
+function saveMapOverrideToStorage(url) {
+  try {
+    if (url) localStorage.setItem(STORAGE_KEYS.mapUrl, url);
+    else localStorage.removeItem(STORAGE_KEYS.mapUrl);
+  } catch {}
+}
+
+async function tryLoadDexMapFromAssets() {
+  // Se existir ./assets/pokedex.json no hosting, carrega como fallback
+  try {
+    const res = await fetch('./assets/pokedex.json', { cache: 'no-cache' });
+    if (!res.ok) return null;
+    const obj = await res.json();
+    if (obj && typeof obj === 'object') return obj;
+  } catch {}
+  return null;
+}
+
+// Inicializa overrides
+(function initOverrides() {
+  dexMap = loadDexMapFromStorage();
+  mapUrlOverride = loadMapOverrideFromStorage();
+  // tenta assets apenas se ainda não tem nada no storage
+  if (!dexMap) {
+    tryLoadDexMapFromAssets().then((obj) => {
+      if (obj && !dexMap) {
+        dexMap = obj;
+        updateSidePanels();
+      }
+    });
+  }
+})();
+
 let currentDb = null;
 let currentRid = null;
 let unsub = [];
@@ -482,13 +550,46 @@ function pieceDisplayName(p) {
   return { pid, id, owner };
 }
 
+function slugifyPokemonName(name) {
+  return safeStr(name)
+    .toLowerCase()
+    .replaceAll("♀", "f")
+    .replaceAll("♂", "m")
+    .replace(/[’‘‛′'`\.]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function resolvePokemonNameFromPid(pid) {
+  const pidStr = safeStr(pid);
+  if (!pidStr) return "";
+  // Convenção do seu app: EXT:Nome
+  if (pidStr.startsWith("EXT:")) return safeStr(pidStr.slice(4));
+  // Mapeamento local (pokedex.json carregado pelo usuário)
+  if (dexMap && Object.prototype.hasOwnProperty.call(dexMap, pidStr)) return safeStr(dexMap[pidStr]);
+  return "";
+}
+
+function spriteUrlFromPokemonName(name) {
+  const slug = slugifyPokemonName(name);
+  if (!slug) return "";
+  // Fonte estável para imagens em <img> (sem precisar chamar API)
+  return `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
+}
+
 function getSpriteUrlForPiece(p) {
-  // Prefer explicit spriteUrl if present
+  // 1) Prefer explicit spriteUrl if present
   const direct = safeStr(p?.spriteUrl || p?.sprite_url || "");
   if (direct) return direct;
+
+  // 2) Try resolve by name via Dex mapping
+  const name = resolvePokemonNameFromPid(p?.pid);
+  if (name) return spriteUrlFromPokemonName(name);
+
+  // 3) Fallback: treat pid as NatDex number
   const pidRaw = Number(p?.pid);
-  // fallback: PokeAPI sprites (pode falhar para ids custom)
-  if (Number.isFinite(pidRaw) && pidRaw > 0 && pidRaw < 10000) {
+  if (Number.isFinite(pidRaw) && pidRaw > 0 && pidRaw < 20000) {
     return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pidRaw}.png`;
   }
   return "";
@@ -988,6 +1089,176 @@ function updateArenaDomHover() {
   domCells[r * gs + c]?.classList.add("hover");
 }
 
+
+// -------------------------
+// Map background (procedural) + optional URL override
+// -------------------------
+const mapCache = {
+  key: "",
+  gs: 10,
+  theme: "biome_grass",
+  seed: 0,
+  tiles: null, // Float32 shade noise [gs*gs]
+  deco: [], // {row,col,type,variant}
+  bgUrl: "",
+  bgRec: null,
+};
+
+function _u32(n) {
+  return (Number(n) >>> 0);
+}
+
+function mulberry32(a) {
+  let t = _u32(a);
+  return function () {
+    t += 0x6D2B79F5;
+    let x = t;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function getActiveMapUrl() {
+  const fromOverride = safeStr(mapUrlOverride);
+  if (fromOverride) return fromOverride;
+  const b = appState.board || {};
+  return safeStr(b.mapUrl || b.map_url || b.backgroundUrl || "");
+}
+
+function maybeRebuildMapCache() {
+  const gs = appState.gridSize || 10;
+  const theme = safeStr(appState.theme) || "biome_grass";
+  const seed = _u32(appState.board?.seed || 0);
+  const bgUrl = getActiveMapUrl();
+  const key = `${gs}|${theme}|${seed}|${bgUrl}`;
+  if (key === mapCache.key) return;
+
+  mapCache.key = key;
+  mapCache.gs = gs;
+  mapCache.theme = theme;
+  mapCache.seed = seed;
+  mapCache.bgUrl = bgUrl;
+  mapCache.bgRec = bgUrl ? loadSprite(bgUrl) : null;
+
+  // Procedural: per-tile noise + decorations based on seed
+  const rng = mulberry32(seed ^ 0xA5A5A5A5);
+  const tiles = new Float32Array(gs * gs);
+  const deco = [];
+
+  for (let r = 0; r < gs; r++) {
+    for (let c = 0; c < gs; c++) {
+      const i = r * gs + c;
+      // noise in [-1..1]
+      tiles[i] = (rng() * 2 - 1) * 0.35 + (rng() * 2 - 1) * 0.15;
+    }
+  }
+
+  // simple dirt patch (like road)
+  const patchW = Math.max(2, Math.floor(gs * 0.28));
+  const patchH = Math.max(2, Math.floor(gs * 0.28));
+  const patchR = Math.floor(gs * (0.55 + rng() * 0.25)) - patchH // center-ish
+  const patchC = Math.floor(gs * (0.55 + rng() * 0.25)) - patchW
+  mapCache.patch = { r: Math.max(0, patchR), c: Math.max(0, patchC), w: patchW, h: patchH };
+
+  // decorations
+  const decoCount = Math.max(6, Math.floor(gs * gs * 0.08));
+  const types = theme.includes('cave') ? ['rock', 'rock', 'crystal'] : ['tree', 'bush', 'rock'];
+  for (let i = 0; i < decoCount; i++) {
+    const row = Math.floor(rng() * gs);
+    const col = Math.floor(rng() * gs);
+    const t = types[Math.floor(rng() * types.length)];
+    // avoid patch area
+    const P = mapCache.patch;
+    if (row >= P.r && row < P.r + P.h && col >= P.c && col < P.c + P.w) continue;
+    deco.push({ row, col, type: t, variant: Math.floor(rng() * 3) });
+  }
+
+  mapCache.tiles = tiles;
+  mapCache.deco = deco;
+}
+
+function drawProceduralMap(ctx, ox, oy, gs, tile) {
+  const theme = mapCache.theme;
+  const tiles = mapCache.tiles;
+  const patch = mapCache.patch;
+
+  // theme palette (base RGB)
+  let base = { r: 80, g: 160, b: 80 };
+  if (theme.includes('grass')) base = { r: 100, g: 175, b: 90 };
+  if (theme.includes('desert')) base = { r: 180, g: 160, b: 95 };
+  if (theme.includes('snow')) base = { r: 200, g: 220, b: 230 };
+  if (theme.includes('cave')) base = { r: 70, g: 80, b: 95 };
+
+  for (let r = 0; r < gs; r++) {
+    for (let c = 0; c < gs; c++) {
+      const i = r * gs + c;
+      const n = tiles ? tiles[i] : 0;
+      let rr = base.r + n * 30;
+      let gg = base.g + n * 30;
+      let bb = base.b + n * 30;
+
+      // dirt patch
+      if (patch && r >= patch.r && r < patch.r + patch.h && c >= patch.c && c < patch.c + patch.w) {
+        rr = 130 + n * 18;
+        gg = 115 + n * 18;
+        bb = 85 + n * 18;
+      }
+
+      ctx.fillStyle = `rgb(${rr|0},${gg|0},${bb|0})`;
+      ctx.fillRect(ox + c * tile, oy + r * tile, tile, tile);
+
+      // subtle overlay
+      ctx.fillStyle = ((r + c) % 2 === 0) ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.05)';
+      ctx.fillRect(ox + c * tile, oy + r * tile, tile, tile);
+    }
+  }
+
+  // decorations
+  for (const d of mapCache.deco || []) {
+    const x = ox + d.col * tile;
+    const y = oy + d.row * tile;
+    const cx = x + tile * 0.5;
+    const cy = y + tile * 0.52;
+
+    if (d.type === 'tree') {
+      // canopy
+      ctx.fillStyle = 'rgba(16,90,45,0.85)';
+      ctx.beginPath();
+      ctx.arc(cx, cy - tile * 0.10, tile * 0.26, 0, Math.PI * 2);
+      ctx.fill();
+      // trunk
+      ctx.fillStyle = 'rgba(92,54,30,0.9)';
+      ctx.fillRect(cx - tile * 0.06, cy + tile * 0.06, tile * 0.12, tile * 0.20);
+    } else if (d.type === 'bush') {
+      ctx.fillStyle = 'rgba(20,120,60,0.75)';
+      ctx.beginPath();
+      ctx.arc(cx - tile * 0.10, cy, tile * 0.16, 0, Math.PI * 2);
+      ctx.arc(cx + tile * 0.05, cy - tile * 0.02, tile * 0.18, 0, Math.PI * 2);
+      ctx.arc(cx + tile * 0.18, cy + tile * 0.02, tile * 0.14, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (d.type === 'rock') {
+      ctx.fillStyle = 'rgba(148,163,184,0.55)';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, tile * 0.22, tile * 0.14, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(30,41,59,0.25)';
+      ctx.stroke();
+    } else if (d.type === 'crystal') {
+      ctx.fillStyle = 'rgba(125,211,252,0.55)';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - tile * 0.22);
+      ctx.lineTo(cx + tile * 0.12, cy);
+      ctx.lineTo(cx, cy + tile * 0.22);
+      ctx.lineTo(cx - tile * 0.12, cy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(14,116,144,0.35)';
+      ctx.stroke();
+    }
+  }
+}
+
 function draw() {
   const rect = canvasWrap.getBoundingClientRect();
   const w = rect.width;
@@ -1011,16 +1282,22 @@ function draw() {
   ctx.fillStyle = "rgba(0,0,0,0.18)";
   ctx.fillRect(ox - 2, oy - 2, gs * tile + 4, gs * tile + 4);
 
-  // tiles (simple texture via alternating alpha)
-  for (let r = 0; r < gs; r++) {
-    for (let c = 0; c < gs; c++) {
-      const x = ox + c * tile;
-      const y = oy + r * tile;
-      const alt = (r + c) % 2 === 0;
-      ctx.fillStyle = alt ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.05)";
-      ctx.fillRect(x, y, tile, tile);
-    }
+  // tiles / mapa
+  maybeRebuildMapCache();
+  const bg = mapCache.bgRec;
+  if (bg && bg.ready && !bg.failed) {
+    // Desenha PNG esticado no grid (mantém tiles por cima)
+    ctx.globalAlpha = 0.92;
+    ctx.drawImage(bg.img, ox, oy, gs * tile, gs * tile);
+    ctx.globalAlpha = 1;
+    // leve overlay para dar contraste
+    ctx.fillStyle = 'rgba(2,6,23,0.10)';
+    ctx.fillRect(ox, oy, gs * tile, gs * tile);
+  } else {
+    drawProceduralMap(ctx, ox, oy, gs, tile);
   }
+
+
 
   // hover highlight
   if (appState.hover.row != null) {
@@ -1127,6 +1404,54 @@ function escapeHtml(s) {
 function escapeAttr(s) {
   return escapeHtml(s);
 }
+
+// Local overrides init (Dex/Map)
+(function initLocalOverrides(){
+  dexMap = loadDexMapFromStorage();
+  mapUrlOverride = loadMapOverrideFromStorage();
+
+  const dexFile = document.getElementById('dex_json_file');
+  const dexClear = document.getElementById('dex_clear');
+  dexFile?.addEventListener('change', async (ev) => {
+    const f = ev.target?.files?.[0];
+    if (!f) return;
+    try {
+      const raw = await f.text();
+      const obj = JSON.parse(raw);
+      if (!obj || typeof obj !== 'object') throw new Error('JSON inválido');
+      dexMap = obj;
+      saveDexMapToStorage(obj);
+      setStatus('ok', 'Dex carregada (local)');
+      updateSidePanels();
+    } catch (e) {
+      setStatus('err', 'Falha ao carregar Dex: ' + (e?.message || e));
+    }
+  });
+  dexClear?.addEventListener('click', () => {
+    dexMap = null;
+    saveDexMapToStorage({});
+    setStatus('ok', 'Dex limpa');
+    updateSidePanels();
+  });
+
+  const mapUrlInput = document.getElementById('map_url_override');
+  const mapApply = document.getElementById('map_url_apply');
+  const mapClear = document.getElementById('map_url_clear');
+  if (mapUrlInput) mapUrlInput.value = mapUrlOverride || '';
+
+  mapApply?.addEventListener('click', () => {
+    const url = safeStr(mapUrlInput?.value || '');
+    mapUrlOverride = url;
+    saveMapOverrideToStorage(url);
+    setStatus('ok', url ? 'Mapa override aplicado' : 'Mapa override vazio');
+  });
+  mapClear?.addEventListener('click', () => {
+    mapUrlOverride = '';
+    if (mapUrlInput) mapUrlInput.value = '';
+    saveMapOverrideToStorage('');
+    setStatus('ok', 'Mapa override limpo');
+  });
+})();
 
 // Initial UI
 setTab("arena");
