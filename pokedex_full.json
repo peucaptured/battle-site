@@ -1,0 +1,4016 @@
+[
+  {
+    "id": 1,
+    "name": "Bulbasaur",
+    "type": "Grass/Poison",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Campos Longos/Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 2,
+    "name": "Ivysaur",
+    "type": "Grass/Poison",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Campos Longos/Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 3,
+    "name": "Venusaur",
+    "type": "Grass/Poison",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Campos Longos/Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 4,
+    "name": "Squirtle",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Baia Morta / Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 5,
+    "name": "Wartortle",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Baia Morta / Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 6,
+    "name": "Blastoise",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Baia Morta / Terras Fluviais",
+    "stage": 5
+  },
+  {
+    "id": 7,
+    "name": "Caterpie",
+    "type": "Bug",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Campos Longos/Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 8,
+    "name": "Metapod",
+    "type": "Bug",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Campos Longos/Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 9,
+    "name": "Butterfree",
+    "type": "Bug/Flying",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Campos Longos/Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 10,
+    "name": "Pidgey",
+    "type": "Normal/Flying",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Campos Longos / Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 11,
+    "name": "Pidgeotto",
+    "type": "Normal/Flying",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Campos Longos / Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 12,
+    "name": "Pidgeot",
+    "type": "Normal/Flying",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Campos Longos / Baixo Deserto",
+    "stage": 5
+  },
+  {
+    "id": 13,
+    "name": "Rattata",
+    "type": "Normal",
+    "rarity": "Comum",
+    "biomes": "Em Cidades",
+    "region": "Coração Verde / Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 14,
+    "name": "Raticate",
+    "type": "Normal",
+    "rarity": "Comum",
+    "biomes": "Em Cidades",
+    "region": "Coração Verde / Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 15,
+    "name": "Hoothoot",
+    "type": "Normal/Flying",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 1
+  },
+  {
+    "id": 16,
+    "name": "Noctowl",
+    "type": "Normal/Flying",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 3
+  },
+  {
+    "id": 17,
+    "name": "Pichu",
+    "type": "Electric",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Campos Longos / Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 18,
+    "name": "Pikachu",
+    "type": "Electric",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Campos Longos/Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 19,
+    "name": "Raichu",
+    "type": "Electric",
+    "rarity": "Ultra Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Baia Morta",
+    "stage": 5
+  },
+  {
+    "id": 20,
+    "name": "Sandshrew-A",
+    "type": "Ice/Steel",
+    "rarity": "Comum",
+    "biomes": "Caverna de Gelo",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 21,
+    "name": "Sandslash-A",
+    "type": "Ice/Steel",
+    "rarity": "Ultra Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 22,
+    "name": "Nidoran♀",
+    "type": "Poison",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Terras Fluviais / Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 23,
+    "name": "Nidorina",
+    "type": "Poison",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Terras Fluviais / Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 24,
+    "name": "Nidoqueen",
+    "type": "Poison/Ground",
+    "rarity": "Ultra Raro",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al",
+    "stage": 5
+  },
+  {
+    "id": 25,
+    "name": "Nidoran♂",
+    "type": "Poison",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Terras Fluviais / Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 26,
+    "name": "Nidorino",
+    "type": "Poison",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Terras Fluviais / Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 27,
+    "name": "Nidoking",
+    "type": "Poison/Ground",
+    "rarity": "Ultra Raro",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al",
+    "stage": 5
+  },
+  {
+    "id": 28,
+    "name": "Clefairy",
+    "type": "Fairy",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 29,
+    "name": "Clefable",
+    "type": "Fairy",
+    "rarity": "Ultra Raro",
+    "biomes": "Cavernas",
+    "region": "Terras Fluviais",
+    "stage": 5
+  },
+  {
+    "id": 30,
+    "name": "Zubat",
+    "type": "Poison/Flying",
+    "rarity": "Comum",
+    "biomes": "Cavernas",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 31,
+    "name": "Golbat",
+    "type": "Poison/Flying",
+    "rarity": "Comum",
+    "biomes": "Cavernas",
+    "region": "Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 32,
+    "name": "Crobat",
+    "type": "Poison/Flying",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Baia Morta",
+    "stage": 5
+  },
+  {
+    "id": 33,
+    "name": "Paras",
+    "type": "Bug/Grass",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 34,
+    "name": "Parasect",
+    "type": "Bug/Grass",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 35,
+    "name": "Venonat",
+    "type": "Bug/Poison",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 36,
+    "name": "Venomoth",
+    "type": "Bug/Poison",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 37,
+    "name": "Diglett",
+    "type": "Ground",
+    "rarity": "Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 38,
+    "name": "Dugtrio",
+    "type": "Ground",
+    "rarity": "Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 39,
+    "name": "Mankey",
+    "type": "Fighting",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Baixo Deserto/Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 40,
+    "name": "Primeape",
+    "type": "Fighting",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baixo Deserto/Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 41,
+    "name": "Growlithe-H",
+    "type": "Fire/Rock",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 42,
+    "name": "Arcanine-H",
+    "type": "Fire/Rock",
+    "rarity": "Ultra Raro",
+    "biomes": "Montanhas",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 43,
+    "name": "Poliwag",
+    "type": "Water",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais / Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 44,
+    "name": "Poliwhirl",
+    "type": "Water",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais / Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 45,
+    "name": "Poliwrath",
+    "type": "Water/Fighting",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais",
+    "stage": 5
+  },
+  {
+    "id": 46,
+    "name": "Politoed",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Campos Longos",
+    "stage": 5
+  },
+  {
+    "id": 47,
+    "name": "Machop",
+    "type": "Fighting",
+    "rarity": "Comum",
+    "biomes": "Montanhas",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 48,
+    "name": "Machoke",
+    "type": "Fighting",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 49,
+    "name": "Machamp",
+    "type": "Fighting",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Baia Morta",
+    "stage": 5
+  },
+  {
+    "id": 50,
+    "name": "Geodude-A",
+    "type": "Rock/Electric",
+    "rarity": "Comum",
+    "biomes": "Cavernas",
+    "region": "Baia Morta / Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 51,
+    "name": "Graveler-A",
+    "type": "Rock/Electric",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Baia Morta / Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 52,
+    "name": "Golem-A",
+    "type": "Rock/Electric",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Baia Morta / Chifre de Ga'Al",
+    "stage": 5
+  },
+  {
+    "id": 53,
+    "name": "Ponyta-galar",
+    "type": "Psychic",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 54,
+    "name": "Rapidash-galar",
+    "type": "Psychic/Fairy",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Baia Morta",
+    "stage": 5
+  },
+  {
+    "id": 55,
+    "name": "Magnemite",
+    "type": "Electric/Steel",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 56,
+    "name": "Magneton",
+    "type": "Electric/Steel",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 57,
+    "name": "Magnezone",
+    "type": "Electric/Steel",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 58,
+    "name": "Doduo",
+    "type": "Normal/Flying",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 59,
+    "name": "Dodrio",
+    "type": "Normal/Flying",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 60,
+    "name": "Gastly",
+    "type": "Ghost/Poison",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 61,
+    "name": "Haunter",
+    "type": "Ghost/Poison",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 62,
+    "name": "Gengar",
+    "type": "Ghost/Poison",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Baixo Deserto",
+    "stage": 5
+  },
+  {
+    "id": 63,
+    "name": "Krabby",
+    "type": "Water",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 64,
+    "name": "Kingler",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 65,
+    "name": "Snorlax",
+    "type": "Normal",
+    "rarity": "Ultra Raro",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al",
+    "stage": 5
+  },
+  {
+    "id": 66,
+    "name": "Rhyhorn",
+    "type": "Ground/Rock",
+    "rarity": "Super Raro",
+    "biomes": "Montanhas",
+    "region": "Safari / Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 67,
+    "name": "Rhydon",
+    "type": "Ground/Rock",
+    "rarity": "Super Raro",
+    "biomes": "Montanhas",
+    "region": "Safari / Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 68,
+    "name": "Rhyperior",
+    "type": "Ground/Rock",
+    "rarity": "Super Raro",
+    "biomes": "Montanhas",
+    "region": "Safari / Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 69,
+    "name": "Kangaskhan",
+    "type": "Normal",
+    "rarity": "Super Raro",
+    "biomes": "Florestas",
+    "region": "Safari / Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 70,
+    "name": "Staryu",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 71,
+    "name": "Starmie",
+    "type": "Water/Psychic",
+    "rarity": "ULTRA RARO",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 72,
+    "name": "Scyther",
+    "type": "Bug/Flying",
+    "rarity": "Super Raro",
+    "biomes": "Florestas",
+    "region": "Safari / Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 73,
+    "name": "Kleavor",
+    "type": "Bug/Rock",
+    "rarity": "Super Raro",
+    "biomes": "Montanhas",
+    "region": "Safari / Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 74,
+    "name": "Scizor",
+    "type": "Bug/Steel",
+    "rarity": "Super Raro",
+    "biomes": "Florestas",
+    "region": "Safari / Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 75,
+    "name": "Elekid",
+    "type": "Electric",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 76,
+    "name": "Electabuzz",
+    "type": "Electric",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 77,
+    "name": "Electivire",
+    "type": "Electric",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baixo Deserto",
+    "stage": 5
+  },
+  {
+    "id": 78,
+    "name": "Magmar",
+    "type": "Fire",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 79,
+    "name": "Magmortar",
+    "type": "Fire",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 80,
+    "name": "Magikarp",
+    "type": "Water",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Toda Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 81,
+    "name": "Gyarados",
+    "type": "Water/Flying",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Baia Morta / Terras Fluviais",
+    "stage": 5
+  },
+  {
+    "id": 82,
+    "name": "Eevee",
+    "type": "Normal",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 83,
+    "name": "Dratini",
+    "type": "Dragon",
+    "rarity": "Ultra Raro",
+    "biomes": "Florestas",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 84,
+    "name": "Dragonair",
+    "type": "Dragon",
+    "rarity": "Ultra Raro",
+    "biomes": "Florestas",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 85,
+    "name": "Dragonite",
+    "type": "Dragon/Flying",
+    "rarity": "Ultra Raro",
+    "biomes": "Florestas",
+    "region": "Terras Fluviais",
+    "stage": 5
+  },
+  {
+    "id": 86,
+    "name": "Sneasel",
+    "type": "Dark/Ice",
+    "rarity": "RARO",
+    "biomes": "Florestas",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 87,
+    "name": "Weavile",
+    "type": "Dark/Ice",
+    "rarity": "Ultra Raro",
+    "biomes": "Água Doce",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 88,
+    "name": "Poochyena",
+    "type": "Dark",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Terras Fluviais / Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 89,
+    "name": "Mightyena",
+    "type": "Dark",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Terras Fluviais / Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 90,
+    "name": "Lotad",
+    "type": "Water/Grass",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 91,
+    "name": "Lombre",
+    "type": "Water/Grass",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 92,
+    "name": "Ludicolo",
+    "type": "Water/Grass",
+    "rarity": "Ultra Raro",
+    "biomes": "Florestas",
+    "region": "Terras Fluviais",
+    "stage": 5
+  },
+  {
+    "id": 93,
+    "name": "Seedot",
+    "type": "Grass",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 94,
+    "name": "Nuzleaf",
+    "type": "Grass/Dark",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 95,
+    "name": "Shiftry",
+    "type": "Grass/Dark",
+    "rarity": "Ultra Raro",
+    "biomes": "Florestas",
+    "region": "Terras Fluviais",
+    "stage": 5
+  },
+  {
+    "id": 96,
+    "name": "Wingull",
+    "type": "Water/Flying",
+    "rarity": "Comum",
+    "biomes": "Mar",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 97,
+    "name": "Pelipper",
+    "type": "Water/Flying",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 98,
+    "name": "Makuhita",
+    "type": "Fighting",
+    "rarity": "Comum",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 99,
+    "name": "Hariyama",
+    "type": "Fighting",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 100,
+    "name": "Aron",
+    "type": "Steel/Rock",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 101,
+    "name": "Lairon",
+    "type": "Steel/Rock",
+    "rarity": "Raro",
+    "biomes": "Topo de Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 102,
+    "name": "Aggron",
+    "type": "Steel/Rock",
+    "rarity": "Raro",
+    "biomes": "Topo de Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 103,
+    "name": "Budew",
+    "type": "Grass/Poison",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 1
+  },
+  {
+    "id": 104,
+    "name": "Roselia",
+    "type": "Grass/Poison",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 3
+  },
+  {
+    "id": 105,
+    "name": "Roserade",
+    "type": "Grass/Poison",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 5
+  },
+  {
+    "id": 106,
+    "name": "Wailmer",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 107,
+    "name": "Wailord",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 108,
+    "name": "Trapinch",
+    "type": "Ground",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 109,
+    "name": "Vibrava",
+    "type": "Ground/Dragon",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 110,
+    "name": "Flygon",
+    "type": "Ground/Dragon",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 111,
+    "name": "Cacnea",
+    "type": "Grass",
+    "rarity": "Comum",
+    "biomes": "Deserto",
+    "region": "Deserto Irrigado / Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 112,
+    "name": "Cacturne",
+    "type": "Grass/Dark",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Irrigado / Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 113,
+    "name": "Baltoy",
+    "type": "Ground/Psychic",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Irrigado / Deserto Sem Fim",
+    "stage": 1
+  },
+  {
+    "id": 114,
+    "name": "Claydol",
+    "type": "Ground/Psychic",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Irrigado / Deserto Sem Fim",
+    "stage": 3
+  },
+  {
+    "id": 115,
+    "name": "Castform",
+    "type": "Normal",
+    "rarity": "Ultra Raro",
+    "biomes": "Desconhecido",
+    "region": "Missão",
+    "stage": 5
+  },
+  {
+    "id": 116,
+    "name": "Snorunt",
+    "type": "Ice",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 117,
+    "name": "Glalie",
+    "type": "Ice",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 118,
+    "name": "Froslass",
+    "type": "Ice/Ghost",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 119,
+    "name": "Shellder",
+    "type": "Water/Ice",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais / Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 120,
+    "name": "Cloyster",
+    "type": "Water/Ice",
+    "rarity": "Ultra Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 121,
+    "name": "Azurill",
+    "type": "Normal/Fairy",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais / Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 122,
+    "name": "Marill",
+    "type": "Water/Fairy",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais / Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 123,
+    "name": "Azumarill",
+    "type": "Water/Fairy",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais / Campos Longos",
+    "stage": 5
+  },
+  {
+    "id": 124,
+    "name": "Beldum",
+    "type": "Steel/Psychic",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Deserto Sem Fim",
+    "stage": 1
+  },
+  {
+    "id": 125,
+    "name": "Metang",
+    "type": "Steel/Psychic",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Deserto Sem Fim",
+    "stage": 3
+  },
+  {
+    "id": 126,
+    "name": "Metagross",
+    "type": "Steel/Psychic",
+    "rarity": "Ultra Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Deserto Sem Fim",
+    "stage": 5
+  },
+  {
+    "id": 127,
+    "name": "Chimchar",
+    "type": "Fire",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 128,
+    "name": "Monferno",
+    "type": "Fire/Fighting",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 129,
+    "name": "Infernape",
+    "type": "Fire/Fighting",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 5
+  },
+  {
+    "id": 130,
+    "name": "Starly",
+    "type": "Normal/Flying",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 131,
+    "name": "Staravia",
+    "type": "Normal/Flying",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 132,
+    "name": "Staraptor",
+    "type": "Normal/Flying",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baia Morta",
+    "stage": 5
+  },
+  {
+    "id": 133,
+    "name": "Bidoof",
+    "type": "Normal",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Baia Morta / Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 134,
+    "name": "Bibarel",
+    "type": "Normal/Water",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Baia Morta / Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 135,
+    "name": "Shinx",
+    "type": "Electric",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 136,
+    "name": "Luxio",
+    "type": "Electric",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 137,
+    "name": "Luxray",
+    "type": "Electric",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baia Morta",
+    "stage": 5
+  },
+  {
+    "id": 138,
+    "name": "Combee",
+    "type": "Bug/Flying",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 139,
+    "name": "Vespiquen",
+    "type": "Bug/Flying",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 140,
+    "name": "Buizel",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 141,
+    "name": "Floatzel",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 142,
+    "name": "Shellos",
+    "type": "Water",
+    "rarity": "Comum",
+    "biomes": "Mar",
+    "region": "Baia Morta / Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 143,
+    "name": "Gastrodon",
+    "type": "Water/Ground",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Baia Morta / Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 144,
+    "name": "Hippopotas",
+    "type": "Ground",
+    "rarity": "Comum",
+    "biomes": "Deserto",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 145,
+    "name": "Hippowdon",
+    "type": "Ground",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 146,
+    "name": "Skorupi",
+    "type": "Bug/Poison",
+    "rarity": "Comum",
+    "biomes": "Cavernas",
+    "region": "Baia Morta / Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 147,
+    "name": "Drapion",
+    "type": "Poison/Dark",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Baia Morta / Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 148,
+    "name": "Croagunk",
+    "type": "Poison/Fighting",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 149,
+    "name": "Toxicroak",
+    "type": "Poison/Fighting",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 150,
+    "name": "Blitzle",
+    "type": "Electric",
+    "rarity": "Super Raro",
+    "biomes": "Pradaria",
+    "region": "Safari / Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 151,
+    "name": "Zebstrika",
+    "type": "Electric",
+    "rarity": "Super Raro",
+    "biomes": "Pradaria",
+    "region": "Safari / Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 152,
+    "name": "Roggenrola",
+    "type": "Rock",
+    "rarity": "Comum",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 153,
+    "name": "Boldore",
+    "type": "Rock",
+    "rarity": "Comum",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 154,
+    "name": "Gigalith",
+    "type": "Rock",
+    "rarity": "Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 155,
+    "name": "Woobat",
+    "type": "Psychic/Flying",
+    "rarity": "Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 156,
+    "name": "Swoobat",
+    "type": "Psychic/Flying",
+    "rarity": "Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 157,
+    "name": "Drilbur",
+    "type": "Ground",
+    "rarity": "Comum",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 158,
+    "name": "Excadrill",
+    "type": "Ground/Steel",
+    "rarity": "Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 159,
+    "name": "Timburr",
+    "type": "Fighting",
+    "rarity": "Comum",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 160,
+    "name": "Gurdurr",
+    "type": "Fighting",
+    "rarity": "Comum",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 161,
+    "name": "Conkeldurr",
+    "type": "Fighting",
+    "rarity": "Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 162,
+    "name": "Riolu",
+    "type": "Fighting",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 163,
+    "name": "Sigilyph",
+    "type": "Psychic/Flying",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Sem Fim",
+    "stage": 5
+  },
+  {
+    "id": 164,
+    "name": "Trubbish",
+    "type": "Poison",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 165,
+    "name": "Garbodor",
+    "type": "Poison",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 166,
+    "name": "Zorua",
+    "type": "Dark",
+    "rarity": "Ultra Raro",
+    "biomes": "Pradaria",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 167,
+    "name": "Tropius",
+    "type": "Grass/Flying",
+    "rarity": "Super Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde / Chifre de Ga'Al",
+    "stage": 5
+  },
+  {
+    "id": 168,
+    "name": "Joltik",
+    "type": "Bug/Electric",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 169,
+    "name": "Galvantula",
+    "type": "Bug/Electric",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 170,
+    "name": "Ferroseed",
+    "type": "Grass/Steel",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Sem Fim",
+    "stage": 1
+  },
+  {
+    "id": 171,
+    "name": "Ferrothorn",
+    "type": "Grass/Steel",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Sem Fim",
+    "stage": 3
+  },
+  {
+    "id": 172,
+    "name": "Druddigon",
+    "type": "Dragon",
+    "rarity": "Super Raro",
+    "biomes": "Montanhas",
+    "region": "Safari",
+    "stage": 5
+  },
+  {
+    "id": 173,
+    "name": "Pawniard",
+    "type": "Dark/Steel",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Sem Fim",
+    "stage": 1
+  },
+  {
+    "id": 174,
+    "name": "Bisharp",
+    "type": "Dark/Steel",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Sem Fim",
+    "stage": 3
+  },
+  {
+    "id": 175,
+    "name": "Larvesta",
+    "type": "Bug/Fire",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 176,
+    "name": "Volcarona",
+    "type": "Bug/Fire",
+    "rarity": "Ultra Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 177,
+    "name": "Litleo",
+    "type": "Fire/Normal",
+    "rarity": "Super Raro",
+    "biomes": "Pradaria",
+    "region": "Safari / Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 178,
+    "name": "Pyroar",
+    "type": "Fire/Normal",
+    "rarity": "Super Raro",
+    "biomes": "Pradaria",
+    "region": "Safari / Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 179,
+    "name": "Pangoro",
+    "type": "Fighting/Dark",
+    "rarity": "Ultra Raro",
+    "biomes": "Desconhecido",
+    "region": "Missão",
+    "stage": 3
+  },
+  {
+    "id": 180,
+    "name": "Chikorita",
+    "type": "Grass",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 181,
+    "name": "Bayleef",
+    "type": "Grass",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 182,
+    "name": "Meganium",
+    "type": "Grass",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baixo Deserto",
+    "stage": 5
+  },
+  {
+    "id": 183,
+    "name": "Jigglypuff",
+    "type": "Normal/Fairy",
+    "rarity": "Raro",
+    "biomes": "Em Cidades",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 184,
+    "name": "Wigglytuff",
+    "type": "Normal/Fairy",
+    "rarity": "Raro",
+    "biomes": "Em Cidades",
+    "region": "Campos Longos",
+    "stage": 5
+  },
+  {
+    "id": 185,
+    "name": "Drifloon",
+    "type": "Ghost/Flying",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 186,
+    "name": "Drifblim",
+    "type": "Ghost/Flying",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 187,
+    "name": "Mareep",
+    "type": "Electric",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 188,
+    "name": "Flaaffy",
+    "type": "Electric",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 189,
+    "name": "Ampharos",
+    "type": "Electric",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Terras Fluviais",
+    "stage": 5
+  },
+  {
+    "id": 190,
+    "name": "Slowpoke-Galar",
+    "type": "Psychic",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais / Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 191,
+    "name": "Slowbro-Galar",
+    "type": "Poison/Psychic",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 192,
+    "name": "Slowking-Galar",
+    "type": "Poison/Psychic",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 193,
+    "name": "Horsea",
+    "type": "Water",
+    "rarity": "Comum",
+    "biomes": "Mar",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 194,
+    "name": "Seadra",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 195,
+    "name": "Kingdra",
+    "type": "Water/Dragon",
+    "rarity": "Ultra Raro",
+    "biomes": "Mar",
+    "region": "Baia Morta",
+    "stage": 5
+  },
+  {
+    "id": 196,
+    "name": "Grimer-A",
+    "type": "Poison/Dark",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 197,
+    "name": "Muk-A",
+    "type": "Poison/Dark",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 198,
+    "name": "Murkrow",
+    "type": "Dark/Flying",
+    "rarity": "Ultra Raro",
+    "biomes": "Em Cidades",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 199,
+    "name": "Torkoal",
+    "type": "Fire",
+    "rarity": "Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 200,
+    "name": "Girafarig",
+    "type": "Normal/Psychic",
+    "rarity": "Super Raro",
+    "biomes": "Florestas",
+    "region": "Safari / Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 201,
+    "name": "Houndour",
+    "type": "Dark/Fire",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 202,
+    "name": "Houndoom",
+    "type": "Dark/Fire",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 203,
+    "name": "Phanpy",
+    "type": "Ground",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 204,
+    "name": "Donphan",
+    "type": "Ground",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 205,
+    "name": "Meditite",
+    "type": "Fighting/Psychic",
+    "rarity": "Raro",
+    "biomes": "Desconhecido",
+    "region": "Missão",
+    "stage": 1
+  },
+  {
+    "id": 206,
+    "name": "Medicham",
+    "type": "Fighting/Psychic",
+    "rarity": "Raro",
+    "biomes": "Desconhecido",
+    "region": "Missão",
+    "stage": 3
+  },
+  {
+    "id": 207,
+    "name": "Miltank",
+    "type": "Normal",
+    "rarity": "Super Raro",
+    "biomes": "Pradaria",
+    "region": "Safari / Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 208,
+    "name": "Cubchoo",
+    "type": "Ice",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 209,
+    "name": "Beartic",
+    "type": "Ice",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 210,
+    "name": "Phantump",
+    "type": "Ghost/Grass",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 211,
+    "name": "Trevenant",
+    "type": "Ghost/Grass",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 212,
+    "name": "Inkay",
+    "type": "Dark/Psychic",
+    "rarity": "Ultra Raro",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 213,
+    "name": "Malamar",
+    "type": "Dark/Psychic",
+    "rarity": "Ultra Raro",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 214,
+    "name": "G. Farfetch'd",
+    "type": "Fighting",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 215,
+    "name": "Sirfetch'd",
+    "type": "Fighting",
+    "rarity": "Ultra Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 216,
+    "name": "Noibat",
+    "type": "Flying/Dragon",
+    "rarity": "Comum",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 217,
+    "name": "Noivern",
+    "type": "Flying/Dragon",
+    "rarity": "Ultra Raro",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 218,
+    "name": "Mawile",
+    "type": "Steel/Fairy",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Terras Fluviais",
+    "stage": 5
+  },
+  {
+    "id": 219,
+    "name": "Sudowoodo",
+    "type": "Rock",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 220,
+    "name": "Swinub",
+    "type": "Ice/Ground",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 221,
+    "name": "Piloswine",
+    "type": "Ice/Ground",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 222,
+    "name": "Skiddo",
+    "type": "Grass",
+    "rarity": "Comum",
+    "biomes": "Fazendas",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 223,
+    "name": "Gogoat",
+    "type": "Grass",
+    "rarity": "Raro",
+    "biomes": "Fazendas",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 224,
+    "name": "Toxel",
+    "type": "Electric/Poison",
+    "rarity": "Raro",
+    "biomes": "Em Cidades",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 225,
+    "name": "Toxtricity",
+    "type": "Electric/Poison",
+    "rarity": "Raro",
+    "biomes": "Em Cidades",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 226,
+    "name": "Remoraid",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 227,
+    "name": "Octillery",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 228,
+    "name": "Pikipek",
+    "type": "Normal/Flying",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al / Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 229,
+    "name": "Trumbeak",
+    "type": "Normal/Flying",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al / Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 230,
+    "name": "Toucannon",
+    "type": "Normal/Flying",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al / Campos Longos",
+    "stage": 5
+  },
+  {
+    "id": 231,
+    "name": "Mantyke",
+    "type": "Water/Flying",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 232,
+    "name": "Mantine",
+    "type": "Water/Flying",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 233,
+    "name": "Fletchling",
+    "type": "Normal/Flying",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 1
+  },
+  {
+    "id": 234,
+    "name": "Fletchinder",
+    "type": "Fire/Flying",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 3
+  },
+  {
+    "id": 235,
+    "name": "Yungoos",
+    "type": "Normal",
+    "rarity": "Comum",
+    "biomes": "Em Cidades",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 236,
+    "name": "Gumshoos",
+    "type": "Normal",
+    "rarity": "Raro",
+    "biomes": "Em Cidades",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 237,
+    "name": "Heracross",
+    "type": "Bug/Fighting",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde / Chifre de Ga'Al",
+    "stage": 5
+  },
+  {
+    "id": 238,
+    "name": "Crabrawler",
+    "type": "Fighting",
+    "rarity": "Comum",
+    "biomes": "Mar",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 239,
+    "name": "Crabominable",
+    "type": "Fighting/Ice",
+    "rarity": "Ultra Raro",
+    "biomes": "Mar",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 240,
+    "name": "Scatterbug",
+    "type": "Bug",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 1
+  },
+  {
+    "id": 241,
+    "name": "Spewpa",
+    "type": "Bug",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 3
+  },
+  {
+    "id": 242,
+    "name": "Vivillon",
+    "type": "Bug/Flying",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 5
+  },
+  {
+    "id": 243,
+    "name": "Yanma",
+    "type": "Bug/Flying",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 1
+  },
+  {
+    "id": 244,
+    "name": "Dwebble",
+    "type": "Bug/Rock",
+    "rarity": "Comum",
+    "biomes": "Cavernas",
+    "region": "Jardins Reais",
+    "stage": 1
+  },
+  {
+    "id": 245,
+    "name": "Crustle",
+    "type": "Bug/Rock",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Jardins Reais",
+    "stage": 3
+  },
+  {
+    "id": 246,
+    "name": "Wimpod",
+    "type": "Bug/Water",
+    "rarity": "Comum",
+    "biomes": "Cavernas",
+    "region": "Jardins Reais",
+    "stage": 1
+  },
+  {
+    "id": 247,
+    "name": "Golisopod",
+    "type": "Bug/Water",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Jardins Reais",
+    "stage": 3
+  },
+  {
+    "id": 248,
+    "name": "Cutiefly",
+    "type": "Bug/Fairy",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 249,
+    "name": "Ribombee",
+    "type": "Bug/Fairy",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 250,
+    "name": "Morelull",
+    "type": "Grass/Fairy",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 251,
+    "name": "Shiinotic",
+    "type": "Grass/Fairy",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 252,
+    "name": "Bounsweet",
+    "type": "Grass",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 1
+  },
+  {
+    "id": 253,
+    "name": "Steenee",
+    "type": "Grass",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 3
+  },
+  {
+    "id": 254,
+    "name": "Tsareena",
+    "type": "Grass",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 5
+  },
+  {
+    "id": 255,
+    "name": "Sandygast",
+    "type": "Ghost/Ground",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 256,
+    "name": "Palossand",
+    "type": "Ghost/Ground",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 257,
+    "name": "Drampa",
+    "type": "Normal/Dragon",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 258,
+    "name": "Corphish",
+    "type": "Water",
+    "rarity": "Comum",
+    "biomes": "Mar",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 259,
+    "name": "Crawdaunt",
+    "type": "Water/Dark",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 260,
+    "name": "Dewpider",
+    "type": "Water/Bug",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 261,
+    "name": "Araquanid",
+    "type": "Water/Bug",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 262,
+    "name": "Skwovet",
+    "type": "Normal",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al / Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 263,
+    "name": "Greedent",
+    "type": "Normal",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al / Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 264,
+    "name": "Rookidee",
+    "type": "Flying",
+    "rarity": "Comum",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 265,
+    "name": "Corvisquire",
+    "type": "Flying",
+    "rarity": "Comum",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 266,
+    "name": "Corviknight",
+    "type": "Flying/Steel",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 5
+  },
+  {
+    "id": 267,
+    "name": "Blipbug",
+    "type": "Bug",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 268,
+    "name": "Dottler",
+    "type": "Bug/Psychic",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 269,
+    "name": "Orbeetle",
+    "type": "Bug/Psychic",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Terras Fluviais",
+    "stage": 5
+  },
+  {
+    "id": 270,
+    "name": "Koffing",
+    "type": "Poison",
+    "rarity": "Comum",
+    "biomes": "Em Cidades",
+    "region": "Baia Morta / Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 271,
+    "name": "G-Weezing",
+    "type": "Poison/Fairy",
+    "rarity": "Raro",
+    "biomes": "Em Cidades",
+    "region": "Baia Morta / Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 272,
+    "name": "Bergmite",
+    "type": "Ice",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 273,
+    "name": "Hisuian Avalugg",
+    "type": "Ice/Rock",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 274,
+    "name": "Wooloo",
+    "type": "Normal",
+    "rarity": "Comum",
+    "biomes": "Fazendas",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 275,
+    "name": "Dubwool",
+    "type": "Normal",
+    "rarity": "Raro",
+    "biomes": "Fazendas",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 276,
+    "name": "Chewtle",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 277,
+    "name": "Drednaw",
+    "type": "Water/Rock",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 278,
+    "name": "Rolycoly",
+    "type": "Rock",
+    "rarity": "Comum",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 279,
+    "name": "Carkol",
+    "type": "Rock/Fire",
+    "rarity": "Comum",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 280,
+    "name": "Coalossal",
+    "type": "Rock/Fire",
+    "rarity": "Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 281,
+    "name": "Deino",
+    "type": "Dark/Dragon",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Deserto Sem Fim",
+    "stage": 1
+  },
+  {
+    "id": 282,
+    "name": "Zweilous",
+    "type": "Dark/Dragon",
+    "rarity": "Ultra Raro",
+    "biomes": "Cavernas",
+    "region": "Deserto Sem Fim",
+    "stage": 3
+  },
+  {
+    "id": 283,
+    "name": "Hydreigon",
+    "type": "Dark/Dragon",
+    "rarity": "Ultra Raro",
+    "biomes": "Cavernas",
+    "region": "Deserto Sem Fim",
+    "stage": 5
+  },
+  {
+    "id": 284,
+    "name": "Eiscue",
+    "type": "Ice",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Campos Longos",
+    "stage": 5
+  },
+  {
+    "id": 285,
+    "name": "Cufant",
+    "type": "Steel",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 286,
+    "name": "Copperajah",
+    "type": "Steel",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 287,
+    "name": "Vulpix-Alola",
+    "type": "Ice",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 288,
+    "name": "Ninetales-Alola",
+    "type": "Ice/Fairy",
+    "rarity": "Ultra Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 289,
+    "name": "Spheal",
+    "type": "Ice/Water",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 290,
+    "name": "Sealeo",
+    "type": "Ice/Water",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 291,
+    "name": "Walrein",
+    "type": "Ice/Water",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais",
+    "stage": 5
+  },
+  {
+    "id": 292,
+    "name": "Numel",
+    "type": "Fire/Ground",
+    "rarity": "Comum",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 293,
+    "name": "Camerupt",
+    "type": "Fire/Ground",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 294,
+    "name": "Rockruff",
+    "type": "Rock",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 295,
+    "name": "Lycanroc",
+    "type": "Rock",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 296,
+    "name": "Indeedee",
+    "type": "Psychic/Normal",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 297,
+    "name": "Grookey",
+    "type": "Grass",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 298,
+    "name": "Thwackey",
+    "type": "Grass",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 299,
+    "name": "Rillaboom",
+    "type": "Grass",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 300,
+    "name": "Salandit",
+    "type": "Poison/Fire",
+    "rarity": "Comum",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 301,
+    "name": "Salazzle",
+    "type": "Poison/Fire",
+    "rarity": "Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 302,
+    "name": "Carbink",
+    "type": "Rock/Fairy",
+    "rarity": "Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 303,
+    "name": "Turtonator",
+    "type": "Fire/Dragon",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 5
+  },
+  {
+    "id": 304,
+    "name": "Helioptile",
+    "type": "Electric/Normal",
+    "rarity": "Comum",
+    "biomes": "Deserto",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 305,
+    "name": "Heliolisk",
+    "type": "Electric/Normal",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 306,
+    "name": "Purrloin",
+    "type": "Dark",
+    "rarity": "Comum",
+    "biomes": "Em Cidades",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 307,
+    "name": "Liepard",
+    "type": "Dark",
+    "rarity": "Raro",
+    "biomes": "Em Cidades",
+    "region": "Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 308,
+    "name": "Minccino",
+    "type": "Normal",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 309,
+    "name": "Cinccino",
+    "type": "Normal",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 310,
+    "name": "Ralts",
+    "type": "Psychic/Fairy",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 311,
+    "name": "Kirlia",
+    "type": "Psychic/Fairy",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 312,
+    "name": "Gardevoir",
+    "type": "Psychic/Fairy",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 313,
+    "name": "Gallade",
+    "type": "Psychic/Fighting",
+    "rarity": "Ultra Raro",
+    "biomes": "Cavernas",
+    "region": "Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 314,
+    "name": "Snover",
+    "type": "Grass/Ice",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 315,
+    "name": "Abomasnow",
+    "type": "Grass/Ice",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 316,
+    "name": "Pincurchin",
+    "type": "Electric",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Campos Longos",
+    "stage": 5
+  },
+  {
+    "id": 317,
+    "name": "Mudbray",
+    "type": "Ground",
+    "rarity": "Comum",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 318,
+    "name": "Mudsdale",
+    "type": "Ground",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 319,
+    "name": "Emolga",
+    "type": "Electric/Flying",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al",
+    "stage": 5
+  },
+  {
+    "id": 320,
+    "name": "Zangoose",
+    "type": "Normal",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Campos Longos",
+    "stage": 5
+  },
+  {
+    "id": 321,
+    "name": "Seviper",
+    "type": "Poison",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Campos Longos",
+    "stage": 5
+  },
+  {
+    "id": 322,
+    "name": "Hawlucha",
+    "type": "Fighting/Flying",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 5
+  },
+  {
+    "id": 323,
+    "name": "Vullaby",
+    "type": "Dark/Flying",
+    "rarity": "Comum",
+    "biomes": "Montanhas",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 324,
+    "name": "Mandibuzz",
+    "type": "Dark/Flying",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 325,
+    "name": "Gligar",
+    "type": "Ground/Flying",
+    "rarity": "Comum",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 326,
+    "name": "Gliscor",
+    "type": "Ground/Flying",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 327,
+    "name": "Solrock",
+    "type": "Rock/Psychic",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Baia Morta",
+    "stage": 5
+  },
+  {
+    "id": 328,
+    "name": "Lunatone",
+    "type": "Rock/Psychic",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Baia Morta",
+    "stage": 5
+  },
+  {
+    "id": 329,
+    "name": "Durant",
+    "type": "Bug/Steel",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Terras Fluviais",
+    "stage": 5
+  },
+  {
+    "id": 330,
+    "name": "Heatmor",
+    "type": "Fire/Steel",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Terras Fluviais",
+    "stage": 5
+  },
+  {
+    "id": 331,
+    "name": "Mimikyu",
+    "type": "Ghost/Fairy",
+    "rarity": "Ultra Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 332,
+    "name": "Feebas",
+    "type": "Water",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 333,
+    "name": "Milotic",
+    "type": "Water",
+    "rarity": "Ultra Raro",
+    "biomes": "Água Doce",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 334,
+    "name": "Cottonee",
+    "type": "Grass/Fairy",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 335,
+    "name": "Whimsicott",
+    "type": "Grass/Fairy",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 336,
+    "name": "Swablu",
+    "type": "Normal/Flying",
+    "rarity": "Comum",
+    "biomes": "Em Cidades",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 337,
+    "name": "Altaria",
+    "type": "Dragon/Flying",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 338,
+    "name": "Snom",
+    "type": "Ice/Bug",
+    "rarity": "Comum",
+    "biomes": "Caverna de Gelo",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 339,
+    "name": "Frosmoth",
+    "type": "Ice/Bug",
+    "rarity": "Ultra Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 340,
+    "name": "Cubone",
+    "type": "Ground",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 341,
+    "name": "Marowak-A",
+    "type": "Fire/Ghost",
+    "rarity": "Raro",
+    "biomes": "Cavernas",
+    "region": "Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 342,
+    "name": "Larvitar",
+    "type": "Rock/Ground",
+    "rarity": "Ultra Raro",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 343,
+    "name": "Pupitar",
+    "type": "Rock/Ground",
+    "rarity": "Ultra Raro",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 344,
+    "name": "Tyranitar",
+    "type": "Rock/Dark",
+    "rarity": "Ultra Raro",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 345,
+    "name": "Cranidos",
+    "type": "Rock",
+    "rarity": "Fóssil",
+    "biomes": "Florestas",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 346,
+    "name": "Rampardos",
+    "type": "Rock",
+    "rarity": "Fóssil",
+    "biomes": "Florestas",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 347,
+    "name": "Amaura",
+    "type": "Rock/Ice",
+    "rarity": "Fóssil",
+    "biomes": "Caverna de Gelo",
+    "region": "Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 348,
+    "name": "Aurorus",
+    "type": "Rock/Ice",
+    "rarity": "Fóssil",
+    "biomes": "Caverna de Gelo",
+    "region": "Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 349,
+    "name": "Tyrunt",
+    "type": "Rock/Dragon",
+    "rarity": "Fóssil",
+    "biomes": "Montanhas",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 350,
+    "name": "Tyrantrum",
+    "type": "Rock/Dragon",
+    "rarity": "Fóssil",
+    "biomes": "Montanhas",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 351,
+    "name": "Abra",
+    "type": "Psychic",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 352,
+    "name": "Kadabra",
+    "type": "Psychic",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 353,
+    "name": "Alakazam",
+    "type": "Psychic",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Baixo Deserto",
+    "stage": 5
+  },
+  {
+    "id": 354,
+    "name": "Gible",
+    "type": "Dragon/Ground",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Sem Fim",
+    "stage": 1
+  },
+  {
+    "id": 355,
+    "name": "Gabite",
+    "type": "Dragon/Ground",
+    "rarity": "Ultra Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Sem Fim",
+    "stage": 3
+  },
+  {
+    "id": 356,
+    "name": "Garchomp",
+    "type": "Dragon/Ground",
+    "rarity": "Ultra Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Sem Fim",
+    "stage": 5
+  },
+  {
+    "id": 357,
+    "name": "Hatenna",
+    "type": "Psychic",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 358,
+    "name": "Hattrem",
+    "type": "Psychic",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 359,
+    "name": "Hatterene",
+    "type": "Psychic/Fairy",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 360,
+    "name": "Tinkatink",
+    "type": "Fairy/Steel",
+    "rarity": "Comum",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 361,
+    "name": "Tinkatuff",
+    "type": "Fairy/Steel",
+    "rarity": "Comum",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 362,
+    "name": "Tinkaton",
+    "type": "Fairy/Steel",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Baixo Deserto",
+    "stage": 5
+  },
+  {
+    "id": 363,
+    "name": "Nincada",
+    "type": "Bug/Ground",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 364,
+    "name": "Ninjask",
+    "type": "Bug/Flying",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Campos Longos",
+    "stage": 5
+  },
+  {
+    "id": 365,
+    "name": "Shedinja",
+    "type": "Bug/Ghost",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Campos Longos",
+    "stage": 5
+  },
+  {
+    "id": 366,
+    "name": "Charcadet",
+    "type": "Fire",
+    "rarity": "Comum",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 367,
+    "name": "Armarouge",
+    "type": "Fire/Psychic",
+    "rarity": "Ultra Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 368,
+    "name": "Ceruledge",
+    "type": "Fire/Ghost",
+    "rarity": "Ultra Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 369,
+    "name": "Nymble",
+    "type": "Bug/Dark",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 370,
+    "name": "Lokix",
+    "type": "Bug/Dark",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 371,
+    "name": "Munna",
+    "type": "Psychic",
+    "rarity": "Comum",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 372,
+    "name": "Musharna",
+    "type": "Psychic",
+    "rarity": "Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 373,
+    "name": "Yamask-galar",
+    "type": "Ground/Ghost",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 374,
+    "name": "Runerigus",
+    "type": "Ground/Ghost",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 375,
+    "name": "Elgyem",
+    "type": "Psychic",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 376,
+    "name": "Beheeyem",
+    "type": "Psychic",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Chifre de Ga'Al",
+    "stage": 5
+  },
+  {
+    "id": 377,
+    "name": "Tadbulb",
+    "type": "Electric",
+    "rarity": "Comum",
+    "biomes": "Mar",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 378,
+    "name": "Bellibolt",
+    "type": "Electric",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Campos Longos",
+    "stage": 5
+  },
+  {
+    "id": 379,
+    "name": "Stunky",
+    "type": "Poison/Dark",
+    "rarity": "Comum",
+    "biomes": "Montanhas",
+    "region": "Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 380,
+    "name": "Skuntank",
+    "type": "Poison/Dark",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 381,
+    "name": "Mienfoo",
+    "type": "Fighting",
+    "rarity": "Comum",
+    "biomes": "Locais Abandonados",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 382,
+    "name": "Mienshao",
+    "type": "Fighting",
+    "rarity": "Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Campos Longos",
+    "stage": 5
+  },
+  {
+    "id": 383,
+    "name": "Cetoddle",
+    "type": "Ice",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 384,
+    "name": "Cetitan",
+    "type": "Ice",
+    "rarity": "Raro",
+    "biomes": "Caverna de Gelo",
+    "region": "Campos Longos",
+    "stage": 5
+  },
+  {
+    "id": 385,
+    "name": "Onix",
+    "type": "Rock/Ground",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Chifre de Ga’Al",
+    "stage": 1
+  },
+  {
+    "id": 386,
+    "name": "Steelix",
+    "type": "Steel/Ground",
+    "rarity": "Ultra Raro",
+    "biomes": "Montanhas",
+    "region": "Chifre de Ga’Al",
+    "stage": 5
+  },
+  {
+    "id": 387,
+    "name": "Comfey",
+    "type": "Fairy",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 5
+  },
+  {
+    "id": 388,
+    "name": "Spiritomb",
+    "type": "Ghost/Dark",
+    "rarity": "Ultra Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 389,
+    "name": "Corsola-Galar",
+    "type": "Ghost",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 390,
+    "name": "Wooper",
+    "type": "Water/Ground",
+    "rarity": "Comum",
+    "biomes": "Água Doce",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 391,
+    "name": "Quagsire",
+    "type": "Water/Ground",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 392,
+    "name": "Meowth-Galar",
+    "type": "Steel",
+    "rarity": "Comum",
+    "biomes": "Em Cidades",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 393,
+    "name": "Perrserker",
+    "type": "Steel",
+    "rarity": "Raro",
+    "biomes": "Em Cidades",
+    "region": "Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 394,
+    "name": "Tauros-Paldea",
+    "type": "Fighting",
+    "rarity": "Super Raro",
+    "biomes": "Pradaria",
+    "region": "Safari",
+    "stage": 5
+  },
+  {
+    "id": 395,
+    "name": "Lapras",
+    "type": "Water/Ice",
+    "rarity": "Super Raro",
+    "biomes": "Água Doce",
+    "region": "Safari",
+    "stage": 5
+  },
+  {
+    "id": 396,
+    "name": "Togepi",
+    "type": "Fairy",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 1
+  },
+  {
+    "id": 397,
+    "name": "Togetic",
+    "type": "Fairy/Flying",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 3
+  },
+  {
+    "id": 398,
+    "name": "Togekiss",
+    "type": "Fairy/Flying",
+    "rarity": "Ultra Raro",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 5
+  },
+  {
+    "id": 399,
+    "name": "Pineco",
+    "type": "Bug",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Campos Longos/Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 400,
+    "name": "Forretress",
+    "type": "Bug/Steel",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Campos Longos/Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 401,
+    "name": "Teddiursa",
+    "type": "Normal",
+    "rarity": "Comum",
+    "biomes": "Montanhas",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 402,
+    "name": "Ursaring",
+    "type": "Normal",
+    "rarity": "Raro",
+    "biomes": "Montanhas",
+    "region": "Chifre de Ga'Al",
+    "stage": 3
+  },
+  {
+    "id": 403,
+    "name": "Ursaluna",
+    "type": "Ground/Normal",
+    "rarity": "Ultra Raro",
+    "biomes": "Montanhas",
+    "region": "Chifre de Ga'Al",
+    "stage": 5
+  },
+  {
+    "id": 404,
+    "name": "Skarmory",
+    "type": "Steel/Flying",
+    "rarity": "Super Raro",
+    "biomes": "Montanhas",
+    "region": "Safari",
+    "stage": 5
+  },
+  {
+    "id": 405,
+    "name": "Petilil",
+    "type": "Grass",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 406,
+    "name": "Lilligant-Hisui",
+    "type": "Grass/Fighting",
+    "rarity": "Ultra Raro",
+    "biomes": "Montanhas",
+    "region": "Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 407,
+    "name": "Darumaka",
+    "type": "Fire",
+    "rarity": "Comum",
+    "biomes": "Deserto",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 408,
+    "name": "Darmanitan",
+    "type": "Fire",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 409,
+    "name": "Deerling",
+    "type": "Normal/Grass",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 410,
+    "name": "Sawsbuck",
+    "type": "Normal/Grass",
+    "rarity": "Raro",
+    "biomes": "Pradaria",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 411,
+    "name": "Stunfisk",
+    "type": "Ground/Electric",
+    "rarity": "Raro",
+    "biomes": "Água Doce",
+    "region": "Terras Fluviais / Coração Verde",
+    "stage": 5
+  },
+  {
+    "id": 412,
+    "name": "Kingambit",
+    "type": "Dark/Steel",
+    "rarity": "Ultra Raro",
+    "biomes": "Deserto",
+    "region": "Deserto Sem Fim",
+    "stage": 5
+  },
+  {
+    "id": 413,
+    "name": "Rufflet",
+    "type": "Normal/Flying",
+    "rarity": "Comum",
+    "biomes": "Pradaria",
+    "region": "Chifre de Ga'Al",
+    "stage": 1
+  },
+  {
+    "id": 414,
+    "name": "Braviary-Hisui",
+    "type": "Psychic/Flying",
+    "rarity": "Super Raro",
+    "biomes": "Montanhas",
+    "region": "Safari",
+    "stage": 3
+  },
+  {
+    "id": 415,
+    "name": "Skrelp",
+    "type": "Poison/Water",
+    "rarity": "Comum",
+    "biomes": "Mar",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 416,
+    "name": "Dragalge",
+    "type": "Poison/Dragon",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 417,
+    "name": "Clauncher",
+    "type": "Water",
+    "rarity": "Comum",
+    "biomes": "Mar",
+    "region": "Baia Morta / Terras Fluviais",
+    "stage": 1
+  },
+  {
+    "id": 418,
+    "name": "Clawitzer",
+    "type": "Water",
+    "rarity": "Raro",
+    "biomes": "Mar",
+    "region": "Baia Morta / Terras Fluviais",
+    "stage": 3
+  },
+  {
+    "id": 419,
+    "name": "Dedenne",
+    "type": "Electric/Fairy",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 5
+  },
+  {
+    "id": 420,
+    "name": "Minior",
+    "type": "Rock/Flying",
+    "rarity": "Raro",
+    "biomes": "Topo de Montanhas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 421,
+    "name": "Nickit",
+    "type": "Dark",
+    "rarity": "Comum",
+    "biomes": "Em Cidades",
+    "region": "Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 422,
+    "name": "Thievul",
+    "type": "Dark",
+    "rarity": "Comum",
+    "biomes": "Em Cidades",
+    "region": "Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 423,
+    "name": "Sizzlipede",
+    "type": "Fire/Bug",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 1
+  },
+  {
+    "id": 424,
+    "name": "Centiskorch",
+    "type": "Fire/Bug",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Coração Verde",
+    "stage": 3
+  },
+  {
+    "id": 425,
+    "name": "Nacli",
+    "type": "Rock",
+    "rarity": "Comum",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 1
+  },
+  {
+    "id": 426,
+    "name": "Naclstack",
+    "type": "Rock",
+    "rarity": "Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 3
+  },
+  {
+    "id": 427,
+    "name": "Garganacl",
+    "type": "Rock",
+    "rarity": "Raro",
+    "biomes": "Minas",
+    "region": "Deserto Irrigado",
+    "stage": 5
+  },
+  {
+    "id": 428,
+    "name": "Shroodle",
+    "type": "Poison/Normal",
+    "rarity": "Comum",
+    "biomes": "Em Cidades",
+    "region": "Coração Verde / Baia Morta",
+    "stage": 1
+  },
+  {
+    "id": 429,
+    "name": "Grafaiai",
+    "type": "Poison/Normal",
+    "rarity": "Raro",
+    "biomes": "Em Cidades",
+    "region": "Coração Verde / Baia Morta",
+    "stage": 3
+  },
+  {
+    "id": 430,
+    "name": "Capsakid",
+    "type": "Grass",
+    "rarity": "Comum",
+    "biomes": "Fazendas",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 431,
+    "name": "Scovillain",
+    "type": "Grass/Fire",
+    "rarity": "Ultra Raro",
+    "biomes": "Fazendas",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 432,
+    "name": "Gimmighoul",
+    "type": "Ghost",
+    "rarity": "Comum",
+    "biomes": "Locais Abandonados",
+    "region": "Campos Longos",
+    "stage": 1
+  },
+  {
+    "id": 433,
+    "name": "Gholdengo",
+    "type": "Steel/Ghost",
+    "rarity": "Ultra Raro",
+    "biomes": "Locais Abandonados",
+    "region": "Campos Longos",
+    "stage": 3
+  },
+  {
+    "id": 434,
+    "name": "Sandile",
+    "type": "Ground/Dark",
+    "rarity": "Comum",
+    "biomes": "Deserto",
+    "region": "Baixo Deserto",
+    "stage": 1
+  },
+  {
+    "id": 435,
+    "name": "Krokorok",
+    "type": "Ground/Dark",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Baixo Deserto",
+    "stage": 3
+  },
+  {
+    "id": 436,
+    "name": "Krookodile",
+    "type": "Ground/Dark",
+    "rarity": "Raro",
+    "biomes": "Deserto",
+    "region": "Baixo Deserto",
+    "stage": 5
+  },
+  {
+    "id": 437,
+    "name": "Flabébé",
+    "type": "Fairy",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 1
+  },
+  {
+    "id": 438,
+    "name": "Floette",
+    "type": "Fairy",
+    "rarity": "Comum",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 3
+  },
+  {
+    "id": 439,
+    "name": "Florges",
+    "type": "Fairy",
+    "rarity": "Raro",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 5
+  },
+  {
+    "id": 440,
+    "name": "Eternal Floette",
+    "type": "Fairy",
+    "rarity": "Super Raro",
+    "biomes": "Florestas",
+    "region": "Jardins Reais",
+    "stage": 5
+  },
+  {
+    "id": 441,
+    "name": "Bloodmoon Ursaluna",
+    "type": "Ground/Normal",
+    "rarity": "Super Raro",
+    "biomes": "Montanhas",
+    "region": "Safari",
+    "stage": 5
+  },
+  {
+    "id": 442,
+    "name": "Walking Wake",
+    "type": "Water/Dragon",
+    "rarity": "Super Raro",
+    "biomes": "Água Doce",
+    "region": "Safari",
+    "stage": 5
+  },
+  {
+    "id": 443,
+    "name": "Gouging Fire",
+    "type": "Fire/Dragon",
+    "rarity": "Super Raro",
+    "biomes": "Montanhas",
+    "region": "Safari",
+    "stage": 5
+  },
+  {
+    "id": 444,
+    "name": "Raging Bolt",
+    "type": "Electric/Dragon",
+    "rarity": "Super Raro",
+    "biomes": "Pradaria",
+    "region": "Safari",
+    "stage": 5
+  },
+  {
+    "id": 445,
+    "name": "Diancie",
+    "type": "Rock/Fairy",
+    "rarity": "Lendario",
+    "biomes": "Cavernas",
+    "region": "Desconhecida",
+    "stage": 5
+  },
+  {
+    "id": 446,
+    "name": "Shaymin",
+    "type": "Grass",
+    "rarity": "Lendario",
+    "biomes": "Florestas",
+    "region": "Desconhecida",
+    "stage": 5
+  }
+]
