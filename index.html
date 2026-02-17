@@ -54,7 +54,33 @@
     <input id="by" placeholder="ex.: Logan" />
     
     <div style="height:10px"></div>
-    <button id="btn_add_log">Enviar log teste</button>
+	    <label>Texto do log (ADD_LOG)</label>
+	    <input id="log_text" placeholder="ex.: Kasper entrou na sala" />
+	    <div style="height:10px"></div>
+	    <button id="btn_add_log">Enviar ADD_LOG</button>
+
+	    <div style="height:16px"></div>
+	    <div style="padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:12px;">
+	      <div style="font-weight:800;margin-bottom:8px;">Mover peça (MOVE_PIECE)</div>
+	      <label>pieceId (o id interno da peça, ex.: "3db901a3")</label>
+	      <input id="pieceId" placeholder='ex.: 3db901a3' />
+	      <div style="height:10px"></div>
+	      <div style="display:flex; gap:10px;">
+	        <div style="flex:1;">
+	          <label>row</label>
+	          <input id="row" type="number" placeholder="ex.: 5" />
+	        </div>
+	        <div style="flex:1;">
+	          <label>col</label>
+	          <input id="col" type="number" placeholder="ex.: 7" />
+	        </div>
+	      </div>
+	      <div style="height:10px"></div>
+	      <button id="btn_move_piece">Enviar MOVE_PIECE</button>
+	      <div style="opacity:.7;font-size:12px;margin-top:8px;">
+	        Dica: o <b>pieceId</b> vem de <code>public_state/state.pieces[].id</code> (não é o pid do Pokémon).
+	      </div>
+	    </div>
 
 
     <div style="height:10px"></div>
