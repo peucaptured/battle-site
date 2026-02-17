@@ -166,6 +166,28 @@
     .arena-head .left .meta{font-size:12px;color:var(--muted)}
     .arena-wrap{position:relative;flex:1;min-height: 420px;background:rgba(0,0,0,.18)}
     canvas#arena{position:absolute;inset:0;width:100%;height:100%;display:block}
+
+    /* DOM fallback (se Canvas falhar por qualquer motivo) */
+    .arena-dom{position:absolute;inset:0;display:grid;gap:0}
+    .arena-dom .cell{
+      border:1px solid rgba(148,163,184,0.20);
+      background:rgba(255,255,255,0.02);
+      position:relative;
+    }
+    .arena-dom .cell.alt{background:rgba(0,0,0,0.05)}
+    .arena-dom .cell.hover{outline:2px solid rgba(56,189,248,0.55);z-index:2}
+    .arena-dom .cell.sel{outline:3px solid rgba(56,189,248,0.85);z-index:3}
+    .arena-dom .token{
+      position:absolute;inset:6px;
+      border-radius:14px;
+      border:1px solid rgba(226,232,240,0.20);
+      background:rgba(2,6,23,0.25);
+      display:flex;align-items:center;justify-content:center;
+      font-weight:950;
+      color:rgba(226,232,240,0.90);
+      user-select:none;
+      pointer-events:none;
+    }
     .arena-hint{
       position:absolute;left:10px;bottom:10px;
       display:flex;flex-direction:column;gap:6px;
@@ -333,6 +355,8 @@
 
         <div class="arena-wrap" id="arena_wrap">
           <canvas id="arena" width="1200" height="800"></canvas>
+          <div id="arena_dom" class="arena-dom" style="display:none"></div>
+          <div id="arena_dom" class="arena-dom" style="display:none"></div>
 
           <div class="floating-status">
             <div class="pill mono" id="sel_badge">seleção: —</div>

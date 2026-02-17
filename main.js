@@ -61,10 +61,21 @@ const pieceIdInput = $("pieceId");
 const rowInput = $("row");
 const colInput = $("col");
 
-// canvas
+// arena render target
 const canvas = $("arena");
 const canvasWrap = $("arena_wrap");
-const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+const arenaDom = $("arena_dom");
+
+// Canvas pode falhar por CSP, webview, permissões, etc.
+let ctx = null;
+let useCanvas = false;
+try {
+  ctx = canvas?.getContext?.("2d", { alpha: false, desynchronized: true }) || null;
+  useCanvas = !!ctx;
+} catch {
+  ctx = null;
+  useCanvas = false;
+}
 
 // -------------------------
 // Firebase config (fixo)
@@ -293,33 +304,82 @@ connectBtn?.addEventListener("click", () => {
   setStatus("ok", "conectado");
   updateTopBadges();
 
-  // players (subcoleção rooms/{rid}/players)
-  const playersCol = collection(db, "rooms", rid, "players");
+  // players (suporta 2 formatos: subcoleção rooms/{rid}/players e/ou campos no doc rooms/{rid})
+  let playersFromCol = [];
+  let playersFromRoom = [];
+  const commitPlayers = () => {
+    // merge por (role+trainer_name)
+    const seen = new Set();
+    const merged = [];
+    for (const arr of [playersFromRoom, playersFromCol]) {
+      for (const p of arr) {
+        const key = `${safeStr(p.role)}::${safeStr(p.trainer_name)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(p);
+      }
+    }
+    merged.sort(
+      (a, b) => (a.role || "").localeCompare(b.role || "") || (a.trainer_name || "").localeCompare(b.trainer_name || "")
+    );
+    appState.players = merged;
+    appState.role = inferRoleFromPlayers(merged, appState.by);
+    if (playersPre) playersPre.textContent = pretty(merged);
+    if (playersCount) playersCount.textContent = String(merged.length);
+    updateTopBadges();
+    updateSidePanels();
+  };
+
+  // A) subcoleção rooms/{rid}/players
+  try {
+    const playersCol = collection(db, "rooms", rid, "players");
+    unsub.push(
+      onSnapshot(
+        playersCol,
+        (qs) => {
+          const out = [];
+          qs.forEach((d) => {
+            const p = d.data() || {};
+            const role = safeStr(p.role) || "player";
+            const trainer_name = safeStr(p.trainer_name || p.name || p.by || d.id);
+            out.push({ role, trainer_name, id: d.id });
+          });
+          playersFromCol = out;
+          commitPlayers();
+        },
+        (err) => {
+          // não falha o app; só loga no devtools
+          if (playersPre) playersPre.textContent = "Erro (players col): " + err.message;
+        }
+      )
+    );
+  } catch {}
+
+  // B) doc rooms/{rid} (formato do debug antigo: owner/challengers/spectators)
+  const roomDoc = doc(db, "rooms", rid);
   unsub.push(
     onSnapshot(
-      playersCol,
-      (qs) => {
+      roomDoc,
+      (snap) => {
+        const data = snap.exists() ? snap.data() : null;
         const out = [];
-        qs.forEach((d) => {
-          const p = d.data() || {};
-          const role = safeStr(p.role) || "player";
-          const trainer_name = safeStr(p.trainer_name || p.name || p.by || d.id);
-          out.push({ role, trainer_name, id: d.id });
-        });
-        out.sort(
-          (a, b) =>
-            (a.role || "").localeCompare(b.role || "") || (a.trainer_name || "").localeCompare(b.trainer_name || "")
-        );
-        appState.players = out;
-        appState.role = inferRoleFromPlayers(out, appState.by);
-        if (playersPre) playersPre.textContent = pretty(out);
-        if (playersCount) playersCount.textContent = String(out.length);
-        updateTopBadges();
-        updateSidePanels();
+        if (data?.owner?.name) out.push({ role: "owner", trainer_name: safeStr(data.owner.name) });
+        if (Array.isArray(data?.challengers)) {
+          for (const ch of data.challengers) {
+            const nm = ch && (ch.name ?? ch.trainer_name);
+            if (nm) out.push({ role: "challenger", trainer_name: safeStr(nm) });
+          }
+        }
+        if (Array.isArray(data?.spectators)) {
+          for (const sp of data.spectators) {
+            const nm = typeof sp === "string" ? sp : sp && (sp.name ?? sp.trainer_name);
+            if (nm) out.push({ role: "spectator", trainer_name: safeStr(nm) });
+          }
+        }
+        playersFromRoom = out;
+        commitPlayers();
       },
-      (err) => {
-        if (playersPre) playersPre.textContent = "Erro: " + err.message;
-      }
+      () => {}
     )
   );
 
@@ -337,6 +397,8 @@ connectBtn?.addEventListener("click", () => {
         if (statePre) statePre.textContent = pretty(data);
         updateArenaMeta();
         updateSidePanels();
+        if (!useCanvas) renderArenaDom();
+        if (useCanvas && view.autoFit) fitToView();
       },
       (err) => {
         if (statePre) statePre.textContent = "Erro: " + err.message;
@@ -645,6 +707,10 @@ const view = {
   autoFit: true,
 };
 
+// DOM fallback grid cache
+let domGridSize = 0;
+let domCells = []; // flat [row*gs+col] -> element
+
 function resizeCanvasToContainer() {
   const rect = canvasWrap.getBoundingClientRect();
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
@@ -656,9 +722,11 @@ function resizeCanvasToContainer() {
   if (view.autoFit) fitToView();
 }
 
-const ro = new ResizeObserver(() => resizeCanvasToContainer());
-ro.observe(canvasWrap);
-window.addEventListener("resize", () => resizeCanvasToContainer());
+if (useCanvas && typeof ResizeObserver !== "undefined") {
+  const ro = new ResizeObserver(() => resizeCanvasToContainer());
+  ro.observe(canvasWrap);
+  window.addEventListener("resize", () => resizeCanvasToContainer());
+}
 
 function fitToView() {
   const gs = appState.gridSize || 10;
@@ -717,82 +785,208 @@ function sendMoveSelected(toRow, toCol) {
   sendAction("MOVE_PIECE", by, { pieceId, row: toRow, col: toCol });
 }
 
-// Canvas interactions (click + drag)
-canvas.addEventListener("mousemove", (ev) => {
-  const rect = canvas.getBoundingClientRect();
-  const x = ev.clientX - rect.left;
-  const y = ev.clientY - rect.top;
-  const tile = screenToTile(x, y);
-  if (tile) {
-    appState.hover = tile;
-    hoverBadge.textContent = `tile: (${tile.row}, ${tile.col})`;
-  } else {
+// Interações Arena
+// - Canvas (preferencial)
+// - DOM fallback (se Canvas falhar)
+
+function bindArenaInteractionsCanvas() {
+  if (!useCanvas) return;
+
+  canvas.addEventListener("mousemove", (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    const tile = screenToTile(x, y);
+    if (tile) {
+      appState.hover = tile;
+      hoverBadge.textContent = `tile: (${tile.row}, ${tile.col})`;
+    } else {
+      appState.hover = { row: null, col: null };
+      hoverBadge.textContent = `tile: —`;
+    }
+    if (appState.drag.active) {
+      appState.drag.x = x;
+      appState.drag.y = y;
+    }
+  });
+
+  canvas.addEventListener("mouseleave", () => {
     appState.hover = { row: null, col: null };
     hoverBadge.textContent = `tile: —`;
-  }
-  if (appState.drag.active) {
+  });
+
+  canvas.addEventListener("mousedown", (ev) => {
+    if (ev.button !== 0) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    const tile = screenToTile(x, y);
+    if (!tile) return;
+    const p = getPieceAt(tile.row, tile.col);
+    if (!p) return;
+    const id = safeStr(p.id);
+    selectPiece(id);
+    appState.drag.active = true;
+    appState.drag.justDropped = false;
+    appState.drag.pieceId = id;
+    appState.drag.startRow = tile.row;
+    appState.drag.startCol = tile.col;
     appState.drag.x = x;
     appState.drag.y = y;
+  });
+
+  window.addEventListener("mouseup", (ev) => {
+    if (!appState.drag.active) return;
+    appState.drag.active = false;
+    appState.drag.justDropped = true;
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    const tile = screenToTile(x, y);
+    if (!tile) return;
+    sendMoveSelected(tile.row, tile.col);
+  });
+
+  canvas.addEventListener("click", (ev) => {
+    // Se acabou de soltar um drag, ignore o click que vem logo depois
+    if (appState.drag.justDropped) {
+      appState.drag.justDropped = false;
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    const tile = screenToTile(x, y);
+    if (!tile) return;
+
+    const p = getPieceAt(tile.row, tile.col);
+    if (p) {
+      selectPiece(p.id);
+      return;
+    }
+    // tile vazio: tenta mover seleção atual
+    if (appState.selectedPieceId) sendMoveSelected(tile.row, tile.col);
+  });
+}
+
+function bindArenaInteractionsDom() {
+  if (useCanvas) return;
+  if (!arenaDom) return;
+
+  // Delegação de eventos nas células
+  arenaDom.addEventListener("mousemove", (ev) => {
+    const cell = ev.target?.closest?.(".cell");
+    if (!cell) return;
+    const row = Number(cell.dataset.row);
+    const col = Number(cell.dataset.col);
+    appState.hover = { row, col };
+    hoverBadge.textContent = `tile: (${row}, ${col})`;
+    updateArenaDomHover();
+  });
+
+  arenaDom.addEventListener("mouseleave", () => {
+    appState.hover = { row: null, col: null };
+    hoverBadge.textContent = `tile: —`;
+    updateArenaDomHover();
+  });
+
+  arenaDom.addEventListener("click", (ev) => {
+    const cell = ev.target?.closest?.(".cell");
+    if (!cell) return;
+    const row = Number(cell.dataset.row);
+    const col = Number(cell.dataset.col);
+    const p = getPieceAt(row, col);
+    if (p) {
+      selectPiece(p.id);
+      renderArenaDom();
+      return;
+    }
+    if (appState.selectedPieceId) {
+      sendMoveSelected(row, col);
+    }
+  });
+}
+
+function ensureDomGrid() {
+  if (!arenaDom) return;
+  const gs = appState.gridSize || 10;
+  if (gs === domGridSize && domCells.length === gs * gs) return;
+
+  domGridSize = gs;
+  domCells = new Array(gs * gs);
+  arenaDom.style.gridTemplateColumns = `repeat(${gs}, 1fr)`;
+  arenaDom.style.gridTemplateRows = `repeat(${gs}, 1fr)`;
+  arenaDom.innerHTML = "";
+
+  const frag = document.createDocumentFragment();
+  for (let r = 0; r < gs; r++) {
+    for (let c = 0; c < gs; c++) {
+      const idx = r * gs + c;
+      const cell = document.createElement("div");
+      cell.className = "cell" + ((r + c) % 2 === 0 ? " alt" : "");
+      cell.dataset.row = String(r);
+      cell.dataset.col = String(c);
+      domCells[idx] = cell;
+      frag.appendChild(cell);
+    }
   }
-});
+  arenaDom.appendChild(frag);
+}
 
-canvas.addEventListener("mouseleave", () => {
-  appState.hover = { row: null, col: null };
-  hoverBadge.textContent = `tile: —`;
-});
+function renderArenaDom() {
+  if (!arenaDom) return;
+  ensureDomGrid();
+  // mostra DOM, esconde canvas
+  if (canvas) canvas.style.display = "none";
+  arenaDom.style.display = "grid";
 
-canvas.addEventListener("mousedown", (ev) => {
-  if (ev.button !== 0) return;
-  const rect = canvas.getBoundingClientRect();
-  const x = ev.clientX - rect.left;
-  const y = ev.clientY - rect.top;
-  const tile = screenToTile(x, y);
-  if (!tile) return;
-  const p = getPieceAt(tile.row, tile.col);
-  if (!p) return;
-  const id = safeStr(p.id);
-  selectPiece(id);
-  appState.drag.active = true;
-  appState.drag.justDropped = false;
-  appState.drag.pieceId = id;
-  appState.drag.startRow = tile.row;
-  appState.drag.startCol = tile.col;
-  appState.drag.x = x;
-  appState.drag.y = y;
-});
-
-window.addEventListener("mouseup", (ev) => {
-  if (!appState.drag.active) return;
-  appState.drag.active = false;
-  appState.drag.justDropped = true;
-  const rect = canvas.getBoundingClientRect();
-  const x = ev.clientX - rect.left;
-  const y = ev.clientY - rect.top;
-  const tile = screenToTile(x, y);
-  if (!tile) return;
-  sendMoveSelected(tile.row, tile.col);
-});
-
-canvas.addEventListener("click", (ev) => {
-  // Se acabou de soltar um drag, ignore o click que vem logo depois
-  if (appState.drag.justDropped) {
-    appState.drag.justDropped = false;
-    return;
+  const gs = domGridSize;
+  // limpa tokens e classes
+  for (let i = 0; i < domCells.length; i++) {
+    const cell = domCells[i];
+    if (!cell) continue;
+    cell.classList.remove("hover");
+    cell.classList.remove("sel");
+    // remove token
+    const t = cell.querySelector(":scope > .token");
+    if (t) t.remove();
   }
-  const rect = canvas.getBoundingClientRect();
-  const x = ev.clientX - rect.left;
-  const y = ev.clientY - rect.top;
-  const tile = screenToTile(x, y);
-  if (!tile) return;
 
-  const p = getPieceAt(tile.row, tile.col);
-  if (p) {
-    selectPiece(p.id);
-    return;
+  // coloca tokens
+  for (const p of appState.pieces || []) {
+    if (safeStr(p?.status || "active") !== "active") continue;
+    const r = Number(p?.row);
+    const c = Number(p?.col);
+    if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
+    if (r < 0 || c < 0 || r >= gs || c >= gs) continue;
+    const cell = domCells[r * gs + c];
+    if (!cell) continue;
+    const token = document.createElement("div");
+    token.className = "token";
+    const label = (p?.revealed ? String(p?.pid ?? "?") : "?").slice(0, 4);
+    token.textContent = label;
+    cell.appendChild(token);
+
+    if (safeStr(appState.selectedPieceId) && safeStr(appState.selectedPieceId) === safeStr(p?.id)) {
+      cell.classList.add("sel");
+    }
   }
-  // tile vazio: tenta mover seleção atual
-  if (appState.selectedPieceId) sendMoveSelected(tile.row, tile.col);
-});
+
+  updateArenaDomHover();
+}
+
+function updateArenaDomHover() {
+  if (!arenaDom) return;
+  const gs = domGridSize;
+  // remove hover
+  for (const cell of domCells) cell?.classList.remove("hover");
+  if (appState.hover.row == null) return;
+  const r = Number(appState.hover.row);
+  const c = Number(appState.hover.col);
+  if (!Number.isFinite(r) || !Number.isFinite(c)) return;
+  if (r < 0 || c < 0 || r >= gs || c >= gs) return;
+  domCells[r * gs + c]?.classList.add("hover");
+}
 
 function draw() {
   const rect = canvasWrap.getBoundingClientRect();
@@ -904,10 +1098,20 @@ function draw() {
   requestAnimationFrame(draw);
 }
 
-// Start render loop
-resizeCanvasToContainer();
-fitToView();
-requestAnimationFrame(draw);
+// Start arena
+bindArenaInteractionsCanvas();
+bindArenaInteractionsDom();
+
+if (useCanvas) {
+  if (canvas) canvas.style.display = "block";
+  if (arenaDom) arenaDom.style.display = "none";
+  resizeCanvasToContainer();
+  fitToView();
+  requestAnimationFrame(draw);
+} else {
+  // fallback DOM (sempre mostra algo, mesmo se o canvas falhar)
+  renderArenaDom();
+}
 
 // -------------------------
 // Utilities
