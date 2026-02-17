@@ -99,6 +99,7 @@ const appState = {
   by: "",
   role: "—",
   players: [],
+  userProfiles: new Map(), // uid -> {profile, raw}
   // docs
   board: null, // public_state/state
   battle: null, // public_state/battle
@@ -165,13 +166,31 @@ function saveMapOverrideToStorage(url) {
   } catch {}
 }
 
-async function tryLoadDexMapFromAssets() {
-  // Se existir ./assets/pokedex.json no hosting, carrega como fallback
+async function tryLoadDexSlugMapFromAssets() {
   try {
-    const res = await fetch('./assets/pokedex.json', { cache: 'no-cache' });
+    const res = await fetch('./assets/pokedex_map_slug_to_id.json', { cache: 'no-cache' });
     if (!res.ok) return null;
     const obj = await res.json();
     if (obj && typeof obj === 'object') return obj;
+  } catch {}
+  return null;
+}
+
+async function tryLoadDexMapFromAssets() {
+  // Fallback: carrega mapas exportados da sua Pokédex
+  try {
+    const res = await fetch('./assets/pokedex_map_id_to_name.json', { cache: 'no-cache' });
+    if (res.ok) {
+      const obj = await res.json();
+      if (obj && typeof obj === 'object') return obj;
+    }
+  } catch {}
+  // compat: arquivo antigo
+  try {
+    const res2 = await fetch('./assets/pokedex.json', { cache: 'no-cache' });
+    if (!res2.ok) return null;
+    const obj2 = await res2.json();
+    if (obj2 && typeof obj2 === 'object') return obj2;
   } catch {}
   return null;
 }
@@ -189,11 +208,61 @@ async function tryLoadDexMapFromAssets() {
       }
     });
   }
+  tryLoadDexSlugMapFromAssets().then((obj) => {
+    if (obj && typeof obj === 'object') window.dexSlugToId = obj;
+  });
 })();
 
 let currentDb = null;
 let currentRid = null;
 let unsub = [];
+let userUnsub = new Map(); // uid -> unsubscribe
+
+function ensureUserSubscriptions() {
+  if (!currentDb) return;
+  const wanted = new Map(); // uid -> trainer_name
+  const by = safeStr(appState.by);
+  if (by) wanted.set(safeDocId(by), by);
+  for (const p of (appState.players || [])) {
+    const tn = safeStr(p?.trainer_name);
+    if (!tn) continue;
+    wanted.set(safeDocId(tn), tn);
+  }
+
+  // unsubscribe removidos
+  for (const [uid, fn] of Array.from(userUnsub.entries())) {
+    if (!wanted.has(uid)) {
+      try { fn(); } catch {}
+      userUnsub.delete(uid);
+      try { appState.userProfiles.delete(uid); } catch {}
+    }
+  }
+
+  // subscribe novos
+  for (const [uid, tn] of wanted.entries()) {
+    if (userUnsub.has(uid)) continue;
+    try {
+      const rawDoc = doc(currentDb, "users_raw", uid);
+      const profileDoc = doc(currentDb, "users", uid);
+      const un1 = onSnapshot(rawDoc, (snap) => {
+        const data = snap.exists() ? snap.data() : null;
+        const cur = appState.userProfiles.get(uid) || {};
+        cur.raw = data;
+        appState.userProfiles.set(uid, cur);
+        updateSidePanels();
+      }, () => {});
+      const un2 = onSnapshot(profileDoc, (snap) => {
+        const data = snap.exists() ? snap.data() : null;
+        const cur = appState.userProfiles.get(uid) || {};
+        cur.profile = data;
+        appState.userProfiles.set(uid, cur);
+        updateSidePanels();
+      }, () => {});
+      userUnsub.set(uid, () => { try { un1(); } catch {} ; try { un2(); } catch {} });
+    } catch {}
+  }
+}
+
 
 // -------------------------
 // UI helpers
@@ -213,6 +282,11 @@ function pretty(x) {
 
 function safeStr(x) {
   return (x == null ? "" : String(x)).trim();
+}
+
+function safeDocId(name) {
+  const s = safeStr(name) || "user";
+  return s.replace(/[^a-zA-Z0-9_\-\.]/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "user";
 }
 
 function inferRoleFromPlayers(players, by) {
@@ -396,6 +470,7 @@ connectBtn?.addEventListener("click", () => {
     if (playersCount) playersCount.textContent = String(merged.length);
     updateTopBadges();
     updateSidePanels();
+    ensureUserSubscriptions();
   };
 
   // A) subcoleção rooms/{rid}/players
@@ -410,7 +485,7 @@ connectBtn?.addEventListener("click", () => {
             const p = d.data() || {};
             const role = safeStr(p.role) || "player";
             const trainer_name = safeStr(p.trainer_name || p.name || p.by || d.id);
-            out.push({ role, trainer_name, id: d.id });
+            out.push({ role, trainer_name, id: d.id, uid: safeStr(p.uid || d.id), avatar: p.avatar || null, party_snapshot: Array.isArray(p.party_snapshot) ? p.party_snapshot : [] });
           });
           playersFromCol = out;
           commitPlayers();
@@ -543,6 +618,23 @@ function updateArenaMeta() {
 // -------------------------
 // Side panels (DOM incremental)
 // -------------------------
+function dexNameFromPid(pid) {
+  const k = safeStr(pid);
+  if (!k) return "";
+  if (dexMap && (dexMap[k] || dexMap[String(Number(k))])) return dexMap[k] || dexMap[String(Number(k))];
+  return "";
+}
+
+function getSpriteUrlFromPid(pid) {
+  const k = safeStr(pid);
+  if (!k) return "";
+  if (/^\d+$/.test(k)) return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${Number(k)}.png`;
+  // slug -> id
+  const slugMap = window.dexSlugToId;
+  if (slugMap && slugMap[k]) return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${Number(slugMap[k])}.png`;
+  return "";
+}
+
 function pieceDisplayName(p) {
   const pid = p?.pid != null ? String(p.pid) : "?";
   const id = safeStr(p?.id) || "—";
@@ -595,11 +687,47 @@ function getSpriteUrlForPiece(p) {
   return "";
 }
 
+function getPartyForTrainer(trainerName) {
+  const tn = safeStr(trainerName);
+  if (!tn) return [];
+  const p = (appState.players || []).find(x => safeStr(x?.trainer_name) === tn);
+  if (p && Array.isArray(p.party_snapshot) && p.party_snapshot.length) return p.party_snapshot;
+  const uid = safeDocId(tn);
+  const entry = appState.userProfiles?.get?.(uid);
+  const raw = entry?.raw;
+  const data = raw?.data || raw;
+  const party = Array.isArray(data?.party) ? data.party : [];
+  return party.map(pid => ({ pid: String(pid) }));
+}
+
+function renderPartyCard(it, ownerName) {
+  const pid = safeStr(it?.pid || it?.pokemon?.id || it);
+  const name = dexNameFromPid(pid) || `PID ${pid}`;
+  const spriteUrl = getSpriteUrlFromPid(pid);
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `
+    <div class="row" style="align-items:flex-start">
+      ${spriteUrl ? `<img class="mini" src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" onerror="this.style.display='none'"/>` : `<div class="avatar" style="width:40px;height:40px;border-radius:14px">#</div>`}
+      <div style="flex:1; min-width:0">
+        <div style="font-weight:950; line-height:1.1">${escapeHtml(name)}</div>
+        <div class="muted">PID <span class="mono">${escapeHtml(pid)}</span>${it?.np != null ? ` • NP ${escapeHtml(String(it.np))}` : ""}</div>
+      </div>
+    </div>
+  `;
+  card.addEventListener("click", () => {
+    const p = (appState.pieces || []).find(x => safeStr(x?.owner)===safeStr(ownerName) && safeStr(x?.pid)===pid);
+    if (p?.id) selectPiece(String(p.id));
+  });
+  return card;
+}
+
 function updateSidePanels() {
-  // Team list (filter by owner == by)
+  // Team list (prioridade: party_snapshot/users_raw -> fallback: peças no tabuleiro)
   const by = safeStr(appState.by);
   const pieces = Array.isArray(appState.pieces) ? appState.pieces : [];
 
+  const myParty = by ? getPartyForTrainer(by) : [];
   const myPieces = by ? pieces.filter((p) => safeStr(p?.owner) === by && safeStr(p?.status || "active") !== "deleted") : [];
   const oppPieces = by ? pieces.filter((p) => safeStr(p?.owner) && safeStr(p?.owner) !== by && safeStr(p?.status || "active") !== "deleted") : pieces;
 
@@ -608,12 +736,12 @@ function updateSidePanels() {
   teamRoot.innerHTML = "";
   if (!appState.connected) {
     teamRoot.innerHTML = `<div class="card"><div class="muted">Conecte numa sala para ver suas peças.</div></div>`;
+  } else if (myParty && myParty.length) {
+    for (const it of myParty) teamRoot.appendChild(renderPartyCard(it, by));
   } else if (!myPieces.length) {
-    teamRoot.innerHTML = `<div class="card"><div style="font-weight:950;margin-bottom:6px">Nenhuma peça sua encontrada</div><div class="muted">Se você esperava ver sua equipe, confira se <code>by</code> = <code>piece.owner</code>.</div></div>`;
+    teamRoot.innerHTML = `<div class="card"><div style="font-weight:950;margin-bottom:6px">Equipe não encontrada</div><div class="muted">Ainda não achei <code>party_snapshot</code>/<code>users_raw</code> e você não tem peças no tabuleiro. Se você usa Streamlit, entre na sala por lá 1x (ele espelha seu perfil para o Firestore).</div></div>`;
   } else {
-    for (const p of myPieces) {
-      teamRoot.appendChild(renderPieceCard(p, true));
-    }
+    for (const p of myPieces) teamRoot.appendChild(renderPieceCard(p, true));
   }
 
   // RIGHT
