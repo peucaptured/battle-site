@@ -6,11 +6,16 @@ import {
   onSnapshot,
   addDoc,
   serverTimestamp,
+  query,
+  orderBy,
+  limit,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
 const el = (id) => document.getElementById(id);
 const statusEl = el("status");
 const ridBadge = el("rid_badge");
+const lastActionEl = el("last_action");
+const actionsLogEl = el("actions_log");
 
 let unsub = [];
 
@@ -57,6 +62,8 @@ function cleanup() {
   el("players").textContent = "—";
   el("state").textContent = "—";
   el("battle").textContent = "—";
+  if (actionsLogEl) actionsLogEl.textContent = "—";
+  if (lastActionEl) lastActionEl.textContent = "—";
   setStatus("warn", "desconectado");
 }
 
@@ -81,13 +88,14 @@ async function sendAction(type, by, payload) {
     return;
   }
   try {
-    await addDoc(collection(currentDb, "rooms", currentRid, "actions"), {
+    const ref = await addDoc(collection(currentDb, "rooms", currentRid, "actions"), {
       type,
       by,
       payload: payload || {},
       createdAt: serverTimestamp(),
       status: "new",
     });
+    if (lastActionEl) lastActionEl.textContent = ref?.id ? `id: ${ref.id}` : "—";
     setStatus("ok", `ação enviada: ${type}`);
   } catch (e) {
     setStatus("err", `erro ao enviar ação: ${e.message || e}`);
@@ -227,4 +235,30 @@ el("connect").addEventListener("click", () => {
   }, (err) => {
     el("battle").textContent = "Erro: " + err.message;
   }));
+
+  // Últimas actions (rooms/{rid}/actions) — ajuda a debugar rejected/permissions
+  const actionsCol = collection(db, "rooms", rid, "actions");
+  const actionsQ = query(actionsCol, orderBy("createdAt", "desc"), limit(20));
+  unsub.push(onSnapshot(actionsQ, (qs) => {
+    if (!actionsLogEl) return;
+    const items = [];
+    qs.forEach((d) => {
+      const a = d.data() || {};
+      items.push({
+        id: d.id,
+        type: a.type,
+        status: a.status || "new",
+        by: a.by,
+        payload: a.payload,
+        createdAt: a.createdAt,
+        appliedAt: a.appliedAt,
+        reason: a.reason,
+        error: a.error,
+      });
+    });
+    actionsLogEl.textContent = JSON.stringify(items, null, 2);
+  }, (err) => {
+    if (actionsLogEl) actionsLogEl.textContent = JSON.stringify({ error: String(err?.message || err) }, null, 2);
+  }));
+
 });
