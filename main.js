@@ -62,6 +62,16 @@ function cleanup() {
 
 el("disconnect").addEventListener("click", cleanup);
 
+// Inputs/Buttons de ações
+const byInput = el("by");
+const logTextInput = el("log_text");
+const btnAddLog = el("btn_add_log");
+
+const pieceIdInput = el("pieceId");
+const rowInput = el("row");
+const colInput = el("col");
+const btnMovePiece = el("btn_move_piece");
+
 /**
  * ✅ Envia uma action para rooms/<rid>/actions/*
  */
@@ -84,15 +94,43 @@ async function sendAction(type, by, payload) {
   }
 }
 
-// ✅ Botão de teste (precisa existir no HTML como id="btn_add_log")
-el("btn_add_log")?.addEventListener("click", async () => {
-  const by = (el("by")?.value || "Anon").trim();
-  await sendAction("ADD_LOG", by, { text: "teste" });
+// ✅ Envia ADD_LOG (usa campos do HTML)
+btnAddLog?.addEventListener("click", async () => {
+  const by = (byInput?.value || "Anon").trim();
+  const text = (logTextInput?.value || "teste").trim();
+  await sendAction("ADD_LOG", by, { text });
+});
+
+// ✅ Envia MOVE_PIECE (usa pieceId + row + col)
+btnMovePiece?.addEventListener("click", async () => {
+  const by = (byInput?.value || "Anon").trim();
+  const pieceId = (pieceIdInput?.value || "").trim();
+  const row = Number(rowInput?.value);
+  const col = Number(colInput?.value);
+
+  if (!pieceId) {
+    setStatus("err", "faltou pieceId (use o campo id dentro de public_state/state.pieces)");
+    return;
+  }
+  if (!Number.isFinite(row) || !Number.isFinite(col)) {
+    setStatus("err", "row/col precisam ser números");
+    return;
+  }
+
+  await sendAction("MOVE_PIECE", by, { pieceId, row, col });
 });
 
 // Extra: expõe no console também
 window.sendAddLog = async (by, text) => {
   await sendAction("ADD_LOG", by || "Anon", { text: text || "teste" });
+};
+
+window.sendMovePiece = async (by, pieceId, row, col) => {
+  await sendAction("MOVE_PIECE", by || "Anon", {
+    pieceId: String(pieceId || ""),
+    row: Number(row),
+    col: Number(col),
+  });
 };
 
 el("connect").addEventListener("click", () => {
