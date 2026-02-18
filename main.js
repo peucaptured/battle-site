@@ -99,7 +99,8 @@ const appState = {
   by: "",
   role: "—",
   players: [],
-  userProfiles: new Map(), // uid -> {profile, raw}
+  userProfiles: new Map(),   partyCache: new Map(), // trainer_name -> [{pid}]
+// uid -> {profile, raw}
   // docs
   board: null, // public_state/state
   battle: null, // public_state/battle
@@ -262,6 +263,80 @@ function ensureUserSubscriptions() {
     } catch {}
   }
 }
+// -------------------------
+// Party fetch (Google Sheets via Cloud Function)
+// -------------------------
+const FUNCTIONS_BASE = "https://southamerica-east1-batalhas-de-gaal.cloudfunctions.net";
+const partyFetchInFlight = new Map(); // trainer_name -> Promise
+
+async function refreshPartyForTrainer(trainerName, { rid = currentRid, upsertRoom = true } = {}) {
+  const tn = safeStr(trainerName);
+  if (!tn) return null;
+
+  // cache hit
+  const cached = appState.partyCache.get(tn);
+  if (Array.isArray(cached) && cached.length) return cached;
+
+  // de-dup
+  if (partyFetchInFlight.has(tn)) return partyFetchInFlight.get(tn);
+
+  const p = (async () => {
+    try {
+      const url = new URL(`${FUNCTIONS_BASE}/getTrainerParty`);
+      url.searchParams.set("trainer", tn);
+      if (upsertRoom && rid) url.searchParams.set("rid", rid);
+
+      const resp = await fetch(url.toString(), { method: "GET" });
+      const data = await resp.json().catch(() => ({}));
+
+      if (!resp.ok || !data?.ok) {
+        console.warn("party fetch failed", tn, resp.status, data);
+        return null;
+      }
+
+      const party = Array.isArray(data.party) ? data.party : [];
+      if (party.length) {
+        appState.partyCache.set(tn, party);
+
+        // otimista: se o player já existe localmente, injeta party_snapshot enquanto o snapshot do Firestore não chega
+        const pl = (appState.players || []).find((x) => safeStr(x?.trainer_name) === tn);
+        if (pl && (!Array.isArray(pl.party_snapshot) || !pl.party_snapshot.length)) {
+          pl.party_snapshot = party;
+        }
+        updateSidePanels();
+      }
+      return party;
+    } catch (e) {
+      console.warn("party fetch error", tn, e);
+      return null;
+    } finally {
+      partyFetchInFlight.delete(tn);
+    }
+  })();
+
+  partyFetchInFlight.set(tn, p);
+  return p;
+}
+
+function prefetchParties() {
+  // evita flood: só busca quem está sem party_snapshot e sem cache
+  const names = [];
+  const by = safeStr(appState.by);
+  if (by) names.push(by);
+
+  for (const p of (appState.players || [])) {
+    const tn = safeStr(p?.trainer_name);
+    if (!tn) continue;
+    if (Array.isArray(p.party_snapshot) && p.party_snapshot.length) continue;
+    if (Array.isArray(appState.partyCache.get(tn)) && appState.partyCache.get(tn).length) continue;
+    names.push(tn);
+  }
+
+  // limita 8 por rodada
+  const unique = Array.from(new Set(names)).slice(0, 8);
+  unique.forEach((tn) => refreshPartyForTrainer(tn, { rid: currentRid, upsertRoom: true }));
+}
+
 
 
 // -------------------------
@@ -425,6 +500,14 @@ function cleanup() {
 
 disconnectBtn?.addEventListener("click", cleanup);
 
+const refreshPartyBtn = $("refresh_party");
+refreshPartyBtn?.addEventListener("click", () => {
+  const tn = safeStr(byInput?.value || appState.by || "");
+  if (!tn) return;
+  try { appState.partyCache.delete(tn); } catch {}
+  refreshPartyForTrainer(tn, { rid: currentRid, upsertRoom: true });
+});
+
 connectBtn?.addEventListener("click", () => {
   cleanup();
   const rid = safeStr(ridInput?.value || "");
@@ -444,6 +527,8 @@ connectBtn?.addEventListener("click", () => {
   appState.connected = true;
   appState.rid = rid;
   setStatus("ok", "conectado");
+  // puxa a party atual do usuário (consulta a planilha) e espelha na sala
+  if (appState.by) refreshPartyForTrainer(appState.by, { rid, upsertRoom: true });
   updateTopBadges();
 
   // players (suporta 2 formatos: subcoleção rooms/{rid}/players e/ou campos no doc rooms/{rid})
@@ -471,6 +556,7 @@ connectBtn?.addEventListener("click", () => {
     updateTopBadges();
     updateSidePanels();
     ensureUserSubscriptions();
+    prefetchParties();
   };
 
   // A) subcoleção rooms/{rid}/players
@@ -692,6 +778,8 @@ function getPartyForTrainer(trainerName) {
   if (!tn) return [];
   const p = (appState.players || []).find(x => safeStr(x?.trainer_name) === tn);
   if (p && Array.isArray(p.party_snapshot) && p.party_snapshot.length) return p.party_snapshot;
+  const cached = appState.partyCache.get(tn);
+  if (Array.isArray(cached) && cached.length) return cached;
   const uid = safeDocId(tn);
   const entry = appState.userProfiles?.get?.(uid);
   const raw = entry?.raw;
