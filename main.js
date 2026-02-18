@@ -733,6 +733,7 @@ function normalizePartyPid(x) {
 function getPartyForTrainer(trainerName) {
   const tn = safeStr(trainerName);
   if (!tn) return [];
+
   const p = (appState.players || []).find(x => safeStr(x?.trainer_name) === tn);
   const snapParty = (p && Array.isArray(p.party_snapshot)) ? p.party_snapshot : [];
 
@@ -742,7 +743,7 @@ function getPartyForTrainer(trainerName) {
   const data = raw?.data || raw;
   const rawParty = Array.isArray(data?.party) ? data.party : [];
 
-  // ✅ se a planilha tem party, ela manda
+  // ✅ se a planilha tem party, ela manda (fonte de verdade)
   if (rawParty.length) {
     return rawParty.map(x => ({ pid: normalizePartyPid(x) })).filter(it => it.pid);
   }
@@ -751,13 +752,6 @@ function getPartyForTrainer(trainerName) {
   if (snapParty.length) return snapParty;
 
   return [];
-
-  const uid = safeDocId(tn);
-  const entry = appState.userProfiles?.get?.(uid);
-  const raw = entry?.raw;
-  const data = raw?.data || raw;
-  const party = Array.isArray(data?.party) ? data.party : [];
-  return party.map(x => ({ pid: normalizePartyPid(x) })).filter(it => it.pid);
 }
 
 function renderPartyCard(it, ownerName) {
