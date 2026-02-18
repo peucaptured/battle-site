@@ -111,6 +111,7 @@ const DEFAULT_FIREBASE_CONFIG = {
 // - { status: "ERROR", message?: "..." }
 //
 // 1) Crie um endpoint (exemplo de Apps Script está no fim da resposta) e cole a URL abaixo.
+const SHEET_ID = "1Z887EqYOatQ6ebMjYcjsCX4ZcTWi30F6Gf4zbCC_WZ8";
 const SHEET_AUTH_URL = "https://us-central1-batalhas-de-gaal.cloudfunctions.net/sheetAuth"; // <-- COLE AQUI a URL do seu endpoint (obrigatório p/ login no site)
 
 // cache simples (sessão)
@@ -150,11 +151,14 @@ async function sheetAuthenticateUser(name, password) {
     return { status: "ERROR", message: "SHEET_AUTH_URL não configurado" };
   }
 
-  try {
+  if (!SHEET_ID) {
+    return { status: "ERROR", message: "SHEET_ID não configurado" };
+  }
+try {
     const res = await fetch(SHEET_AUTH_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "auth", name: nm, password: pw }),
+      body: JSON.stringify({ action: "auth", sheetId: SHEET_ID, name: nm, password: pw }),
     });
 
     const json = await res.json().catch(() => null);
