@@ -470,58 +470,62 @@ connectBtn?.addEventListener("click", () => {
   let playersFromPublic = [];
 
   const commitPlayers = () => {
-    // ✅ merge por (role+trainer_name), priorizando fontes RICAS primeiro:
-    // 1) subcoleção rooms/{rid}/players (tem party_snapshot)
-    // 2) public_state/players (fallback com party_snapshot)
-    // 3) doc rooms/{rid} (owner/challengers/spectators, sem party_snapshot)
+    // ✅ merge por (role+trainer_name)
+    // ✅ prioridade: fontes "ricas" primeiro (com party_snapshot/uid/avatar)
+    //   1) playersFromCol (rooms/{rid}/players)
+    //   2) playersFromPublic (public_state/players)
+    //   3) playersFromRoom (doc rooms/{rid} legacy)
     const seen = new Set();
     const merged = [];
 
-    for (const arr of [playersFromCol, playersFromPublic, playersFromRoom]) {
-      for (const p of (arr || [])) {
-        const role = safeStr(p?.role);
-        const tn = safeStr(p?.trainer_name);
-        const key = `${role}::${tn}`;
-        if (!tn) continue;
+    const upsert = (p) => {
+      const role = safeStr(p?.role);
+      const tn = safeStr(p?.trainer_name);
+      if (!tn) return;
 
-        if (!seen.has(key)) {
-          seen.add(key);
-          merged.push(p);
-          continue;
-        }
-
-        // Se já existe, tenta enriquecer (não perde party_snapshot/avatar/uid)
-        const idx = merged.findIndex(x => `${safeStr(x?.role)}::${safeStr(x?.trainer_name)}` === key);
-        if (idx >= 0) {
-          const cur = merged[idx] || {};
-          const next = p || {};
-
-          const curParty = Array.isArray(cur.party_snapshot) ? cur.party_snapshot : [];
-          const nextParty = Array.isArray(next.party_snapshot) ? next.party_snapshot : [];
-
-          merged[idx] = {
-            ...cur,
-            ...next,
-            // mantém campos "bons" se o novo não tiver
-            uid: safeStr(next.uid) || safeStr(cur.uid),
-            id: safeStr(next.id) || safeStr(cur.id),
-            avatar: next.avatar ?? cur.avatar ?? null,
-            party_snapshot: nextParty.length ? nextParty : curParty,
-          };
-        }
+      const key = `${role}::${tn}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(p);
+        return;
       }
+
+      // já existe: enriquece sem perder party_snapshot/avatar/uid
+      const idx = merged.findIndex(
+        (x) => `${safeStr(x?.role)}::${safeStr(x?.trainer_name)}` === key
+      );
+      if (idx < 0) return;
+
+      const cur = merged[idx] || {};
+      const next = p || {};
+
+      const curParty = Array.isArray(cur.party_snapshot) ? cur.party_snapshot : [];
+      const nextParty = Array.isArray(next.party_snapshot) ? next.party_snapshot : [];
+
+      merged[idx] = {
+        ...cur,
+        ...next,
+        uid: safeStr(next.uid) || safeStr(cur.uid),
+        id: safeStr(next.id) || safeStr(cur.id),
+        avatar: next.avatar ?? cur.avatar ?? null,
+        party_snapshot: nextParty.length ? nextParty : curParty,
+      };
+    };
+
+    for (const arr of [playersFromCol, playersFromPublic, playersFromRoom]) {
+      for (const p of (arr || [])) upsert(p);
     }
 
     merged.sort(
-      (a, b) => (a.role || "").localeCompare(b.role || "") || (a.trainer_name || "").localeCompare(b.trainer_name || "")
+      (a, b) =>
+        (a.role || "").localeCompare(b.role || "") ||
+        (a.trainer_name || "").localeCompare(b.trainer_name || "")
     );
 
     appState.players = merged;
     appState.role = inferRoleFromPlayers(merged, appState.by);
-
     if (playersPre) playersPre.textContent = pretty(merged);
     if (playersCount) playersCount.textContent = String(merged.length);
-
     updateTopBadges();
     updateSidePanels();
     ensureUserSubscriptions();
