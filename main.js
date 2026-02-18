@@ -99,8 +99,7 @@ const appState = {
   by: "",
   role: "—",
   players: [],
-  userProfiles: new Map(),   partyCache: new Map(), // trainer_name -> [{pid}]
-// uid -> {profile, raw}
+  userProfiles: new Map(), // uid -> {profile, raw}
   // docs
   board: null, // public_state/state
   battle: null, // public_state/battle
@@ -263,80 +262,6 @@ function ensureUserSubscriptions() {
     } catch {}
   }
 }
-// -------------------------
-// Party fetch (Google Sheets via Cloud Function)
-// -------------------------
-const FUNCTIONS_BASE = "https://southamerica-east1-batalhas-de-gaal.cloudfunctions.net";
-const partyFetchInFlight = new Map(); // trainer_name -> Promise
-
-async function refreshPartyForTrainer(trainerName, { rid = currentRid, upsertRoom = true } = {}) {
-  const tn = safeStr(trainerName);
-  if (!tn) return null;
-
-  // cache hit
-  const cached = appState.partyCache.get(tn);
-  if (Array.isArray(cached) && cached.length) return cached;
-
-  // de-dup
-  if (partyFetchInFlight.has(tn)) return partyFetchInFlight.get(tn);
-
-  const p = (async () => {
-    try {
-      const url = new URL(`${FUNCTIONS_BASE}/getTrainerParty`);
-      url.searchParams.set("trainer", tn);
-      if (upsertRoom && rid) url.searchParams.set("rid", rid);
-
-      const resp = await fetch(url.toString(), { method: "GET" });
-      const data = await resp.json().catch(() => ({}));
-
-      if (!resp.ok || !data?.ok) {
-        console.warn("party fetch failed", tn, resp.status, data);
-        return null;
-      }
-
-      const party = Array.isArray(data.party) ? data.party : [];
-      if (party.length) {
-        appState.partyCache.set(tn, party);
-
-        // otimista: se o player já existe localmente, injeta party_snapshot enquanto o snapshot do Firestore não chega
-        const pl = (appState.players || []).find((x) => safeStr(x?.trainer_name) === tn);
-        if (pl && (!Array.isArray(pl.party_snapshot) || !pl.party_snapshot.length)) {
-          pl.party_snapshot = party;
-        }
-        updateSidePanels();
-      }
-      return party;
-    } catch (e) {
-      console.warn("party fetch error", tn, e);
-      return null;
-    } finally {
-      partyFetchInFlight.delete(tn);
-    }
-  })();
-
-  partyFetchInFlight.set(tn, p);
-  return p;
-}
-
-function prefetchParties() {
-  // evita flood: só busca quem está sem party_snapshot e sem cache
-  const names = [];
-  const by = safeStr(appState.by);
-  if (by) names.push(by);
-
-  for (const p of (appState.players || [])) {
-    const tn = safeStr(p?.trainer_name);
-    if (!tn) continue;
-    if (Array.isArray(p.party_snapshot) && p.party_snapshot.length) continue;
-    if (Array.isArray(appState.partyCache.get(tn)) && appState.partyCache.get(tn).length) continue;
-    names.push(tn);
-  }
-
-  // limita 8 por rodada
-  const unique = Array.from(new Set(names)).slice(0, 8);
-  unique.forEach((tn) => refreshPartyForTrainer(tn, { rid: currentRid, upsertRoom: true }));
-}
-
 
 
 // -------------------------
@@ -500,14 +425,6 @@ function cleanup() {
 
 disconnectBtn?.addEventListener("click", cleanup);
 
-const refreshPartyBtn = $("refresh_party");
-refreshPartyBtn?.addEventListener("click", () => {
-  const tn = safeStr(byInput?.value || appState.by || "");
-  if (!tn) return;
-  try { appState.partyCache.delete(tn); } catch {}
-  refreshPartyForTrainer(tn, { rid: currentRid, upsertRoom: true });
-});
-
 connectBtn?.addEventListener("click", () => {
   cleanup();
   const rid = safeStr(ridInput?.value || "");
@@ -527,8 +444,6 @@ connectBtn?.addEventListener("click", () => {
   appState.connected = true;
   appState.rid = rid;
   setStatus("ok", "conectado");
-  // puxa a party atual do usuário (consulta a planilha) e espelha na sala
-  if (appState.by) refreshPartyForTrainer(appState.by, { rid, upsertRoom: true });
   updateTopBadges();
 
   // players (suporta 2 formatos: subcoleção rooms/{rid}/players e/ou campos no doc rooms/{rid})
@@ -556,7 +471,6 @@ connectBtn?.addEventListener("click", () => {
     updateTopBadges();
     updateSidePanels();
     ensureUserSubscriptions();
-    prefetchParties();
   };
 
   // A) subcoleção rooms/{rid}/players
@@ -707,6 +621,7 @@ function updateArenaMeta() {
 function dexNameFromPid(pid) {
   const k = safeStr(pid);
   if (!k) return "";
+  if (k.startsWith("EXT:")) return safeStr(k.slice(4));
   if (dexMap && (dexMap[k] || dexMap[String(Number(k))])) return dexMap[k] || dexMap[String(Number(k))];
   return "";
 }
@@ -714,10 +629,25 @@ function dexNameFromPid(pid) {
 function getSpriteUrlFromPid(pid) {
   const k = safeStr(pid);
   if (!k) return "";
-  if (/^\d+$/.test(k)) return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${Number(k)}.png`;
-  // slug -> id
-  const slugMap = window.dexSlugToId;
-  if (slugMap && slugMap[k]) return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${Number(slugMap[k])}.png`;
+
+  // 1) EXT:Nome (convenção do seu app)
+  if (k.startsWith("EXT:")) {
+    const nm = safeStr(k.slice(4));
+    return nm ? spriteUrlFromPokemonName(nm) : "";
+  }
+
+  // 2) ✅ Regional Dex: id -> name -> slug -> sprite
+  const nm = dexNameFromPid(k);
+  if (nm) return spriteUrlFromPokemonName(nm);
+
+  // 3) Se vier um nome/slug direto, tenta sprite por nome (ex.: "Muk-A")
+  if (!/^\d+$/.test(k)) return spriteUrlFromPokemonName(k);
+
+  // 4) Fallback: trata como NatDex (último recurso)
+  const n = Number(k);
+  if (Number.isFinite(n) && n > 0 && n < 20000) {
+    return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${n}.png`;
+  }
   return "";
 }
 
@@ -773,19 +703,44 @@ function getSpriteUrlForPiece(p) {
   return "";
 }
 
+function normalizePartyPid(x) {
+  // aceita: "887", 887, {pid}, {pokemon:{id}}, "Weavile", "Muk-A", "EXT:Hydreigon", "PID 887"
+  let v = safeStr(x?.pid ?? x?.id ?? x?.pokemon?.id ?? x?.pokemon ?? x);
+  if (!v) return "";
+  v = v.trim();
+
+  // remove prefixos comuns
+  v = v.replace(/^pid\s*[:#-]?\s*/i, "").trim();
+
+  // EXT:Nome
+  if (/^ext\s*:/i.test(v)) {
+    const nm = v.split(":").slice(1).join(":").trim();
+    return nm ? `EXT:${nm}` : "";
+  }
+
+  // número (já é o ID regional do seu app)
+  if (/^\d+$/.test(v)) return String(Number(v));
+
+  // tenta mapear nome/slug -> id regional
+  const slug = slugifyPokemonName(v);
+  const slugMap = window.dexSlugToId;
+  if (slug && slugMap && slugMap[slug]) return String(Number(slugMap[slug]));
+
+  // fallback: mantém como está (a UI ainda consegue mostrar sprite por nome)
+  return v;
+}
+
 function getPartyForTrainer(trainerName) {
   const tn = safeStr(trainerName);
   if (!tn) return [];
   const p = (appState.players || []).find(x => safeStr(x?.trainer_name) === tn);
   if (p && Array.isArray(p.party_snapshot) && p.party_snapshot.length) return p.party_snapshot;
-  const cached = appState.partyCache.get(tn);
-  if (Array.isArray(cached) && cached.length) return cached;
   const uid = safeDocId(tn);
   const entry = appState.userProfiles?.get?.(uid);
   const raw = entry?.raw;
   const data = raw?.data || raw;
   const party = Array.isArray(data?.party) ? data.party : [];
-  return party.map(pid => ({ pid: String(pid) }));
+  return party.map(x => ({ pid: normalizePartyPid(x) })).filter(it => it.pid);
 }
 
 function renderPartyCard(it, ownerName) {
