@@ -222,11 +222,11 @@ function ensureUserSubscriptions() {
   if (!currentDb) return;
   const wanted = new Map(); // uid -> trainer_name
   const by = safeStr(appState.by);
-  if (by) wanted.set(safeDocId(by), by);
+  if (by) wanted.set(safeTrainerId(by), by);
   for (const p of (appState.players || [])) {
     const tn = safeStr(p?.trainer_name);
     if (!tn) continue;
-    wanted.set(safeDocId(tn), tn);
+    wanted.set(safeTrainerId(tn), tn);
   }
 
   // unsubscribe removidos
@@ -287,6 +287,23 @@ function safeStr(x) {
 function safeDocId(name) {
   const s = safeStr(name) || "user";
   return s.replace(/[^a-zA-Z0-9_\-\.]/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "user";
+}
+
+// ID canônico de treinador (precisa bater com a `safeId()` das Cloud Functions)
+// - lower
+// - remove acentos
+// - troca qualquer coisa fora [a-z0-9] por _
+function safeTrainerId(name) {
+  let s = safeStr(name) || "user";
+  try {
+    s = s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  } catch {
+    s = s.toLowerCase();
+  }
+  return s
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80) || "user";
 }
 
 function inferRoleFromPlayers(players, by) {
@@ -449,11 +466,13 @@ connectBtn?.addEventListener("click", () => {
   // players (suporta 2 formatos: subcoleção rooms/{rid}/players e/ou campos no doc rooms/{rid})
   let playersFromCol = [];
   let playersFromRoom = [];
+  // ✅ novo: roster público (espelhado por Cloud Function em public_state/players)
+  let playersFromPublic = [];
   const commitPlayers = () => {
     // merge por (role+trainer_name)
     const seen = new Set();
     const merged = [];
-    for (const arr of [playersFromRoom, playersFromCol]) {
+    for (const arr of [playersFromRoom, playersFromCol, playersFromPublic]) {
       for (const p of arr) {
         const key = `${safeStr(p.role)}::${safeStr(p.trainer_name)}`;
         if (seen.has(key)) continue;
@@ -493,6 +512,42 @@ connectBtn?.addEventListener("click", () => {
         (err) => {
           // não falha o app; só loga no devtools
           if (playersPre) playersPre.textContent = "Erro (players col): " + err.message;
+        }
+      )
+    );
+  } catch {}
+
+  // A2) doc público rooms/{rid}/public_state/players (fallback quando rules bloqueiam rooms/{rid}/players)
+  try {
+    const pubPlayersDoc = doc(db, "rooms", rid, "public_state", "players");
+    unsub.push(
+      onSnapshot(
+        pubPlayersDoc,
+        (snap) => {
+          const data = snap.exists() ? snap.data() : null;
+          const byId = data?.byId && typeof data.byId === "object" ? data.byId : {};
+          const out = [];
+          for (const k of Object.keys(byId)) {
+            const p = byId[k] || {};
+            const role = safeStr(p.role) || "player";
+            const trainer_name = safeStr(p.trainer_name || p.name || p.by || p.uid || k);
+            out.push({
+              role,
+              trainer_name,
+              id: safeStr(p.id || k),
+              uid: safeStr(p.uid || k),
+              avatar: p.avatar || null,
+              party_snapshot: Array.isArray(p.party_snapshot) ? p.party_snapshot : [],
+            });
+          }
+          playersFromPublic = out;
+          commitPlayers();
+        },
+        (err) => {
+          // silencioso; só serve como fallback
+          if (playersPre && !playersPre.textContent?.startsWith?.("Erro")) {
+            // não sobrescreve o devtools se já houver algo
+          }
         }
       )
     );
@@ -737,8 +792,9 @@ function getPartyForTrainer(trainerName) {
   const p = (appState.players || []).find(x => safeStr(x?.trainer_name) === tn);
   const snapParty = (p && Array.isArray(p.party_snapshot)) ? p.party_snapshot : [];
 
-  const uid = safeDocId(tn);
-  const entry = appState.userProfiles?.get?.(uid);
+  // users_raw/users costumam usar id normalizado (lower + sem acento)
+  const uid = safeTrainerId(tn);
+  const entry = appState.userProfiles?.get?.(uid) || appState.userProfiles?.get?.(safeDocId(tn)) || appState.userProfiles?.get?.(tn);
   const raw = entry?.raw;
   const data = raw?.data || raw;
   const rawParty = Array.isArray(data?.party) ? data.party : [];
