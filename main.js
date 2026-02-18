@@ -111,7 +111,7 @@ const DEFAULT_FIREBASE_CONFIG = {
 // - { status: "ERROR", message?: "..." }
 //
 // 1) Crie um endpoint (exemplo de Apps Script está no fim da resposta) e cole a URL abaixo.
-const SHEET_AUTH_URL = ""; // <-- COLE AQUI a URL do seu endpoint (obrigatório p/ login no site)
+const SHEET_AUTH_URL = "https://us-central1-batalhas-de-gaal.cloudfunctions.net/sheetAuth"; // <-- COLE AQUI a URL do seu endpoint (obrigatório p/ login no site)
 
 // cache simples (sessão)
 const LOGIN_CACHE_KEY = "pvp_login_cache_v1"; // { name, userData, savedAt }
