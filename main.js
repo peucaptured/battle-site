@@ -734,7 +734,24 @@ function getPartyForTrainer(trainerName) {
   const tn = safeStr(trainerName);
   if (!tn) return [];
   const p = (appState.players || []).find(x => safeStr(x?.trainer_name) === tn);
-  if (p && Array.isArray(p.party_snapshot) && p.party_snapshot.length) return p.party_snapshot;
+  const snapParty = (p && Array.isArray(p.party_snapshot)) ? p.party_snapshot : [];
+
+  const uid = safeDocId(tn);
+  const entry = appState.userProfiles?.get?.(uid);
+  const raw = entry?.raw;
+  const data = raw?.data || raw;
+  const rawParty = Array.isArray(data?.party) ? data.party : [];
+
+  // ✅ se a planilha tem party, ela manda
+  if (rawParty.length) {
+    return rawParty.map(x => ({ pid: normalizePartyPid(x) })).filter(it => it.pid);
+  }
+
+  // fallback: usa party_snapshot (caso planilha não tenha)
+  if (snapParty.length) return snapParty;
+
+  return [];
+
   const uid = safeDocId(tn);
   const entry = appState.userProfiles?.get?.(uid);
   const raw = entry?.raw;
