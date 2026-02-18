@@ -468,6 +468,7 @@ connectBtn?.addEventListener("click", () => {
   let playersFromRoom = [];
   // ✅ novo: roster público (espelhado por Cloud Function em public_state/players)
   let playersFromPublic = [];
+
   const commitPlayers = () => {
     // merge por (role+trainer_name)
     const seen = new Set();
@@ -483,6 +484,14 @@ connectBtn?.addEventListener("click", () => {
     merged.sort(
       (a, b) => (a.role || "").localeCompare(b.role || "") || (a.trainer_name || "").localeCompare(b.trainer_name || "")
     );
+    appState.players = merged;
+    appState.role = inferRoleFromPlayers(merged, appState.by);
+    if (playersPre) playersPre.textContent = pretty(merged);
+    if (playersCount) playersCount.textContent = String(merged.length);
+    updateTopBadges();
+    updateSidePanels();
+    ensureUserSubscriptions();
+  };
     appState.players = merged;
     appState.role = inferRoleFromPlayers(merged, appState.by);
     if (playersPre) playersPre.textContent = pretty(merged);
@@ -543,12 +552,7 @@ connectBtn?.addEventListener("click", () => {
           playersFromPublic = out;
           commitPlayers();
         },
-        (err) => {
-          // silencioso; só serve como fallback
-          if (playersPre && !playersPre.textContent?.startsWith?.("Erro")) {
-            // não sobrescreve o devtools se já houver algo
-          }
-        }
+        () => {}
       )
     );
   } catch {}
