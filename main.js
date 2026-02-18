@@ -9,6 +9,7 @@ import {
   query,
   orderBy,
   limit,
+  getDocs,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
 /**
@@ -52,6 +53,12 @@ const battlePre = $("battle");
 // inputs
 const ridInput = $("rid");
 const byInput = $("by");
+// tenta pré-preencher "by" com o último login
+try {
+  const cache = loadLoginCache();
+  if (cache?.name && byInput && !safeStr(byInput.value)) byInput.value = String(cache.name);
+} catch {}
+
 const connectBtn = $("connect");
 const disconnectBtn = $("disconnect");
 const addLogBtn = $("btn_add_log");
@@ -90,6 +97,171 @@ const DEFAULT_FIREBASE_CONFIG = {
   measurementId: "G-1Q0TB1YPFG",
 };
 
+
+// -------------------------
+// Login (mesma lógica do Streamlit, mas sem expor Service Account no browser)
+// IMPORTANTE: o front NÃO pode usar gspread/ServiceAccountCredentials.
+// Então aqui o main.js chama um endpoint SERVER-SIDE (Apps Script / Cloud Function)
+// que lê a planilha "SaveData_RPG" e aplica a mesma validação (A=nome, B=json, C=senha).
+//
+// ✅ Retornos esperados (idênticos ao app.py):
+// - { status: "OK", data: <json da coluna B> }
+// - { status: "NOT_FOUND" }
+// - { status: "WRONG_PASS" }
+// - { status: "ERROR", message?: "..." }
+//
+// 1) Crie um endpoint (exemplo de Apps Script está no fim da resposta) e cole a URL abaixo.
+const SHEET_AUTH_URL = ""; // <-- COLE AQUI a URL do seu endpoint (obrigatório p/ login no site)
+
+// cache simples (sessão)
+const LOGIN_CACHE_KEY = "pvp_login_cache_v1"; // { name, userData, savedAt }
+
+function loadLoginCache() {
+  try {
+    const raw = localStorage.getItem(LOGIN_CACHE_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== "object") return null;
+    // cache de sessão "bobo": 12h
+    const ageMs = Date.now() - Number(obj.savedAt || 0);
+    if (!Number.isFinite(ageMs) || ageMs > 12 * 60 * 60 * 1000) return null;
+    return obj;
+  } catch {
+    return null;
+  }
+}
+
+function saveLoginCache(name, userData) {
+  try {
+    localStorage.setItem(LOGIN_CACHE_KEY, JSON.stringify({ name, userData, savedAt: Date.now() }));
+  } catch {}
+}
+
+function clearLoginCache() {
+  try { localStorage.removeItem(LOGIN_CACHE_KEY); } catch {}
+}
+
+async function sheetAuthenticateUser(name, password) {
+  const nm = safeStr(name);
+  const pw = password == null ? "" : String(password);
+  if (!nm) return { status: "ERROR", message: "faltou nome" };
+
+  if (!SHEET_AUTH_URL) {
+    return { status: "ERROR", message: "SHEET_AUTH_URL não configurado" };
+  }
+
+  try {
+    const res = await fetch(SHEET_AUTH_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "auth", name: nm, password: pw }),
+    });
+
+    const json = await res.json().catch(() => null);
+    if (!json || typeof json !== "object") return { status: "ERROR", message: "resposta inválida do endpoint" };
+
+    // normaliza
+    const st = safeStr(json.status || json.result || "");
+    if (st === "OK") return { status: "OK", data: json.data };
+    if (st === "NOT_FOUND") return { status: "NOT_FOUND" };
+    if (st === "WRONG_PASS") return { status: "WRONG_PASS" };
+
+    return { status: "ERROR", message: safeStr(json.message || "erro desconhecido") || "erro desconhecido" };
+  } catch (e) {
+    return { status: "ERROR", message: e?.message || String(e) };
+  }
+}
+
+async function buildPartySnapshotFromFirestore(db, trainerName, userData, limitSheets = 120) {
+  const tn = safeStr(trainerName);
+  if (!tn || !db) return [];
+
+  const partyRaw = (userData && Array.isArray(userData.party)) ? userData.party : [];
+  const partyIds = partyRaw.map(normalizePartyPid).filter(Boolean);
+
+  // replica app.py: pega fichas mais recentes e casa por pokemon.id (primeira ocorrência, pois já está order desc)
+  const byPid = new Map();
+  try {
+    const trainerId = safeDocId(tn);
+    const q = query(
+      collection(db, "trainers", trainerId, "sheets"),
+      orderBy("updated_at", "desc"),
+      limit(Number(limitSheets) || 120),
+    );
+
+    const snap = await getDocs(q);
+    snap.forEach((d) => {
+      const sh = d.data() || {};
+      const p = sh.pokemon || {};
+      const pid = safeStr(p.id);
+      if (!pid || byPid.has(pid)) return;
+      byPid.set(pid, {
+        sheet_id: d.id,
+        pokemon: { id: p.id, name: p.name, types: p.types },
+        np: sh.np,
+        updated_at: sh.updated_at,
+      });
+    });
+  } catch {}
+
+  return partyIds.map((pid) => {
+    const base = { pid };
+    const extra = byPid.get(pid);
+    return extra ? Object.assign(base, extra) : base;
+  });
+}
+
+// Faz login antes de conectar
+async function ensureLoggedInIfNeeded(db, typedName) {
+  const tn = safeStr(typedName);
+
+  // se não preencheu nome, deixa conectar como espectador
+  if (!tn) {
+    appState.selfUserData = null;
+    appState.selfPartySnapshot = null;
+    appState.selfAuthStatus = null;
+    return { ok: true, name: "" };
+  }
+
+  // Se você ainda não configurou o endpoint, não bloqueia o app (mantém modo legado).
+  // Nesse caso, a party pode vir de party_snapshot/users_raw se existir.
+  if (!SHEET_AUTH_URL) {
+    appState.selfUserData = null;
+    appState.selfPartySnapshot = null;
+    appState.selfAuthStatus = "SKIPPED_NO_ENDPOINT";
+    return { ok: true, name: tn };
+  }
+
+  // 1) cache (se o usuário já logou antes)
+  const cache = loadLoginCache();
+  if (cache && safeStr(cache.name) === tn && cache.userData) {
+    appState.selfUserData = cache.userData;
+    appState.selfAuthStatus = "OK";
+    // party snapshot é opcional; monta se tiver db
+    if (db) appState.selfPartySnapshot = await buildPartySnapshotFromFirestore(db, tn, appState.selfUserData);
+    return { ok: true, name: tn };
+  }
+
+  // 2) pede senha via prompt (não exige mexer no HTML)
+  const pw = window.prompt(`Senha do treinador "${tn}" (mesma da planilha):`, "");
+  if (pw == null) return { ok: false, cancel: true };
+
+  const auth = await sheetAuthenticateUser(tn, pw);
+  appState.selfAuthStatus = auth.status;
+
+  if (auth.status !== "OK") {
+    appState.selfUserData = null;
+    appState.selfPartySnapshot = null;
+    clearLoginCache();
+    return { ok: false, status: auth.status, message: auth.message };
+  }
+
+  appState.selfUserData = auth.data || {};
+  if (db) appState.selfPartySnapshot = await buildPartySnapshotFromFirestore(db, tn, appState.selfUserData);
+  saveLoginCache(tn, appState.selfUserData);
+  return { ok: true, name: tn };
+}
+
 // -------------------------
 // Local state (update incremental)
 // -------------------------
@@ -97,6 +269,10 @@ const appState = {
   connected: false,
   rid: null,
   by: "",
+  // login (Google Sheet)
+  selfUserData: null,      // JSON da coluna B (após login)
+  selfPartySnapshot: null, // snapshot da party com ficha mais recente
+  selfAuthStatus: null,    // "OK" | "NOT_FOUND" | "WRONG_PASS" | "ERROR"
   role: "—",
   players: [],
   userProfiles: new Map(), // uid -> {profile, raw}
@@ -408,6 +584,9 @@ function cleanup() {
   appState.battle = null;
   appState.pieces = [];
   appState.selectedPieceId = null;
+  appState.selfUserData = null;
+  appState.selfPartySnapshot = null;
+  appState.selfAuthStatus = null;
   appState.renderedLogKeys = new Set();
 
   if (playersPre) playersPre.textContent = "—";
@@ -425,7 +604,7 @@ function cleanup() {
 
 disconnectBtn?.addEventListener("click", cleanup);
 
-connectBtn?.addEventListener("click", () => {
+connectBtn?.addEventListener("click", async () => {
   cleanup();
   const rid = safeStr(ridInput?.value || "");
   if (!rid) {
@@ -433,12 +612,30 @@ connectBtn?.addEventListener("click", () => {
     return;
   }
 
-  const by = safeStr(byInput?.value || "");
-  appState.by = by;
-  updateTopBadges();
-
   const app = initializeApp(DEFAULT_FIREBASE_CONFIG);
   const db = getFirestore(app);
+
+  // 🔐 Login (opcional): se preencheu nome, valida na mesma planilha do Streamlit
+  const typedName = safeStr(byInput?.value || "");
+  const login = await ensureLoggedInIfNeeded(db, typedName);
+  if (!login.ok) {
+    if (login.cancel) {
+      setStatus("warn", "login cancelado");
+    } else if (login.status === "NOT_FOUND") {
+      setStatus("err", "usuário não encontrado na planilha");
+    } else if (login.status === "WRONG_PASS") {
+      setStatus("err", "senha incorreta");
+    } else {
+      setStatus("err", `erro no login: ${login.message || login.status || "desconhecido"}`);
+    }
+    return;
+  }
+
+  const by = safeStr(login.name || "");
+  appState.by = by;
+  if (byInput && by) byInput.value = by;
+  updateTopBadges();
+
   currentDb = db;
   currentRid = rid;
   appState.connected = true;
@@ -734,21 +931,33 @@ function getPartyForTrainer(trainerName) {
   const tn = safeStr(trainerName);
   if (!tn) return [];
 
+  // 0) Se este é o usuário logado via planilha, usa o dado direto do login
+  if (safeStr(appState.by) && tn === safeStr(appState.by) && appState.selfUserData) {
+    const partyRaw = Array.isArray(appState.selfUserData?.party) ? appState.selfUserData.party : [];
+    if (partyRaw.length) {
+      // se já montou snapshot com fichas, melhor
+      if (Array.isArray(appState.selfPartySnapshot) && appState.selfPartySnapshot.length) return appState.selfPartySnapshot;
+      return partyRaw.map(x => ({ pid: normalizePartyPid(x) })).filter(it => it.pid);
+    }
+  }
+
+  // 1) party_snapshot vindo da sala
   const p = (appState.players || []).find(x => safeStr(x?.trainer_name) === tn);
   const snapParty = (p && Array.isArray(p.party_snapshot)) ? p.party_snapshot : [];
 
+  // 2) users_raw/users (espelhado pelo Streamlit ou por outro processo)
   const uid = safeDocId(tn);
   const entry = appState.userProfiles?.get?.(uid);
   const raw = entry?.raw;
   const data = raw?.data || raw;
   const rawParty = Array.isArray(data?.party) ? data.party : [];
 
-  // ✅ se a planilha tem party, ela manda (fonte de verdade)
+  // ✅ se users_raw tem party, ela manda (fonte de verdade)
   if (rawParty.length) {
     return rawParty.map(x => ({ pid: normalizePartyPid(x) })).filter(it => it.pid);
   }
 
-  // fallback: usa party_snapshot (caso planilha não tenha)
+  // fallback: usa party_snapshot (caso users_raw não tenha)
   if (snapParty.length) return snapParty;
 
   return [];
@@ -793,7 +1002,7 @@ function updateSidePanels() {
   } else if (myParty && myParty.length) {
     for (const it of myParty) teamRoot.appendChild(renderPartyCard(it, by));
   } else if (!myPieces.length) {
-    teamRoot.innerHTML = `<div class="card"><div style="font-weight:950;margin-bottom:6px">Equipe não encontrada</div><div class="muted">Ainda não achei <code>party_snapshot</code>/<code>users_raw</code> e você não tem peças no tabuleiro. Se você usa Streamlit, entre na sala por lá 1x (ele espelha seu perfil para o Firestore).</div></div>`;
+    teamRoot.innerHTML = `<div class="card"><div style="font-weight:950;margin-bottom:6px">Equipe não encontrada</div><div class="muted">Ainda não achei <code>party_snapshot</code>/<code>users_raw</code> e você não tem peças no tabuleiro. Opções: (1) preencha <code>by</code> e faça login (planilha) no conectar, ou (2) entre na sala 1x pelo Streamlit (ele espelha seu perfil para o Firestore).</div></div>`;
   } else {
     for (const p of myPieces) teamRoot.appendChild(renderPieceCard(p, true));
   }
