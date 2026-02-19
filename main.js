@@ -504,6 +504,11 @@ function ensureUserSubscriptions() {
 // UI helpers
 // -------------------------
 function setStatus(kind, text) {
+  // Não quebra o app se o HTML ainda não tiver o pill de status
+  if (!statusEl) {
+    try { console.warn("[pvp] statusEl ausente:", kind, text); } catch {}
+    return;
+  }
   statusEl.className = `pill ${kind}`;
   statusEl.textContent = text;
 }
@@ -533,17 +538,17 @@ function inferRoleFromPlayers(players, by) {
 }
 
 function updateTopBadges() {
-  ridBadge.textContent = appState.rid || "—";
-  meBadge.textContent = `by: ${safeStr(appState.by) || "—"}`;
-  roleBadge.textContent = `role: ${appState.role || "—"}`;
+  if (ridBadge) ridBadge.textContent = appState.rid || "—";
+  if (meBadge) meBadge.textContent = `by: ${safeStr(appState.by) || "—"}`;
+  if (roleBadge) roleBadge.textContent = `role: ${appState.role || "—"}`;
 
   const phase = safeStr(appState.battle?.status) || "idle";
-  phaseBadge.textContent = phase;
-  trainerNameEl.textContent = safeStr(appState.by) || "—";
-  avatarIcon.textContent = safeStr(appState.by)?.slice(0, 1)?.toUpperCase() || "🙂";
+  if (phaseBadge) phaseBadge.textContent = phase;
+  if (trainerNameEl) trainerNameEl.textContent = safeStr(appState.by) || "—";
+  if (avatarIcon) avatarIcon.textContent = safeStr(appState.by)?.slice(0, 1)?.toUpperCase() || "🙂";
 
   const synced = appState.connected ? "Sincronizado ✓" : "—";
-  syncBadge.textContent = synced;
+  if (syncBadge) syncBadge.textContent = synced;
 }
 
 function setTab(tabName) {
@@ -819,9 +824,12 @@ connectBtn?.addEventListener("click", async () => {
         const data = snap.exists() ? snap.data() : null;
         appState.battle = data;
         if (battlePre) battlePre.textContent = pretty(data);
-        $("battle_preview").textContent = pretty(data);
-        $("initiative_preview").textContent = pretty(data?.initiative || null);
-        $("sheets_preview").textContent = pretty({ selectedPieceId: appState.selectedPieceId });
+        const bp = $("battle_preview");
+        if (bp) bp.textContent = pretty(data);
+        const ip = $("initiative_preview");
+        if (ip) ip.textContent = pretty(data?.initiative || null);
+        const sp = $("sheets_preview");
+        if (sp) sp.textContent = pretty({ selectedPieceId: appState.selectedPieceId });
         updateTopBadges();
         renderLogsIncremental();
       },
@@ -872,6 +880,7 @@ byInput?.addEventListener("input", () => {
 });
 
 function updateArenaMeta() {
+  if (!arenaMeta) return;
   const gs = appState.gridSize || 10;
   arenaMeta.textContent = `grid ${gs}×${gs} • tema ${appState.theme || "—"}`;
 }
@@ -1272,6 +1281,7 @@ function updateSidePanels() {
 
   // LEFT
   const teamRoot = $("team_list");
+  if (!teamRoot) return;
   teamRoot.innerHTML = "";
   // Card de controles do selecionado (mover/ocultar/retirar)
   teamRoot.appendChild(renderSelectedControlsCard());
@@ -1290,6 +1300,7 @@ function updateSidePanels() {
 
   // RIGHT
   const oppRoot = $("opp_list");
+  if (!oppRoot) return;
   oppRoot.innerHTML = "";
   const grouped = new Map();
   for (const p of oppPieces) {
@@ -1298,7 +1309,7 @@ function updateSidePanels() {
     grouped.get(o).push(p);
   }
   const oppOwners = Array.from(grouped.keys()).sort((a, b) => a.localeCompare(b));
-  oppCount.textContent = String(oppOwners.length);
+  if (oppCount) oppCount.textContent = String(oppOwners.length);
   for (const owner of oppOwners) {
     const box = document.createElement("div");
     box.className = "card";
@@ -1418,7 +1429,8 @@ function fmtTimestamp(at) {
 
 function renderLogsIncremental() {
   const logs = Array.isArray(appState.battle?.logs) ? appState.battle.logs : [];
-  logCount.textContent = String(logs.length);
+  if (logCount) logCount.textContent = String(logs.length);
+  if (!logList) return;
 
   // primeira carga: renderiza os mais recentes (até 200)
   const max = 200;
@@ -1547,13 +1559,17 @@ function getPieceAt(row, col) {
 function selectPiece(pieceId) {
   const id = safeStr(pieceId);
   appState.selectedPieceId = id || null;
-  selBadge.textContent = `seleção: ${id || "—"}`;
+
+  if (selBadge) selBadge.textContent = `seleção: ${id || "—"}`;
 
   // preenche devtools move
   if (pieceIdInput) pieceIdInput.value = id || "";
 
-  // atualiza cards selecionados
-  updateSidePanels();
+  // atualiza cards selecionados (se existirem no HTML)
+  try { updateSidePanels(); } catch (e) {
+    // Se o layout ainda não tem os painéis, não deve travar o restante
+    try { console.warn("[pvp] updateSidePanels falhou:", e); } catch {}
+  }
 }
 
 function sendMoveSelected(toRow, toCol) {
@@ -2811,3 +2827,4 @@ try {
     renderSheetsTab();
   }
 } catch {}
+
