@@ -1,0 +1,115 @@
+/* ═══════════════════════════════════════════════════════
+   combat-styles.css — Estilos da aba ⚔️ Combate
+   ═══════════════════════════════════════════════════════ */
+
+/* Defense buttons grid */
+.cb-defense-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+.cb-defense-grid .btn {
+  font-size: 13px;
+  padding: 12px 10px;
+  text-align: center;
+}
+.cb-defense-grid .btn:hover {
+  background: rgba(56, 189, 248, .25);
+  border-color: rgba(56, 189, 248, .55);
+  transform: translateY(-1px);
+}
+
+/* Log messages in combat */
+.cb-log-msg {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, .22);
+  background: rgba(0, 0, 0, .18);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cb-log-success {
+  background: rgba(34, 197, 94, .12);
+  border-color: rgba(34, 197, 94, .35);
+}
+.cb-log-error {
+  background: rgba(248, 113, 113, .12);
+  border-color: rgba(248, 113, 113, .35);
+}
+
+/* Mode toggle buttons */
+.cb-mode-btn {
+  flex: 1;
+  text-align: center;
+  transition: all .15s;
+}
+.cb-mode-btn.active {
+  background: rgba(56, 189, 248, .2) !important;
+  border-color: rgba(56, 189, 248, .55) !important;
+  color: rgba(56, 189, 248, 1);
+}
+
+/* Combat card enhancements */
+#tab_combat .card {
+  animation: cbFadeIn .25s ease-out;
+}
+@keyframes cbFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Phase pill animations */
+#combat_phase_pill {
+  transition: all .2s;
+}
+#combat_phase_pill.warn {
+  background: rgba(251, 191, 36, .18);
+  border-color: rgba(251, 191, 36, .45);
+  animation: cbPulse 2s ease-in-out infinite;
+}
+@keyframes cbPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, .2); }
+  50% { box-shadow: 0 0 0 6px rgba(251, 191, 36, 0); }
+}
+
+/* Input enhancements for combat */
+#tab_combat .input {
+  font-size: 13px;
+}
+#tab_combat .label {
+  margin-top: 4px;
+}
+
+/* Sprite mini in combat */
+.cb-sprite {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid rgba(226, 232, 240, .18);
+  background: rgba(255, 255, 255, .05);
+  object-fit: contain;
+  padding: 3px;
+}
+
+/* Result bars indicator */
+.cb-bars {
+  display: flex;
+  gap: 3px;
+  margin-top: 6px;
+}
+.cb-bar {
+  width: 18px;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(34, 197, 94, .6);
+  border: 1px solid rgba(34, 197, 94, .3);
+  transition: all .2s;
+}
+.cb-bar.lost {
+  background: rgba(248, 113, 113, .5);
+  border-color: rgba(248, 113, 113, .3);
+}
