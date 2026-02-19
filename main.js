@@ -10,15 +10,17 @@ import {
   orderBy,
   limit,
   getDocs,
+  runTransaction,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
 /**
  * PvP Arena (HTML/JS) — Realtime Firestore
  *
- * Regras importantes (preservadas):
- * - Front NÃO mexe no state diretamente.
- * - Envia ações criando docs em rooms/{rid}/actions
- * - Ações suportadas: ADD_LOG, MOVE_PIECE (campos exatos)
+ * Regras importantes:
+ * - Movimento continua via actions (MOVE_PIECE) para manter compatibilidade.
+ * - ✅ Nesta etapa (migração do Streamlit), Ocultar/Revelar e Retirar do campo
+ *   atualizam o public_state/state diretamente (igual ao app.py), via transaction.
+ *   (Depois dá para trocar por actions quando o backend suportar.)
  */
 
 // -------------------------
@@ -1059,21 +1061,144 @@ function renderPartyCard(it, ownerName) {
   const pid = safeStr(it?.pid || it?.pokemon?.id || it);
   const name = dexNameFromPid(pid) || `PID ${pid}`;
   const spriteUrl = getSpriteUrlFromPid(pid);
+
+  // Tenta achar peça no campo para este PID/owner
+  const p = (appState.pieces || []).find(
+    (x) => safeStr(x?.owner) === safeStr(ownerName) && safeStr(x?.pid) === safeStr(pid)
+  );
+
+  const onMap = !!p?.id && safeStr(p?.status || "active") !== "deleted";
+  const mine = safeStr(ownerName) && safeStr(ownerName) === safeStr(appState.by);
+
   const card = document.createElement("div");
   card.className = "card";
   card.innerHTML = `
-    <div class="row" style="align-items:flex-start">
-      ${spriteUrl ? `<img class="mini" src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" onerror="this.style.display='none'"/>` : `<div class="avatar" style="width:40px;height:40px;border-radius:14px">#</div>`}
-      <div style="flex:1; min-width:0">
-        <div style="font-weight:950; line-height:1.1">${escapeHtml(name)}</div>
-        <div class="muted">PID <span class="mono">${escapeHtml(pid)}</span>${it?.np != null ? ` • NP ${escapeHtml(String(it.np))}` : ""}</div>
+    <div class="row spread" style="align-items:flex-start; gap:12px">
+      <div class="row" style="align-items:flex-start">
+        ${spriteUrl ? `<img class="mini" src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" onerror="this.style.display='none'"/>` : `<div class="avatar" style="width:40px;height:40px;border-radius:14px">#</div>`}
+        <div style="flex:1; min-width:0">
+          <div style="font-weight:950; line-height:1.1">${escapeHtml(name)}</div>
+          <div class="muted">PID <span class="mono">${escapeHtml(pid)}</span>${it?.np != null ? ` • NP ${escapeHtml(String(it.np))}` : ""}</div>
+          <div class="tiny" style="margin-top:6px">${onMap ? "📍 No campo" : "🎒 Mochila"}</div>
+        </div>
+      </div>
+
+      <div class="row" style="gap:8px; flex-wrap:wrap; justify-content:flex-end">
+        <button class="btn ghost" data-act="select" title="Selecionar no mapa">🎯</button>
+        <button class="btn ghost" data-act="toggle" ${mine && onMap ? "" : "disabled"} title="Revelar/Esconder">👁️</button>
+        <button class="btn ghost" data-act="remove" ${mine && onMap ? "" : "disabled"} title="Retirar do campo">❌</button>
       </div>
     </div>
   `;
-  card.addEventListener("click", () => {
-    const p = (appState.pieces || []).find(x => safeStr(x?.owner)===safeStr(ownerName) && safeStr(x?.pid)===pid);
+
+  // Click no card seleciona (se existir)
+  const doSelect = () => {
     if (p?.id) selectPiece(String(p.id));
+    else setStatus("warn", "esse Pokémon não está no campo (ainda)");
+  };
+
+  card.addEventListener("click", (ev) => {
+    const tag = ev.target?.tagName?.toLowerCase?.();
+    if (tag === "button") return;
+    doSelect();
   });
+
+  card.querySelector('[data-act="select"]')?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    doSelect();
+  });
+
+  card.querySelector('[data-act="toggle"]')?.addEventListener("click", async (ev) => {
+    ev.stopPropagation();
+    if (!p?.id) return;
+    await togglePieceRevealed(String(p.id));
+  });
+
+  card.querySelector('[data-act="remove"]')?.addEventListener("click", async (ev) => {
+    ev.stopPropagation();
+    if (!p?.id) return;
+    await removePieceFromBoard(String(p.id));
+  });
+
+  return card;
+}
+
+
+function renderSelectedControlsCard() {
+  const card = document.createElement("div");
+  card.className = "card";
+  const selId = safeStr(appState.selectedPieceId);
+
+  if (!selId) {
+    card.innerHTML = `
+      <div style="font-weight:950;margin-bottom:6px">Selecionado</div>
+      <div class="muted">Clique em um token no mapa ou em um card para selecionar.</div>
+      <div class="tiny" style="margin-top:10px">Mover: clique no destino (ou arraste o token). Ocultar/Retirar aparecem quando houver seleção.</div>
+    `;
+    return card;
+  }
+
+  const p = (appState.pieces || []).find((x) => safeStr(x?.id) === selId) || null;
+  if (!p) {
+    card.innerHTML = `
+      <div style="font-weight:950;margin-bottom:6px">Selecionado</div>
+      <div class="muted">Peça não encontrada no state (talvez foi removida).</div>
+    `;
+    return card;
+  }
+
+  const mine = isPieceMine(p);
+  const revealed = p?.revealed != null ? !!p.revealed : true;
+  const row = Number(p?.row);
+  const col = Number(p?.col);
+  const kind = safeStr(p?.kind) || "pokemon";
+  const pid = safeStr(p?.pid ?? "?");
+
+  const title = mine ? "🎒 Sua peça" : "🆚 Peça do oponente";
+  const spriteUrl = getSpriteUrlForPiece(p);
+
+  card.innerHTML = `
+    <div class="row spread" style="align-items:flex-start; gap:10px">
+      <div class="row" style="gap:10px;align-items:flex-start">
+        ${
+          spriteUrl
+            ? `<img class="mini" src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" onerror="this.style.display='none'"/>`
+            : `<div class="avatar" style="width:40px;height:40px;border-radius:14px">#</div>`
+        }
+        <div style="min-width:0">
+          <div style="font-weight:950;line-height:1.1">${escapeHtml(title)}</div>
+          <div class="tiny">id: <span class="mono">${escapeHtml(selId)}</span></div>
+          <div class="tiny">owner: <span class="mono">${escapeHtml(safeStr(p?.owner) || "—")}</span> • kind: <span class="mono">${escapeHtml(kind)}</span></div>
+          <div class="tiny">pid: <span class="mono">${escapeHtml(pid)}</span> • pos: <span class="mono">(${Number.isFinite(row)?row:"?"}, ${Number.isFinite(col)?col:"?"})</span></div>
+          <div class="tiny">revelado: <span class="mono">${revealed ? "sim" : "não"}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row" style="gap:10px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn ghost" data-act="move" title="Mover (clique/arraste no mapa)">🚶 Mover</button>
+      <button class="btn ghost" data-act="toggle" ${mine ? "" : "disabled"} title="Revelar/Esconder">👁️ ${revealed ? "Ocultar" : "Revelar"}</button>
+      <button class="btn ghost" data-act="remove" ${mine ? "" : "disabled"} title="Retirar do campo">❌ Retirar</button>
+    </div>
+
+    <div class="tiny muted" style="margin-top:8px">
+      Dica: para mover, arraste o token ou selecione e clique no tile destino.
+    </div>
+  `;
+
+  card.querySelector('[data-act="move"]')?.addEventListener("click", () => {
+    // Só uma dica visual (o mapa já permite mover ao clicar/arrastar)
+    setStatus("ok", "mover: clique no tile destino (ou arraste)");
+  });
+
+  card.querySelector('[data-act="toggle"]')?.addEventListener("click", async () => {
+    await togglePieceRevealed(selId);
+  });
+
+  card.querySelector('[data-act="remove"]')?.addEventListener("click", async () => {
+    await removePieceFromBoard(selId);
+  });
+
   return card;
 }
 
@@ -1084,13 +1209,19 @@ function updateSidePanels() {
 
   const myParty = by ? getPartyForTrainer(by) : [];
   const myPieces = by ? pieces.filter((p) => safeStr(p?.owner) === by && safeStr(p?.status || "active") !== "deleted") : [];
-  const oppPieces = by ? pieces.filter((p) => safeStr(p?.owner) && safeStr(p?.owner) !== by && safeStr(p?.status || "active") !== "deleted") : pieces;
+  const oppPiecesRaw = by ? pieces.filter((p) => safeStr(p?.owner) && safeStr(p?.owner) !== by && safeStr(p?.status || "active") !== "deleted") : pieces;
+  const oppPieces = (oppPiecesRaw || []).filter((p) => isPieceVisibleToMe(p));
 
   // LEFT
   const teamRoot = $("team_list");
   teamRoot.innerHTML = "";
+  // Card de controles do selecionado (mover/ocultar/retirar)
+  teamRoot.appendChild(renderSelectedControlsCard());
   if (!appState.connected) {
-    teamRoot.innerHTML = `<div class="card"><div class="muted">Conecte numa sala para ver suas peças.</div></div>`;
+    const c = document.createElement("div");
+    c.className = "card";
+    c.innerHTML = `<div class="muted">Conecte numa sala para ver suas peças.</div>`;
+    teamRoot.appendChild(c);
   } else if (myParty && myParty.length) {
     for (const it of myParty) teamRoot.appendChild(renderPartyCard(it, by));
   } else if (!myPieces.length) {
@@ -1345,6 +1476,8 @@ function getPieceAt(row, col) {
   const pieces = appState.pieces || [];
   for (const p of pieces) {
     if (safeStr(p?.status || "active") !== "active") continue;
+    if (!isPieceVisibleToMe(p)) continue;
+    if (!isPieceVisibleToMe(p)) continue;
     if (Number(p?.row) === row && Number(p?.col) === col) return p;
   }
   return null;
@@ -1373,6 +1506,109 @@ function sendMoveSelected(toRow, toCol) {
 // - Canvas (preferencial)
 // - DOM fallback (se Canvas falhar)
 
+
+// -------------------------
+// Mutations on public_state/state (Streamlit parity)
+// -------------------------
+function getStateDocRef() {
+  if (!currentDb || !currentRid) return null;
+  return doc(currentDb, "rooms", currentRid, "public_state", "state");
+}
+
+function isPieceMine(p) {
+  const by = safeStr(appState.by);
+  return by && safeStr(p?.owner) === by;
+}
+
+// Visibilidade no mapa (mesma lógica do app.py):
+// - Jogador vê tudo dele
+// - Vê do outro apenas o que estiver revealed=true
+// - Spectator (ou sem "by"): apenas revealed=true
+function isPieceVisibleToMe(p) {
+  if (!p) return false;
+  if (isPieceMine(p)) return true;
+  const role = safeStr(appState.role);
+  if (!safeStr(appState.by) || role === "spectator") return !!p?.revealed;
+  return !!p?.revealed;
+}
+
+async function togglePieceRevealed(pieceId) {
+  const pid = safeStr(pieceId);
+  if (!pid) return;
+  const ref = getStateDocRef();
+  if (!ref) {
+    setStatus("err", "conecte antes de alterar peças");
+    return;
+  }
+  try {
+    await runTransaction(currentDb, async (tx) => {
+      const snap = await tx.get(ref);
+      const data = snap.exists() ? snap.data() : {};
+      const pieces = Array.isArray(data?.pieces) ? data.pieces : [];
+      const seen = Array.isArray(data?.seen) ? data.seen : [];
+
+      const nextPieces = pieces.map((p) => ({ ...(p || {}) }));
+      const idx = nextPieces.findIndex((p) => safeStr(p?.id) === pid);
+      if (idx < 0) throw new Error("peça não encontrada no state");
+      const cur = nextPieces[idx] || {};
+      if (!isPieceMine(cur)) throw new Error("você só pode ocultar/revelar peças suas");
+
+      const curRev = cur?.revealed != null ? !!cur.revealed : true;
+      const nextRev = !curRev;
+      cur.revealed = nextRev;
+      nextPieces[idx] = cur;
+
+      // Se revelou, marca como "seen" (igual ao app.py)
+      let nextSeen = seen.slice();
+      if (nextRev) {
+        const pidSeen = safeStr(cur?.pid);
+        if (pidSeen && !nextSeen.includes(String(pidSeen))) nextSeen.push(String(pidSeen));
+      }
+
+      tx.set(
+        ref,
+        { pieces: nextPieces, seen: nextSeen, updatedAt: serverTimestamp() },
+        { merge: true }
+      );
+    });
+    setStatus("ok", "visibilidade atualizada");
+  } catch (e) {
+    setStatus("err", `falha ao alternar visibilidade: ${e?.message || e}`);
+  }
+}
+
+async function removePieceFromBoard(pieceId) {
+  const pid = safeStr(pieceId);
+  if (!pid) return;
+  const ref = getStateDocRef();
+  if (!ref) {
+    setStatus("err", "conecte antes de alterar peças");
+    return;
+  }
+  try {
+    await runTransaction(currentDb, async (tx) => {
+      const snap = await tx.get(ref);
+      const data = snap.exists() ? snap.data() : {};
+      const pieces = Array.isArray(data?.pieces) ? data.pieces : [];
+
+      const target = pieces.find((p) => safeStr(p?.id) === pid) || null;
+      if (!target) return;
+      if (!isPieceMine(target)) throw new Error("você só pode remover peças suas");
+
+      const nextPieces = pieces.filter((p) => safeStr(p?.id) !== pid);
+      tx.set(ref, { pieces: nextPieces, updatedAt: serverTimestamp() }, { merge: true });
+    });
+
+    // limpa seleção local se removeu
+    if (safeStr(appState.selectedPieceId) === pid) {
+      appState.selectedPieceId = null;
+      selBadge.textContent = `seleção: —`;
+    }
+    setStatus("ok", "peça removida do campo");
+  } catch (e) {
+    setStatus("err", `falha ao remover peça: ${e?.message || e}`);
+  }
+}
 function bindArenaInteractionsCanvas() {
   if (!useCanvas) return;
 
@@ -1539,6 +1775,7 @@ function renderArenaDom() {
   // coloca tokens
   for (const p of appState.pieces || []) {
     if (safeStr(p?.status || "active") !== "active") continue;
+    if (!isPieceVisibleToMe(p)) continue;
     const r = Number(p?.row);
     const c = Number(p?.col);
     if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
@@ -1813,6 +2050,7 @@ function draw() {
   const pieces = appState.pieces || [];
   for (const p of pieces) {
     if (safeStr(p?.status || "active") !== "active") continue;
+    if (!isPieceVisibleToMe(p)) continue;
     const row = Number(p?.row);
     const col = Number(p?.col);
     if (!Number.isFinite(row) || !Number.isFinite(col)) continue;
