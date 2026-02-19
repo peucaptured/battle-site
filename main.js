@@ -2061,7 +2061,11 @@ function draw() {
   const rect = canvasWrap.getBoundingClientRect();
   const w = rect.width;
   const h = rect.height;
-
+// CORREÇÃO: Se a aba estiver escondida (largura 0), não tenta desenhar
+  if (w <= 0 || h <= 0 || view.scale <= 0) {
+    requestAnimationFrame(draw);
+    return;
+  }
   // background
   ctx.clearRect(0, 0, w, h);
   // soft vignette
