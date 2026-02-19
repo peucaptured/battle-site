@@ -1362,7 +1362,16 @@ function updateSidePanels() {
     if (!grouped.has(o)) grouped.set(o, []);
     grouped.get(o).push(p);
   }
-  const oppOwners = Array.from(grouped.keys()).sort((a, b) => a.localeCompare(b));
+  const knownOwners = new Set(Array.from(grouped.keys()));
+  for (const p of (oppPiecesRaw || [])) {
+    const o = safeStr(p?.owner);
+    if (o && o !== by) knownOwners.add(o);
+  }
+  for (const pl of (appState.players || [])) {
+    const o = safeStr(pl?.trainer_name);
+    if (o && o !== by) knownOwners.add(o);
+  }
+  const oppOwners = Array.from(knownOwners).sort((a, b) => a.localeCompare(b));
   if (oppCount) oppCount.textContent = String(oppOwners.length);
   for (const owner of oppOwners) {
     const ownerBox = document.createElement("div");
@@ -1370,13 +1379,14 @@ function updateSidePanels() {
     const initial = owner.charAt(0).toUpperCase();
     const hdr = document.createElement("div");
     hdr.className = "pvp-opp-header";
-    hdr.innerHTML = `<div class="pvp-opp-avatar">${escapeHtml(initial)}</div><div class="pvp-opp-name">🔴 ${escapeHtml(owner)}</div><div class="pvp-opp-count">${grouped.get(owner).length}</div>`;
+    const visiblePieces = grouped.get(owner) || [];
+    hdr.innerHTML = `<div class="pvp-opp-avatar">${escapeHtml(initial)}</div><div class="pvp-opp-name">🔴 ${escapeHtml(owner)}</div><div class="pvp-opp-count">${Math.max(visiblePieces.length, getPartyForTrainer(owner).length)}</div>`;
     ownerBox.appendChild(hdr);
     const oppParty = getPartyForTrainer(owner);
     if (oppParty.length > 0) {
       for (const it of oppParty) {
         const oppPid = safeStr(it?.pid || it);
-        const oppPiece = grouped.get(owner).find(px => safeStr(px?.pid) === oppPid);
+        const oppPiece = visiblePieces.find(px => safeStr(px?.pid) === oppPid);
         const oppOnMap = !!oppPiece?.id && safeStr(oppPiece?.status || "active") !== "deleted";
         const oppRevealed = oppPiece ? !!oppPiece.revealed : false;
         const oppName = dexNameFromPid(oppPid) || (oppPid.startsWith("EXT:") ? oppPid.slice(4) : `PID ${oppPid}`);
@@ -1390,7 +1400,7 @@ function updateSidePanels() {
         mc.className = "pvp-party-card pvp-opp-card";
         const oppImg = oppRevealed && oppSprite
           ? `<img class="pvp-sprite" src="${escapeAttr(oppSprite)}" loading="lazy" onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'"/>`
-          : `<img class="pvp-sprite" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png" style="filter:brightness(0.3)"/>`;
+          : `<img class="pvp-sprite" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png"/>`;
         mc.innerHTML = `
           <div class="pvp-card-row">
             <div class="pvp-sprite-wrap">
@@ -1399,7 +1409,7 @@ function updateSidePanels() {
             </div>
             <div class="pvp-card-info">
               <div class="pvp-card-name">${oppRevealed ? escapeHtml(oppName) : "???"}<span style="font-size:10px;color:#94a3b8;margin-left:6px;">${oppOnMap ? "No campo" : "Mochila"}</span></div>
-              <div class="pvp-hp-row">
+              ${oppRevealed ? `<div class="pvp-hp-row">
                 <span class="pvp-hp-icon">${oppHpIcon}</span>
                 <input
                   type="range"
@@ -1414,7 +1424,7 @@ function updateSidePanels() {
                   style="--hp-pct:${oppHpPct}%;--hp-col:${oppHpCol};"
                 />
                 <span class="pvp-hp-label">${oppHp}/6</span>
-              </div>
+              </div>` : ""}
             </div>
           </div>
         `;
@@ -1428,7 +1438,7 @@ function updateSidePanels() {
         ownerBox.appendChild(mc);
       }
     } else {
-      for (const p of grouped.get(owner)) ownerBox.appendChild(renderPieceMiniRow(p));
+      for (const p of visiblePieces) ownerBox.appendChild(renderPieceMiniRow(p));
     }
     oppRoot.appendChild(ownerBox);
   }
