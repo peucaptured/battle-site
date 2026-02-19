@@ -880,12 +880,90 @@ function resolvePokemonNameFromPid(pid) {
   return "";
 }
 
-function spriteUrlFromPokemonName(name) {
-  const slug = slugifyPokemonName(name);
+function spriteSlugFromPokemonName(name) {
+  let n = safeStr(name);
+  if (!n) return "";
+
+  // Formatos tipo: "Muk (Alola)" / "Ponyta (Galar)"
+  n = n.replace(/\s*\(\s*galar\s*\)\s*/ig, "-galar");
+  n = n.replace(/\s*\(\s*alola\s*\)\s*/ig, "-alola");
+  n = n.replace(/\s*\(\s*hisui\s*\)\s*/ig, "-hisui");
+  n = n.replace(/\s*\(\s*paldea\s*\)\s*/ig, "-paldea");
+
+  // Adjetivos tipo: "Alolan Muk" / "Galarian Ponyta"
+  if (/\bgalarian\b/i.test(n)) n = n.replace(/\bgalarian\b/ig, "").trim() + "-galar";
+  if (/\balolan\b/i.test(n))   n = n.replace(/\balolan\b/ig, "").trim() + "-alola";
+  if (/\bhisuian\b/i.test(n))  n = n.replace(/\bhisuian\b/ig, "").trim() + "-hisui";
+  if (/\bpaldean\b/i.test(n))  n = n.replace(/\bpaldean\b/ig, "").trim() + "-paldea";
+
+  // Atalhos do seu padrão: Muk-A, A-Muk, etc
+  // (faz isso ANTES de virar slug final)
+  n = n.replace(/\b([a-zA-Z]+)\s*-\s*a\b/g, "$1-alola");  // Muk-A
+  n = n.replace(/\b([a-zA-Z]+)\s*-\s*g\b/g, "$1-galar");  // Ponyta-G
+  n = n.replace(/\b([a-zA-Z]+)\s*-\s*h\b/g, "$1-hisui");  // Growlithe-H
+  n = n.replace(/\b([a-zA-Z]+)\s*-\s*p\b/g, "$1-paldea"); // Tauros-P
+
+  n = n.replace(/\ba\s*-\s*([a-zA-Z]+)\b/g, "$1-alola");  // A-Muk
+  n = n.replace(/\bg\s*-\s*([a-zA-Z]+)\b/g, "$1-galar");  // G-Ponyta
+  n = n.replace(/\bh\s*-\s*([a-zA-Z]+)\b/g, "$1-hisui");  // H-Growlithe
+  n = n.replace(/\bp\s*-\s*([a-zA-Z]+)\b/g, "$1-paldea"); // P-Tauros
+
+  // Agora sim: usa a SUA slugify (mantém consistência)
+  let slug = slugifyPokemonName(n);
   if (!slug) return "";
-  // Fonte estável para imagens em <img> (sem precisar chamar API)
+
+  // Exceções (as formas "default" que você já costuma forçar)
+  const EX = {
+    "mimikyu": "mimikyu-disguised",
+    "aegislash": "aegislash-blade",
+    "giratina": "giratina-origin",
+    "wishiwashi": "wishiwashi-solo",
+    "pumpkaboo": "pumpkaboo-average",
+    "gourgeist": "gourgeist-average",
+    "lycanroc": "lycanroc-midday",
+    "deoxys": "deoxys-normal",
+    "wormadam": "wormadam-plant",
+    "shaymin": "shaymin-land",
+    "toxtricity": "toxtricity-amped",
+    "eiscue": "eiscue-ice",
+    "indeedee": "indeedee-male",
+    "morpeko": "morpeko-full-belly",
+    "urshifu": "urshifu-single-strike",
+    "basculegion": "basculegion-male",
+    "enamorus": "enamorus-incarnate",
+    "keldeo": "keldeo-ordinary",
+    "meloetta": "meloetta-aria",
+    "darmanitan": "darmanitan-standard",
+    "minior": "minior-red-meteor",
+  };
+  if (EX[slug]) slug = EX[slug];
+
+  // Consertos de nomes que aparecem invertidos em algumas fontes
+  if (["eternal-floette", "floette-eternal-forme", "floette-eternal-form"].includes(slug)) {
+    slug = "floette-eternal";
+  }
+  if (["bloodmoon-ursaluna", "blood-moon-ursaluna", "ursaluna-blood-moon"].includes(slug)) {
+    slug = "ursaluna-bloodmoon";
+  }
+
+  // PokemonDB usa sufixos diferentes para regionais
+  // (PokeAPI: -alola / PokemonDB: -alolan) etc
+  if (slug.endsWith("-alola"))  slug = slug.slice(0, -6) + "-alolan";
+  if (slug.endsWith("-galar"))  slug = slug.slice(0, -6) + "-galarian";
+  if (slug.endsWith("-hisui"))  slug = slug.slice(0, -6) + "-hisuian";
+  if (slug.endsWith("-paldea")) slug = slug.slice(0, -7) + "-paldean";
+
+  return slug;
+}
+
+
+function spriteUrlFromPokemonName(name) {
+  const slug = spriteSlugFromPokemonName(name);
+  if (!slug) return "";
   return `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
 }
+
+
 
 function getSpriteUrlForPiece(p) {
   // 1) Prefer explicit spriteUrl if present
