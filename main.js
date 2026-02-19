@@ -2,6 +2,7 @@ import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12
 import {
   getFirestore,
   doc,
+  setDoc,
   collection,
   onSnapshot,
   addDoc,
@@ -1174,7 +1175,18 @@ function renderPartyCard(it, ownerName) {
         <div class="pvp-card-sub">PID ${escapeHtml(pid)} &bull; ${onMap ? "No campo" : "Mochila"}</div>
         <div class="pvp-hp-row">
           <span class="pvp-hp-icon">${hpIcon}</span>
-          <div class="pvp-hp-track"><div class="pvp-hp-fill" style="width:${hpPct}%;background:${hpCol};"></div></div>
+          <input
+            type="range"
+            class="pvp-hp-slider"
+            min="0"
+            max="${maxHp}"
+            step="1"
+            value="${hp}"
+            data-act="hp-slider"
+            data-owner="${escapeAttr(ownerName)}"
+            data-pid="${escapeAttr(pid)}"
+            style="--hp-pct:${hpPct}%;--hp-col:${hpCol};"
+          />
           <span class="pvp-hp-label">${hp}/${maxHp}</span>
         </div>
         <div class="pvp-cond-row">${condHtml}</div>
@@ -1199,7 +1211,32 @@ function renderPartyCard(it, ownerName) {
     ev.stopPropagation();
     if (p?.id) await removePieceFromBoard(String(p.id));
   });
+
+  card.querySelector('[data-act="hp-slider"]')?.addEventListener("input", async (ev) => {
+    ev.stopPropagation();
+    const newHp = Number(ev.target.value);
+    if (!Number.isFinite(newHp)) return;
+    await updatePartyStateHp(ownerName, pid, newHp);
+  });
   return card;
+}
+
+async function updatePartyStateHp(ownerName, pid, hp) {
+  const db = currentDb;
+  const rid = currentRid;
+  const trainer = safeStr(ownerName);
+  const monPid = safeStr(pid);
+  if (!db || !rid || !trainer || !monPid) return;
+  const newHp = Math.max(0, Math.min(6, Number(hp) || 0));
+
+  const ref = doc(db, "rooms", rid, "public_state", "party_states");
+  const patch = {
+    [trainer]: {
+      [monPid]: { hp: newHp },
+    },
+    updated_at: serverTimestamp(),
+  };
+  await setDoc(ref, patch, { merge: true });
 }
 
 
@@ -1359,12 +1396,29 @@ function updateSidePanels() {
               <div class="pvp-card-name">${oppRevealed ? escapeHtml(oppName) : "???"}<span style="font-size:10px;color:#94a3b8;margin-left:6px;">${oppOnMap ? "No campo" : "Mochila"}</span></div>
               <div class="pvp-hp-row">
                 <span class="pvp-hp-icon">${oppHpIcon}</span>
-                <div class="pvp-hp-track"><div class="pvp-hp-fill" style="width:${oppHpPct}%;background:${oppHpCol};"></div></div>
+                <input
+                  type="range"
+                  class="pvp-hp-slider"
+                  min="0"
+                  max="6"
+                  step="1"
+                  value="${oppHp}"
+                  data-act="hp-slider"
+                  data-owner="${escapeAttr(owner)}"
+                  data-pid="${escapeAttr(oppPid)}"
+                  style="--hp-pct:${oppHpPct}%;--hp-col:${oppHpCol};"
+                />
                 <span class="pvp-hp-label">${oppHp}/6</span>
               </div>
             </div>
           </div>
         `;
+        mc.querySelector('[data-act="hp-slider"]')?.addEventListener("input", async (ev) => {
+          ev.stopPropagation();
+          const newHp = Number(ev.target.value);
+          if (!Number.isFinite(newHp)) return;
+          await updatePartyStateHp(owner, oppPid, newHp);
+        });
         if (oppPiece?.id) mc.addEventListener("click", () => selectPiece(String(oppPiece.id)));
         ownerBox.appendChild(mc);
       }
