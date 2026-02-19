@@ -644,6 +644,7 @@ connectBtn?.addEventListener("click", async () => {
 
   currentDb = db;
   currentRid = rid;
+  window._combatDb = db;
   appState.connected = true;
   appState.rid = rid;
   setStatus("ok", "conectado");
