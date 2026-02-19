@@ -574,6 +574,8 @@ window.sendMovePiece = async (by, pieceId, row, col) =>
 // Connect / disconnect
 // -------------------------
 function cleanup() {
+  try { teardownSheetsRealtime(); } catch {}
+
   unsub.forEach((fn) => {
     try {
       fn();
@@ -1252,6 +1254,9 @@ function updateSidePanels() {
     box.appendChild(list);
     oppRoot.appendChild(box);
   }
+
+  // ── Fichas (tab) ──
+  try { ensureSheetsRealtime(); renderSheetsTab(); } catch {}
 }
 
 function renderPieceCard(p, isMine) {
@@ -1445,25 +1450,25 @@ if (useCanvas && typeof ResizeObserver !== "undefined") {
 }
 
 function fitToView() {
-  const gs = Math.max(1, Number(appState.gridSize) || 10);
+  const gs = appState.gridSize || 10;
   const rect = canvasWrap.getBoundingClientRect();
-
-  // Quando a aba/painel está oculto, rect pode vir 0x0.
-  // A gente usa um fallback seguro para não gerar tile negativo.
-  const cw = Math.max(320, Math.floor(rect.width || 0));
-  const ch = Math.max(320, Math.floor(rect.height || 0));
-
   const pad = 20;
-  const w = Math.max(1, cw - pad * 2);
-  const h = Math.max(1, ch - pad * 2);
-
-  const tile = Math.max(1, Math.floor(Math.min(w / gs, h / gs)));
-
+  const w = rect.width - pad * 2;
+  const h = rect.height - pad * 2;
+  const tile = Math.floor(Math.min(w / gs, h / gs));
   view.scale = tile;
-  view.offX = Math.floor((cw - gs * tile) / 2);
-  view.offY = Math.floor((ch - gs * tile) / 2);
+  view.offX = Math.floor((rect.width - gs * tile) / 2);
+  view.offY = Math.floor((rect.height - gs * tile) / 2);
 }
 
+$("btn_zoom_fit")?.addEventListener("click", () => {
+  view.autoFit = true;
+  fitToView();
+});
+$("btn_center")?.addEventListener("click", () => {
+  view.autoFit = false;
+  fitToView();
+});
 
 function screenToTile(x, y) {
   const gs = appState.gridSize || 10;
@@ -1995,7 +2000,7 @@ function draw() {
   ctx.fillRect(0, 0, w, h);
 
   const gs = appState.gridSize || 10;
-  const tile = Math.max(1, Number(view.scale) || 1);
+  const tile = view.scale;
   const ox = view.offX;
   const oy = view.offY;
 
@@ -2181,3 +2186,574 @@ updateArenaMeta();
 updateTopBadges();
 updateSidePanels();
 setStatus("warn", "desconectado");
+
+
+// =====================================================
+// FICHAS (Cards + Painel lateral) — integrado do battle-site-fichas.html
+// - injeta UI/CSS no #tab_sheets se ainda não existir
+// - assina trainers/{uid}/sheets (tempo real)
+// - usa rooms/{rid}/public_state/party_states (HP/cond) se existir
+// =====================================================
+
+let _sheetsRtKey = null;
+let _sheetsUnsub = null;
+let _partyStatesUnsub = null;
+
+let _allSheetsLatest = [];   // lista (desc por updated_at) do trainer logado
+let _partyStates = {};
+let _sheetsSelectedPid = null;
+let _sheetsLastError = "";
+
+function safePidValue(x) {
+  let v = safeStr(x);
+  if (!v) return "";
+  if (v.startsWith("EXT:")) return v;
+  if (v.startsWith("PID:")) v = v.slice(4);
+  // tira zeros à esquerda apenas se for número
+  if (/^\d+$/.test(v)) return (v.replace(/^0+/, "") || "0");
+  return v;
+}
+
+function _injectSheetsStyleOnce() {
+  if (document.getElementById("sheets_tab_style")) return;
+  const st = document.createElement("style");
+  st.id = "sheets_tab_style";
+  st.textContent = "\n/* ─── FICHAS TAB (injetado pelo main.js) ─── */\n#tab_sheets .sheets-status-bar{\n  display:flex;align-items:center;gap:8px;flex-wrap:wrap;\n  padding:10px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.12);\n  background:rgba(15,23,42,.55);margin-bottom:16px;\n}\n#tab_sheets .fichas-layout{display:grid;grid-template-columns:1.15fr .85fr;gap:20px;align-items:start;}\n@media (max-width: 900px){ #tab_sheets .fichas-layout{grid-template-columns:1fr;} }\n#tab_sheets .cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:10px;}\n#tab_sheets .poke-card{border-radius:14px;padding:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);\n  cursor:pointer;transition:all .2s;position:relative;overflow:hidden;}\n#tab_sheets .poke-card::before{content:'';position:absolute;inset:0;background:var(--card-bg,transparent);opacity:.12;pointer-events:none;border-radius:inherit;}\n#tab_sheets .poke-card:hover{border-color:rgba(255,255,255,.2);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3);}\n#tab_sheets .poke-card.selected{border-color:rgba(59,130,246,.5);box-shadow:0 0 0 2px rgba(59,130,246,.3) inset,0 10px 30px rgba(0,0,0,.3);}\n#tab_sheets .card-head{display:flex;gap:10px;align-items:center;position:relative;z-index:1;}\n#tab_sheets .card-head img{width:64px;height:64px;object-fit:contain;border-radius:12px;border:1px solid rgba(255,255,255,.12);\n  background:rgba(0,0,0,.15);padding:4px;image-rendering:pixelated;}\n#tab_sheets .card-info{flex:1;min-width:0;}\n#tab_sheets .card-name{font-weight:900;font-size:.95rem;line-height:1.15;}\n#tab_sheets .card-sub{font-size:.78rem;opacity:.75;margin-top:2px;}\n#tab_sheets .pill-row{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;}\n#tab_sheets .type-pill{padding:2px 8px;border-radius:999px;font-size:.68rem;font-weight:900;text-transform:uppercase;\n  border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.2);}\n#tab_sheets .card-divider{height:1px;background:rgba(255,255,255,.12);margin:8px 0;position:relative;z-index:1;}\n#tab_sheets .card-moves-label{font-weight:900;font-size:.78rem;opacity:.8;margin-bottom:4px;position:relative;z-index:1;}\n#tab_sheets .card-move-row{display:flex;align-items:center;gap:6px;padding:3px 0;position:relative;z-index:1;}\n#tab_sheets .card-move-name{font-weight:700;font-size:.82rem;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}\n#tab_sheets .mv-pill{padding:1px 6px;border-radius:999px;font-size:.66rem;font-weight:900;font-family:monospace;border:1px solid rgba(255,255,255,.12);}\n#tab_sheets .mv-pill.acc{background:rgba(56,189,248,.12);border-color:rgba(56,189,248,.3);color:#38bdf8;}\n#tab_sheets .mv-pill.rk{background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.3);color:#eab308;}\n#tab_sheets .mv-pill.area{background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.3);color:#a855f7;}\n#tab_sheets .card-open{display:block;text-align:right;font-weight:900;font-size:.78rem;color:#38bdf8;margin-top:6px;position:relative;z-index:1;cursor:pointer;}\n#tab_sheets .sheet-panel{border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(17,24,39,.9);padding:18px;position:sticky;top:16px;}\n#tab_sheets .sheet-header{display:flex;gap:16px;align-items:flex-start;margin-bottom:14px;}\n#tab_sheets .sheet-art{width:130px;height:130px;object-fit:contain;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.2);padding:8px;}\n#tab_sheets .sheet-name{font-weight:900;font-size:1.2rem;}\n#tab_sheets .sheet-sub{font-size:.85rem;opacity:.75;margin-top:2px;}\n#tab_sheets .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:12px 0;}\n#tab_sheets .stat-box{text-align:center;padding:8px 4px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);}\n#tab_sheets .stat-label{font-size:.68rem;font-weight:700;opacity:.75;text-transform:uppercase;}\n#tab_sheets .stat-val{font-size:1.1rem;font-weight:900;margin-top:2px;}\n#tab_sheets .section-title{font-weight:900;font-size:.88rem;margin:14px 0 6px;}\n#tab_sheets .chip-row{display:flex;flex-wrap:wrap;gap:5px;}\n#tab_sheets .chip{padding:3px 10px;border-radius:999px;font-size:.75rem;font-weight:700;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);}\n#tab_sheets .sheet-divider{height:1px;background:rgba(255,255,255,.12);margin:12px 0;}\n#tab_sheets .move-expander{border:1px solid rgba(255,255,255,.12);border-radius:10px;margin-bottom:6px;overflow:hidden;}\n#tab_sheets .move-header{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;background:rgba(255,255,255,.04);transition:background .15s;}\n#tab_sheets .move-header:hover{background:rgba(255,255,255,.08);}\n#tab_sheets .move-header .arrow{font-size:.7rem;transition:transform .2s;opacity:.75;}\n#tab_sheets .move-expander.open .arrow{transform:rotate(90deg);}\n#tab_sheets .move-h-name{font-weight:900;font-size:.85rem;flex:1;}\n#tab_sheets .move-body{padding:10px 12px;border-top:1px solid rgba(255,255,255,.12);display:none;font-size:.82rem;opacity:.85;}\n#tab_sheets .move-expander.open .move-body{display:block;}\n#tab_sheets .notes-input{width:100%;padding:6px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.25);color:inherit;font-size:.82rem;margin-top:8px;}\n#tab_sheets .hp-track{height:8px;border-radius:4px;background:rgba(0,0,0,.25);overflow:hidden;}\n#tab_sheets .hp-fill{height:100%;border-radius:4px;transition:width .3s;}\n#tab_sheets .sheets-empty{ text-align:center; padding:40px 20px; opacity:.75;}\n#tab_sheets .spinner{width:24px;height:24px;border:3px solid rgba(255,255,255,.12);border-top-color:#38bdf8;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto;}\n@keyframes spin{to{transform:rotate(360deg);}}\n";
+  document.head.appendChild(st);
+}
+
+function ensureSheetsUI() {
+  const root = $("tab_sheets");
+  if (!root) return false;
+
+  // já existe?
+  if (root.querySelector("#cardsGrid") && root.querySelector("#sheetDetail") && root.querySelector("#sheetsLoading")) {
+    _injectSheetsStyleOnce();
+    return true;
+  }
+
+  _injectSheetsStyleOnce();
+
+  // UI mínima (idempotente)
+  root.innerHTML = `
+    <div class="sheets-status-bar">
+      <span class="pill mono" id="ridBadgeSheets">sala: —</span>
+      <span class="pill mono" id="phaseBadgeSheets">idle</span>
+      <span class="pill" id="syncBadgeSheets">—</span>
+      <span class="pill mono" id="meBadgeSheets">by: —</span>
+    </div>
+
+    <div class="row spread" style="align-items:center; margin-bottom: 12px;">
+      <div style="font-weight: 950; font-size: 1.05rem;">📋 Fichas</div>
+      <span class="pill mono" id="sheetsCount">0</span>
+    </div>
+
+    <div id="sheetsLoading" style="padding: 24px 0; text-align:center; opacity:.8;">
+      <div class="spinner"></div>
+      <div style="margin-top:10px;">Conecte numa sala para ver as fichas da sua party.</div>
+    </div>
+
+    <div id="sheetsContent" style="display:none;">
+      <div class="fichas-layout">
+        <div>
+          <div style="font-weight: 900; margin-bottom: 10px;">Cards</div>
+          <div class="cards-grid" id="cardsGrid"></div>
+        </div>
+        <div>
+          <div style="font-weight: 900; margin-bottom: 10px;">Ficha completa</div>
+          <div id="sheetDetail">
+            <div class="sheets-empty">👆 Selecione um card à esquerda.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="sheetsError" style="display:none; margin-top: 12px; color: #ef4444; font-weight: 800;"></div>
+  `;
+  return true;
+}
+
+function teardownSheetsRealtime() {
+  try { if (_sheetsUnsub) _sheetsUnsub(); } catch {}
+  try { if (_partyStatesUnsub) _partyStatesUnsub(); } catch {}
+  _sheetsUnsub = null;
+  _partyStatesUnsub = null;
+  _sheetsRtKey = null;
+
+  _allSheetsLatest = [];
+  _partyStates = {};
+  _sheetsSelectedPid = null;
+  _sheetsLastError = "";
+}
+
+function ensureSheetsRealtime() {
+  // só monta se existir tab_sheets na página
+  if (!$("tab_sheets")) return;
+
+  const db = currentDb;
+  const rid = currentRid;
+  const by = safeStr(appState.by);
+
+  if (!appState.connected || !db || !rid || !by) {
+    teardownSheetsRealtime();
+    renderSheetsTab(); // limpa UI se existir
+    return;
+  }
+
+  const uid = safeDocId(by);
+  const key = `${rid}::${uid}`;
+  if (_sheetsRtKey === key) return;
+
+  teardownSheetsRealtime();
+  ensureSheetsUI();
+  _sheetsRtKey = key;
+
+  // party_states (HP/cond) — opcional
+  try {
+    const psDoc = doc(db, "rooms", rid, "public_state", "party_states");
+    _partyStatesUnsub = onSnapshot(psDoc, (snap) => {
+      _partyStates = snap.exists() ? (snap.data() || {}) : {};
+      renderSheetsTab();
+    }, () => {});
+  } catch {}
+
+  // trainers/{uid}/sheets — realtime
+  try {
+    const q = query(
+      collection(db, "trainers", uid, "sheets"),
+      orderBy("updated_at", "desc"),
+      limit(200),
+    );
+
+    _sheetsUnsub = onSnapshot(q, (qs) => {
+      const all = [];
+      qs.forEach((d) => {
+        const x = d.data() || {};
+        x._sheet_id = d.id;
+        all.push(x);
+      });
+      _allSheetsLatest = all;
+      _sheetsLastError = "";
+      renderSheetsTab();
+    }, (err) => {
+      _sheetsLastError = err?.message || String(err);
+      renderSheetsTab();
+    });
+  } catch (e) {
+    _sheetsLastError = e?.message || String(e);
+    renderSheetsTab();
+  }
+}
+
+// ---- helpers visuais/matemática de golpes (espelha app.py/_mv_summary)
+const _TYPE_COLORS = {
+  Normal:"#A8A878",Fire:"#F08030",Water:"#6890F0",Electric:"#F8D030",
+  Grass:"#78C850",Ice:"#98D8D8",Fighting:"#C03028",Poison:"#A040A0",
+  Ground:"#E0C068",Flying:"#A890F0",Psychic:"#F85888",Bug:"#A8B820",
+  Rock:"#B8A038",Ghost:"#705898",Dragon:"#7038F8",Dark:"#705848",
+  Steel:"#B8B8D0",Fairy:"#EE99AC",
+  Fogo:"#F08030",Água:"#6890F0",Elétrico:"#F8D030",Planta:"#78C850",
+  Gelo:"#98D8D8",Lutador:"#C03028",Veneno:"#A040A0",Terra:"#E0C068",
+  Voador:"#A890F0",Psíquico:"#F85888",Inseto:"#A8B820",Pedra:"#B8A038",
+  Fantasma:"#705898",Dragão:"#7038F8",Sombrio:"#705848",Aço:"#B8B8D0",Fada:"#EE99AC",
+};
+const _tc = (t) => _TYPE_COLORS[safeStr(t)] || "#666";
+function _typeBg(types) {
+  if (!types || !types.length) return "";
+  return types.length === 1 ? _tc(types[0]) : `linear-gradient(135deg,${_tc(types[0])},${_tc(types[1])})`;
+}
+
+function _mvStat(meta, stats) {
+  meta = meta || {};
+  stats = stats || {};
+  const cat = safeStr(meta.category || meta.categoria || "").toLowerCase();
+  let label = "—", val = 0;
+  if (cat.includes("physical") || cat.includes("físic")) { label = "Stgr"; val = parseInt(stats.stgr || 0) || 0; }
+  else if (cat.includes("special") || cat.includes("especial")) { label = "Int"; val = parseInt(stats["int"] || 0) || 0; }
+  return { label, val };
+}
+function _mvIsArea(mv) {
+  const m = (mv && mv.meta) ? mv.meta : {};
+  if (m.perception_area || m.is_area || m.area) return true;
+  const b = safeStr(mv && mv.build);
+  return b.toLowerCase().includes("área") || b.toLowerCase().includes("area") || b.toLowerCase().includes("aoe");
+}
+function _mvSum(mv, stats) {
+  const br = parseInt(mv?.rank || mv?.Rank || 0) || 0;
+  const acc = parseInt(mv?.accuracy || mv?.Accuracy || mv?.acerto || 0) || 0;
+  const { label, val } = _mvStat(mv?.meta || {}, stats);
+  return { rk: br + val, acc, label, val, area: _mvIsArea(mv), br };
+}
+
+function _spriteUrlFromPidForSheets(pid) {
+  try { return getSpriteUrlFromPid(pid) || ""; } catch { return ""; }
+}
+
+function _artUrlFromPidForSheets(pid) {
+  const k = safeStr(pid);
+  if (!k) return "";
+  if (k.startsWith("EXT:")) {
+    const nm = safeStr(k.slice(4));
+    if (!nm) return "";
+    const slug = (typeof spriteSlugFromPokemonName === "function") ? spriteSlugFromPokemonName(nm) : slugifyPokemonName(nm);
+    return slug ? `https://img.pokemondb.net/artwork/large/${slug}.jpg` : "";
+  }
+  const nm = (typeof resolvePokemonNameFromPid === "function") ? resolvePokemonNameFromPid(k) : "";
+  if (nm) {
+    const slug = (typeof spriteSlugFromPokemonName === "function") ? spriteSlugFromPokemonName(nm) : slugifyPokemonName(nm);
+    if (slug) return `https://img.pokemondb.net/artwork/large/${slug}.jpg`;
+  }
+  if (/^\d+$/.test(k)) {
+    const n = Number(k);
+    if (Number.isFinite(n) && n > 0 && n < 20000) {
+      return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${n}.png`;
+    }
+  }
+  return "";
+}
+
+function _setSheetsBadges() {
+  const rid = safeStr(appState.rid) || "—";
+  const by = safeStr(appState.by) || "—";
+  const phase = safeStr(appState.battle?.status) || "idle";
+
+  const ridEl = document.getElementById("ridBadgeSheets");
+  const meEl = document.getElementById("meBadgeSheets");
+  const phEl = document.getElementById("phaseBadgeSheets");
+  const syncEl = document.getElementById("syncBadgeSheets");
+
+  if (ridEl) ridEl.textContent = `sala: ${rid}`;
+  if (meEl) meEl.textContent = `by: ${by}`;
+  if (phEl) phEl.textContent = phase;
+
+  if (syncEl) {
+    const ok = !!appState.connected;
+    syncEl.textContent = ok ? "Sincronizado ✓" : "—";
+    syncEl.className = ok ? "pill ok" : "pill";
+  }
+}
+
+function renderSheetsTab() {
+  const root = $("tab_sheets");
+  if (!root) return;
+
+  ensureSheetsUI();
+  _setSheetsBadges();
+
+  const loadingEl = document.getElementById("sheetsLoading");
+  const contentEl = document.getElementById("sheetsContent");
+  const cardsGrid = document.getElementById("cardsGrid");
+  const detailEl = document.getElementById("sheetDetail");
+  const countEl = document.getElementById("sheetsCount");
+  const errEl = document.getElementById("sheetsError");
+
+  if (!cardsGrid || !detailEl || !loadingEl || !contentEl) return;
+
+  if (errEl) {
+    if (_sheetsLastError) {
+      errEl.style.display = "";
+      errEl.textContent = `Erro carregando fichas: ${_sheetsLastError}`;
+    } else {
+      errEl.style.display = "none";
+      errEl.textContent = "";
+    }
+  }
+
+  if (!appState.connected || !currentDb || !currentRid) {
+    if (countEl) countEl.textContent = "0";
+    loadingEl.style.display = "";
+    contentEl.style.display = "none";
+    cardsGrid.innerHTML = "";
+    detailEl.innerHTML = `<div class="sheets-empty">Conecte numa sala para ver as fichas.</div>`;
+    return;
+  }
+
+  const by = safeStr(appState.by);
+  if (!by) {
+    if (countEl) countEl.textContent = "0";
+    loadingEl.style.display = "";
+    contentEl.style.display = "none";
+    cardsGrid.innerHTML = "";
+    detailEl.innerHTML = `<div class="sheets-empty">Preencha <b>by</b> e conecte (login) para puxar sua party.</div>`;
+    return;
+  }
+
+  // Party (do login/users_raw/party_snapshot)
+  const party = getPartyForTrainer(by) || [];
+  const partyPids = party.map((it) => safePidValue(it?.pid ?? it?.pokemon?.id ?? it)).filter(Boolean);
+
+  // cria mapa pid->sheet (primeira ocorrência = mais recente)
+  const byPid = {};
+  for (const sh of (_allSheetsLatest || [])) {
+    const pid = safePidValue(sh?.pokemon?.id);
+    if (pid && !byPid[pid]) byPid[pid] = sh;
+    const lp = safePidValue(sh?.linked_pid);
+    if (lp && !byPid[lp]) byPid[lp] = sh;
+  }
+
+  const sheets = [];
+  const seen = new Set();
+  for (const rawPid of partyPids) {
+    const pid = safePidValue(rawPid);
+    if (!pid || seen.has(pid)) continue;
+    seen.add(pid);
+    let sh = byPid[pid] || byPid[(safeStr(pid).replace(/^0+/, "") || "0")];
+    if (sh) sheets.push(Object.assign({}, sh, { _party_pid_raw: rawPid }));
+  }
+
+  if (countEl) countEl.textContent = String(sheets.length);
+
+  // UI states
+  loadingEl.style.display = "none";
+  contentEl.style.display = "";
+
+  if (!partyPids.length) {
+    cardsGrid.innerHTML = `<div class="sheets-empty" style="grid-column:1/-1">Sua party está vazia (ou não foi encontrada ainda).<br/>
+    Dica: entre na sala pelo Streamlit 1x (espelha users_raw) ou garanta que <code>party_snapshot</code> está preenchido.</div>`;
+    detailEl.innerHTML = `<div class="sheets-empty">—</div>`;
+    return;
+  }
+
+  if (!sheets.length) {
+    cardsGrid.innerHTML = `<div class="sheets-empty" style="grid-column:1/-1">📭 Sem fichas encontradas para a sua party.<br/>
+    Salve fichas em <b>Criação Guiada</b> e mantenha a party no <b>Trainer Hub</b>.</div>`;
+    detailEl.innerHTML = `<div class="sheets-empty">—</div>`;
+    return;
+  }
+
+  // selecionado
+  if (!_sheetsSelectedPid || !sheets.some((x) => safePidValue((x.pokemon || {}).id) === _sheetsSelectedPid)) {
+    _sheetsSelectedPid = safePidValue((sheets[0]?.pokemon || {}).id);
+  }
+
+  // ---- render cards
+  cardsGrid.innerHTML = "";
+  for (const sh of sheets) {
+    const pkm = sh.pokemon || {};
+    const pid = safePidValue(pkm.id);
+    const pname = safeStr(pkm.name) || "Pokémon";
+    const types = Array.isArray(pkm.types) ? pkm.types : [];
+    const np = sh.np ?? pkm.np ?? "—";
+    const stats = sh.stats || {};
+
+    const movesRaw = Array.isArray(sh.moves) ? sh.moves : (sh.moves ? Object.values(sh.moves) : []);
+    const moves = (movesRaw || []).filter((m) => m && typeof m === "object");
+    const preview = moves.slice(0, 3);
+
+    const isSel = pid === _sheetsSelectedPid;
+
+    let mvH = "";
+    for (const mv of preview) {
+      const n = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
+      const { rk, acc, label, val, area, br } = _mvSum(mv, stats);
+      const brk = ((label === "Stgr" || label === "Int") && val) ? `(R${br}+${val} ${label})` : `(R${br})`;
+      mvH += `
+        <div class="card-move-row">
+          <span class="card-move-name">${escapeHtml(n)}</span>
+          <span class="mv-pill acc">A+${acc}</span>
+          <span class="mv-pill rk">R${rk}</span>
+          <span class="mv-pill area">${area ? "Área" : "Alvo"}</span>
+        </div>
+        <div style="opacity:.7;font-size:.68rem;font-weight:900;margin-bottom:3px;">${escapeHtml(brk)}</div>
+      `;
+    }
+    if (!mvH) mvH = `<div style="opacity:.6;font-size:.78rem;">Sem golpes nesta ficha.</div>`;
+
+    const tp = (types || []).map((t) => `
+      <span class="type-pill" style="background:${_tc(t)}33;border-color:${_tc(t)}55;color:${_tc(t)}">${escapeHtml(t)}</span>
+    `).join("");
+
+    const sprite = _spriteUrlFromPidForSheets(pid) || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
+
+    const card = document.createElement("div");
+    card.className = `poke-card${isSel ? " selected" : ""}`;
+    card.style.setProperty("--card-bg", _typeBg(types));
+    card.addEventListener("click", () => {
+      _sheetsSelectedPid = pid;
+      renderSheetsTab();
+    });
+
+    card.innerHTML = `
+      <div class="card-head">
+        <img src="${escapeAttr(sprite)}" alt="sprite" loading="lazy"
+          onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'"/>
+        <div class="card-info">
+          <div class="card-name">${escapeHtml(pname)}</div>
+          <div class="card-sub">#${escapeHtml(pid)} • NP ${escapeHtml(String(np))}</div>
+          <div class="pill-row">${tp}</div>
+        </div>
+      </div>
+      <div class="card-divider"></div>
+      <div class="card-moves-label">Golpes</div>
+      ${mvH}
+      <div class="card-open">Abrir ficha →</div>
+    `;
+    cardsGrid.appendChild(card);
+  }
+
+  // ---- render detail
+  const sh = sheets.find((x) => safePidValue((x.pokemon || {}).id) === _sheetsSelectedPid) || sheets[0];
+  if (!sh) {
+    detailEl.innerHTML = `<div class="sheets-empty">Selecione um card.</div>`;
+    return;
+  }
+
+  const pkm = sh.pokemon || {};
+  const pid = safePidValue(pkm.id);
+  const pname = safeStr(pkm.name) || "Pokémon";
+  const types = Array.isArray(pkm.types) ? pkm.types : [];
+  const abilities = Array.isArray(pkm.abilities) ? pkm.abilities : [];
+  const np = parseInt(sh.np || pkm.np || 0) || 0;
+  const st = sh.stats || {};
+
+  const movesRaw = Array.isArray(sh.moves) ? sh.moves : (sh.moves ? Object.values(sh.moves) : []);
+  const moves = (movesRaw || []).filter((m) => m && typeof m === "object");
+  const advantages = Array.isArray(sh.advantages) ? sh.advantages : [];
+  const skills = Array.isArray(sh.skills) ? sh.skills : [];
+
+  const stgr = parseInt(st.stgr || 0) || 0;
+  const intel = parseInt(st["int"] || 0) || 0;
+  let dodge = parseInt(st.dodge || 0) || 0;
+  const parry = parseInt(st.parry || 0) || 0;
+  const fort = parseInt(st.fortitude || 0) || 0;
+  const will = parseInt(st.will || 0) || 0;
+  let thg = parseInt(st.thg || 0) || 0;
+  const cap = 2 * np;
+  if (thg <= 0 && cap > 0) thg = Math.round(cap / 2);
+  if (dodge <= 0 && cap > 0 && thg > 0) dodge = Math.max(0, cap - thg);
+
+  // HP/cond (se existir)
+  const ps = ((_partyStates && _partyStates[by]) ? _partyStates[by] : {})[pid] || {};
+  const hp = (ps.hp ?? 6);
+  const cond = Array.isArray(ps.cond) ? ps.cond : [];
+  const hpMax = 6;
+  const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
+  const hpCol = (hpPct > 50) ? "rgba(34,197,94,1)" : (hpPct > 25) ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
+
+  const tp = (types || []).map((t) => `
+    <span class="type-pill" style="background:${_tc(t)}33;border-color:${_tc(t)}55;color:${_tc(t)}">${escapeHtml(t)}</span>
+  `).join("");
+
+  const abH = abilities.length
+    ? `<div class="chip-row" style="margin-top:6px;">${
+        abilities.map((a) => `<span class="chip" style="border-color:rgba(56,189,248,.35);color:#38bdf8;">${escapeHtml(a)}</span>`).join("")
+      }</div>`
+    : "";
+
+  const condH = cond.length
+    ? `<div class="chip-row" style="margin-top:4px;">${
+        cond.map((c) => `<span class="chip" style="border-color:rgba(249,115,22,.35);color:#f97316;">${escapeHtml(c)}</span>`).join("")
+      }</div>`
+    : "";
+
+  let skH = `<span style="opacity:.75;font-size:.82rem;">Sem skills.</span>`;
+  if (skills.length) {
+    const chips = skills
+      .filter((x) => x && typeof x === "object" && safeStr(x.name) && parseInt(x.ranks || 0))
+      .map((x) => `<span class="chip">${escapeHtml(x.name)} R${parseInt(x.ranks || 0)}</span>`);
+    if (chips.length) skH = `<div class="chip-row">${chips.join("")}</div>`;
+  }
+
+  const advChips = advantages.filter((a) => safeStr(a)).map((a) => `<span class="chip">${escapeHtml(a)}</span>`);
+  const advH = advChips.length ? `<div class="chip-row">${advChips.join("")}</div>` : `<span style="opacity:.75;font-size:.82rem;">Sem advantages.</span>`;
+
+  let mvH = "";
+  if (!moves.length) {
+    mvH = `<span style="opacity:.75;font-size:.82rem;">Sem golpes nesta ficha.</span>`;
+  } else {
+    for (const mv of moves) {
+      const n = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
+      const { rk, acc, label, val, area, br } = _mvSum(mv, st);
+      const brk = ((label === "Stgr" || label === "Int") && val) ? `R${br}+${val} ${label}` : `R${br}`;
+
+      const meta = mv.meta || {};
+      const ranged = meta.ranged === true;
+      const tags = [area ? "Área" : "Alvo"];
+      if (ranged) tags.push("Ranged");
+      const tagH = tags.map((t) => `<span class="chip">${escapeHtml(t)}</span>`).join("");
+
+      const desc = safeStr(mv.description || mv.desc || "");
+      const build = safeStr(mv.build || "");
+      const body = desc
+        ? escapeHtml(desc)
+        : (build
+          ? `<code style="font-size:.78rem;white-space:pre-wrap;display:block;background:rgba(255,255,255,.04);padding:8px;border-radius:10px;margin-top:4px;">${escapeHtml(build)}</code>`
+          : `<span>Descrição não disponível.</span>`);
+
+      mvH += `
+        <div class="move-expander">
+          <div class="move-header">
+            <span class="arrow">▶</span>
+            <span class="move-h-name">${escapeHtml(n)}</span>
+            <span class="mv-pill acc">A+${acc}</span>
+            <span class="mv-pill rk">R${rk}</span>
+            <span class="mv-pill area">${area ? "Área" : "Alvo"}</span>
+          </div>
+          <div class="move-body">
+            <div class="chip-row" style="margin-bottom:6px;">${tagH}</div>
+            <div style="margin-bottom:4px;font-size:.82rem;opacity:.75;">${escapeHtml(brk)}</div>
+            <div>${body}</div>
+            <input class="notes-input" placeholder="Anotações..." />
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  const art = _artUrlFromPidForSheets(pid) || _spriteUrlFromPidForSheets(pid) || "";
+
+  detailEl.innerHTML = `
+    <div class="sheet-panel">
+      <div class="sheet-header">
+        <img class="sheet-art" src="${escapeAttr(art)}" alt="art"
+          onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid))}'"/>
+        <div style="flex:1; min-width:0;">
+          <div class="sheet-name">${escapeHtml(pname)}</div>
+          <div class="sheet-sub">#${escapeHtml(pid)} • NP ${np}</div>
+          <div class="pill-row" style="margin-top:6px;">${tp}</div>
+          ${abH}${condH}
+          <div style="margin-top:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:.75rem;font-weight:700;margin-bottom:3px;">
+              <span>HP</span><span>${hp} / ${hpMax}</span>
+            </div>
+            <div class="hp-track"><div class="hp-fill" style="width:${hpPct}%;background:${hpCol};"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-label">Stgr</div><div class="stat-val">${stgr}</div></div>
+        <div class="stat-box"><div class="stat-label">Int</div><div class="stat-val">${intel}</div></div>
+        <div class="stat-box"><div class="stat-label">Thg</div><div class="stat-val">${thg}</div></div>
+        <div class="stat-box"><div class="stat-label">Dodge</div><div class="stat-val">${dodge}</div></div>
+        <div class="stat-box"><div class="stat-label">Parry</div><div class="stat-val">${parry}</div></div>
+        <div class="stat-box"><div class="stat-label">Fort</div><div class="stat-val">${fort}</div></div>
+        <div class="stat-box"><div class="stat-label">Will</div><div class="stat-val">${will}</div></div>
+        <div class="stat-box" style="border-color:rgba(56,189,248,.3);"><div class="stat-label" style="color:#38bdf8;">Cap</div><div class="stat-val" style="color:#38bdf8;">${cap}</div></div>
+      </div>
+
+      <div class="sheet-divider"></div>
+      <div class="section-title">Skills</div>${skH}
+      <div class="section-title">Advantages</div>${advH}
+      <div class="sheet-divider"></div>
+      <div class="section-title">Golpes</div>${mvH}
+    </div>
+  `;
+
+  // Wire expanders
+  detailEl.querySelectorAll(".move-header").forEach((h) => {
+    h.addEventListener("click", () => {
+      const parent = h.parentElement;
+      if (parent) parent.classList.toggle("open");
+    });
+  });
+}
+
+// Primeiro render (caso usuário abra direto na aba)
+try {
+  if ($("tab_sheets")) {
+    ensureSheetsUI();
+    renderSheetsTab();
+  }
+} catch {}
+
