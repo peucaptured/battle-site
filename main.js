@@ -925,7 +925,7 @@ if (rollsBanner) {
     console.warn("rolls listener error:", e);
     if (rollPillText) rollPillText.textContent = "erro (try/catch)";
   }
-}
+});
 
 // Keep badges updated when user edits inputs
 byInput?.addEventListener("input", () => {
