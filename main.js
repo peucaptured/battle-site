@@ -1,4 +1,4 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
+import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
 import {
   getFirestore,
   doc,
@@ -679,7 +679,7 @@ connectBtn?.addEventListener("click", async () => {
     return;
   }
 
-  const app = initializeApp(DEFAULT_FIREBASE_CONFIG);
+  const app = getApps().length ? getApps()[0] : initializeApp(DEFAULT_FIREBASE_CONFIG);
   const db = getFirestore(app);
   const auth = getAuth(app);
   
