@@ -1445,25 +1445,25 @@ if (useCanvas && typeof ResizeObserver !== "undefined") {
 }
 
 function fitToView() {
-  const gs = appState.gridSize || 10;
+  const gs = Math.max(1, Number(appState.gridSize) || 10);
   const rect = canvasWrap.getBoundingClientRect();
+
+  // Quando a aba/painel está oculto, rect pode vir 0x0.
+  // A gente usa um fallback seguro para não gerar tile negativo.
+  const cw = Math.max(320, Math.floor(rect.width || 0));
+  const ch = Math.max(320, Math.floor(rect.height || 0));
+
   const pad = 20;
-  const w = rect.width - pad * 2;
-  const h = rect.height - pad * 2;
-  const tile = Math.floor(Math.min(w / gs, h / gs));
+  const w = Math.max(1, cw - pad * 2);
+  const h = Math.max(1, ch - pad * 2);
+
+  const tile = Math.max(1, Math.floor(Math.min(w / gs, h / gs)));
+
   view.scale = tile;
-  view.offX = Math.floor((rect.width - gs * tile) / 2);
-  view.offY = Math.floor((rect.height - gs * tile) / 2);
+  view.offX = Math.floor((cw - gs * tile) / 2);
+  view.offY = Math.floor((ch - gs * tile) / 2);
 }
 
-$("btn_zoom_fit")?.addEventListener("click", () => {
-  view.autoFit = true;
-  fitToView();
-});
-$("btn_center")?.addEventListener("click", () => {
-  view.autoFit = false;
-  fitToView();
-});
 
 function screenToTile(x, y) {
   const gs = appState.gridSize || 10;
@@ -1995,7 +1995,7 @@ function draw() {
   ctx.fillRect(0, 0, w, h);
 
   const gs = appState.gridSize || 10;
-  const tile = view.scale;
+  const tile = Math.max(1, Number(view.scale) || 1);
   const ox = view.offX;
   const oy = view.offY;
 
