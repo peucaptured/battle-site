@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PvP — Arena Tática</title>
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
+  <style>
+    :root{
+      --bg0:#060b16;
+      --bg1:#0b1220;
+      --card:rgba(255,255,255,.04);
+      --card2:rgba(2,6,23,.28);
+      --border:rgba(148,163,184,.26);
+      --border2:rgba(255,255,255,.10);
+      --text:#e5e7eb;
+      --muted:#94a3b8;
+      --accent:rgba(56,189,248,.55);
+      --accent2:rgba(56,189,248,.18);
+      --good:rgba(34,197,94,.18);
+      --warn:rgba(251,191,36,.18);
+      --bad:rgba(248,113,113,.18);
+      --shadow:0 16px 30px rgba(2,6,23,.28);
+      --radius:18px;
+      --radius2:14px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;
+      background:radial-gradient(1400px 700px at 18% 0%, rgba(56,189,248,.12), transparent 60%),
+                 radial-gradient(1200px 600px at 85% 20%, rgba(168,85,247,.10), transparent 65%),
+                 linear-gradient(180deg, var(--bg0), var(--bg1));
+      color:var(--text);
+      overflow:hidden;
+    }
+
+    /* Top bar */
+    .topbar{
+      display:flex;align-items:center;justify-content:space-between;gap:12px;
+      padding:12px 14px;
+      border-bottom:1px solid rgba(255,255,255,.08);
+      background:rgba(2,6,23,.35);
+      backdrop-filter: blur(8px);
+    }
+    .brand{display:flex;align-items:center;gap:10px;min-width: 240px}
+    .brand .title{font-weight:900;letter-spacing:.2px}
+    .brand .sub{font-size:12px;color:var(--muted)}
+    .top-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+    .pill{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:rgba(2,6,23,.35);
+      font-weight:700;
+      font-size:12px;
+      user-select:none;
+      white-space:nowrap;
+    }
+    .pill.ok{background:var(--good);border-color:rgba(34,197,94,.45)}
+    .pill.warn{background:var(--warn);border-color:rgba(251,191,36,.45)}
+    .pill.err{background:var(--bad);border-color:rgba(248,113,113,.45)}
+    .btn{
+      appearance:none;border:1px solid var(--border);
+      background:linear-gradient(180deg, rgba(56,189,248,.55) 0%, rgba(14,165,233,.35) 100%);
+      color:var(--text);
+      border-radius:12px;
+      padding:9px 12px;
+      font-weight:900;
+      cursor:pointer;
+      box-shadow:0 10px 18px rgba(2,6,23,.22);
+    }
+    .btn:hover{filter:brightness(1.07);transform:translateY(-1px)}
+    .btn:active{transform:translateY(0)}
+    .btn.secondary{background:rgba(255,255,255,.06);font-weight:800}
+    .btn.ghost{background:rgba(2,6,23,.18)}
+    .input{
+      width:100%;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:rgba(0,0,0,.22);
+      color:var(--text);
+      outline:none;
+    }
+    .input:focus{border-color:rgba(56,189,248,.55);box-shadow:0 0 0 3px rgba(56,189,248,.18)}
+    .label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px 2px}
+
+    /* Layout */
+    .app{
+      height:calc(100% - 56px);
+      display:grid;
+      grid-template-columns: 320px 1fr 320px;
+      gap:12px;
+      padding:12px;
+      min-height:0;
+    }
+    @media (max-width: 1100px){
+      body{overflow:auto}
+      .app{grid-template-columns: 1fr; height:auto}
+    }
+
+    .panel{
+      background:radial-gradient(1200px 500px at 20% 0%, rgba(56,189,248,0.10), transparent 60%),
+                 rgba(15,23,42,0.48);
+      border:1px solid rgba(148,163,184,0.28);
+      border-radius:var(--radius);
+      box-shadow: inset 0 0 18px rgba(15,23,42,0.35);
+      min-height:0;
+      overflow:hidden;
+    }
+    .panel-inner{padding:12px; height:100%; overflow:auto}
+    .panel-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+    .panel-title h3{margin:0;font-size:14px;letter-spacing:.2px}
+
+    .mid{
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      min-height:0;
+    }
+
+    /* Tabs */
+    .tabs{
+      display:flex;gap:8px;flex-wrap:wrap;
+      padding:10px 10px;
+      border-radius:var(--radius);
+      border:1px solid rgba(148,163,184,.28);
+      background:rgba(2,6,23,.22);
+    }
+    .tab{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid rgba(148,163,184,.22);
+      background:rgba(255,255,255,.04);
+      color:var(--text);
+      cursor:pointer;
+      font-weight:900;
+      font-size:12px;
+      user-select:none;
+    }
+    .tab.active{border-color:rgba(56,189,248,.55);background:rgba(56,189,248,.14)}
+
+    /* Arena */
+    .arena-card{
+      background:rgba(2,6,23,.22);
+      border:1px solid rgba(148,163,184,.22);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      min-height:0;
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+    }
+    .arena-head{
+      padding:10px 12px;
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+      border-bottom:1px solid rgba(255,255,255,.08);
+    }
+    .arena-head .left{display:flex;align-items:center;gap:10px;min-width:0}
+    .arena-head .left .name{font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .arena-head .left .meta{font-size:12px;color:var(--muted)}
+    .arena-wrap{position:relative;flex:1;min-height: 420px;background:rgba(0,0,0,.18)}
+    canvas#arena{position:absolute;inset:0;width:100%;height:100%;display:block}
+
+    /* DOM fallback */
+    .arena-dom{position:absolute;inset:0;display:grid;gap:0}
+    .arena-dom .cell{
+      border:1px solid rgba(148,163,184,0.20);
+      background:rgba(255,255,255,0.02);
+      position:relative;
+    }
+    .arena-dom .cell.alt{background:rgba(0,0,0,0.05)}
+    .arena-dom .cell.hover{outline:2px solid rgba(56,189,248,0.55);z-index:2}
+    .arena-dom .cell.sel{outline:3px solid rgba(56,189,248,0.85);z-index:3}
+    .arena-dom .token{
+      position:absolute;inset:6px;
+      border-radius:14px;
+      border:1px solid rgba(226,232,240,0.20);
+      background:rgba(2,6,23,0.25);
+      display:flex;align-items:center;justify-content:center;
+      font-weight:950;
+      color:rgba(226,232,240,0.90);
+      user-select:none;
+      pointer-events:none;
+    }
+    .arena-hint{
+      position:absolute;left:10px;bottom:10px;
+      display:flex;flex-direction:column;gap:6px;
+      pointer-events:none;
+    }
+    .hint{
+      padding:6px 10px;border-radius:12px;
+      border:1px solid rgba(148,163,184,.22);
+      background:rgba(2,6,23,.55);
+      font-size:12px;color:rgba(226,232,240,.88);
+    }
+    .floating-status{
+      position:absolute;right:10px;top:10px;
+      display:flex;flex-direction:column;gap:8px;
+      align-items:flex-end;
+    }
+
+    /* Cards list */
+    .card{
+      border-radius:var(--radius);
+      border:1px solid rgba(148,163,184,.22);
+      background:rgba(2,6,23,.22);
+      padding:12px;
+      box-shadow:0 10px 20px rgba(2,6,23,.18);
+      margin-bottom:10px;
+    }
+    .card.selected{border:2px solid rgba(56,189,248,.55);background:radial-gradient(900px 380px at 15% 0%, rgba(56,189,248,0.12), transparent 60%), rgba(2,6,23,.22)}
+    .row{display:flex;gap:10px;align-items:center}
+    .row.spread{justify-content:space-between}
+    .avatar{
+      width:36px;height:36px;border-radius:14px;
+      border:1px solid rgba(226,232,240,.18);
+      background:rgba(255,255,255,.05);
+      display:flex;align-items:center;justify-content:center;
+      font-weight:900;
+      box-shadow:0 10px 18px rgba(2,6,23,.22);
+      flex:0 0 auto;
+    }
+    .mini{
+      width:40px;height:40px;border-radius:14px;
+      border:1px solid rgba(226,232,240,.18);
+      background:rgba(255,255,255,.05);
+      object-fit:contain;
+      padding:4px;
+      flex:0 0 auto;
+    }
+    .muted{color:var(--muted);font-size:12px}
+    .tiny{font-size:11px;color:rgba(226,232,240,.8)}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+
+    /* Log */
+    .log-wrap{display:flex;flex-direction:column;gap:10px;min-height:0}
+    .log-list{flex:1;min-height:200px;overflow:auto;padding-right:4px}
+    .log-item{padding:10px 10px;border-radius:14px;border:1px solid rgba(148,163,184,.18);background:rgba(0,0,0,.18);margin-bottom:8px}
+    .log-item .head{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+    .log-item .by{font-weight:900}
+    .log-item .at{font-size:11px;color:rgba(148,163,184,.9)}
+    .log-item .text{margin-top:6px;white-space:pre-wrap;word-break:break-word}
+    .log-compose{display:flex;gap:10px;align-items:center}
+    .log-compose input{flex:1}
+
+    /* Dev tools */
+    details.dev{border-radius:var(--radius);border:1px solid rgba(148,163,184,.22);background:rgba(2,6,23,.18);overflow:hidden}
+    details.dev > summary{cursor:pointer;padding:10px 12px;font-weight:950;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px}
+    details.dev > summary::-webkit-details-marker{display:none}
+    .dev-body{padding:12px;border-top:1px solid rgba(255,255,255,.08)}
+    pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.35;color:rgba(226,232,240,.92)}
+    .grid2{display:grid;grid-template-columns:1fr;gap:10px}
+    @media (min-width: 1100px){.grid2{grid-template-columns: 1fr 1fr}}
+    code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+
+    /* ═══════════════════════════════════════════════════════
+       COMBAT STYLES (inline para não depender de CSS externo)
+       ═══════════════════════════════════════════════════════ */
+    .cb-defense-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .cb-defense-grid .btn {
+      font-size: 13px;
+      padding: 12px 10px;
+      text-align: center;
+    }
+    .cb-defense-grid .btn:hover {
+      background: rgba(56, 189, 248, .25);
+      border-color: rgba(56, 189, 248, .55);
+      transform: translateY(-1px);
+    }
+    .cb-log-msg {
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, .22);
+      background: rgba(0, 0, 0, .18);
+      font-weight: 700;
+      font-size: 13px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .cb-log-success {
+      background: rgba(34, 197, 94, .12);
+      border-color: rgba(34, 197, 94, .35);
+    }
+    .cb-log-error {
+      background: rgba(248, 113, 113, .12);
+      border-color: rgba(248, 113, 113, .35);
+    }
+    .cb-mode-btn {
+      flex: 1;
+      text-align: center;
+      transition: all .15s;
+    }
+    .cb-mode-btn.active {
+      background: rgba(56, 189, 248, .2) !important;
+      border-color: rgba(56, 189, 248, .55) !important;
+      color: rgba(56, 189, 248, 1);
+    }
+    #tab_combat .card {
+      animation: cbFadeIn .25s ease-out;
+    }
+    @keyframes cbFadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    #combat_phase_pill {
+      transition: all .2s;
+    }
+    #combat_phase_pill.warn {
+      background: rgba(251, 191, 36, .18);
+      border-color: rgba(251, 191, 36, .45);
+      animation: cbPulse 2s ease-in-out infinite;
+    }
+    @keyframes cbPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, .2); }
+      50% { box-shadow: 0 0 0 6px rgba(251, 191, 36, 0); }
+    }
+  </style>
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div style="font-size:20px">🏟️</div>
+      <div>
+        <div class="title">PvP — Arena Tática</div>
+        <div class="sub">Realtime via Firestore (rooms/&lt;rid&gt;)</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <div class="pill">🧩 Sala <span id="rid_badge" style="font-weight:950">—</span></div>
+      <div class="pill">🏷️ Fase <span id="phase_badge" style="font-weight:950">—</span></div>
+      <div class="pill">📡 <span id="sync_badge" style="font-weight:950">—</span></div>
+      <div id="status" class="pill warn">desconectado</div>
+    </div>
+  </header>
+
+  <main class="app">
+    <!-- LEFT PANEL -->
+    <section class="panel" aria-label="Sua equipe">
+      <div class="panel-inner">
+        <div class="panel-title">
+          <h3>🧑‍🎤 Sua Equipe</h3>
+          <div class="pill mono" id="me_badge">by: —</div>
+        </div>
+
+        <div class="card" style="margin-bottom:12px">
+          <div class="row" style="margin-bottom:10px">
+            <div style="flex:1; min-width:0">
+              <label class="label" for="rid">Código da sala (rid)</label>
+              <input class="input" id="rid" placeholder="ex.: 360" autocomplete="off" />
+            </div>
+          </div>
+          <div class="row" style="margin-bottom:10px">
+            <div style="flex:1; min-width:0">
+              <label class="label" for="by">Seu nome (by)</label>
+              <input class="input" id="by" placeholder="ex.: Logan" autocomplete="off" />
+            </div>
+          </div>
+          <div class="row">
+            <button class="btn" id="connect">Conectar</button>
+            <button class="btn secondary" id="disconnect">Desconectar</button>
+          </div>
+          <div class="muted" style="margin-top:10px">
+            Dica: o <b>by</b> precisa bater com <code>piece.owner</code> para o painel reconhecer "sua equipe".
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:12px">
+          <div class="row spread" style="margin-bottom:10px">
+            <div style="font-weight:950">🤖 Meu Avatar</div>
+            <div class="pill mono" id="role_badge">role: —</div>
+          </div>
+          <div class="row">
+            <div class="avatar" id="avatar_icon">🙂</div>
+            <div style="min-width:0">
+              <div style="font-weight:950" id="trainer_name">—</div>
+              <div class="muted">Selecionar peça no grid: <b>clique</b> • Mover: <b>clique no tile</b> ou <b>arraste</b></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="team_list" aria-label="Peças do jogador"></div>
+      </div>
+    </section>
+
+    <!-- MIDDLE -->
+    <section class="mid" aria-label="Área central">
+      <div class="tabs" role="tablist">
+        <div class="tab active" data-tab="arena" role="tab" aria-selected="true">🗺️ Arena</div>
+        <div class="tab" data-tab="combat" role="tab" aria-selected="false">⚔️ Combate</div>
+        <div class="tab" data-tab="initiative" role="tab" aria-selected="false">🧭 Iniciativa</div>
+        <div class="tab" data-tab="sheets" role="tab" aria-selected="false">📋 Fichas</div>
+        <div class="tab" data-tab="log" role="tab" aria-selected="false">📜 Log</div>
+      </div>
+
+      <!-- Arena -->
+      <section class="arena-card" id="tab_arena" role="tabpanel">
+        <div class="arena-head">
+          <div class="left">
+            <div style="font-size:18px">🗺️</div>
+            <div style="min-width:0">
+              <div class="name">Arena</div>
+              <div class="meta" id="arena_meta">grid — • tema —</div>
+            </div>
+          </div>
+          <div class="row" style="gap:8px">
+            <button class="btn ghost" id="btn_zoom_fit" title="Zoom automático">🔍 Auto</button>
+            <button class="btn secondary" id="btn_center" title="Centralizar">🧭</button>
+          </div>
+        </div>
+
+        <div class="arena-wrap" id="arena_wrap">
+          <canvas id="arena" width="1200" height="800"></canvas>
+          <div id="arena_dom" class="arena-dom" style="display:none"></div>
+          <div class="floating-status">
+            <div class="pill mono" id="sel_badge">seleção: —</div>
+            <div class="pill mono" id="hover_badge">tile: —</div>
+          </div>
+          <div class="arena-hint">
+            <div class="hint">Clique numa peça para selecionar • Clique num tile para mover • Arraste para mover</div>
+            <div class="hint">Envio sempre por <b>rooms/{rid}/actions</b> (front não mexe no state)</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════
+           ⚔️ COMBATE — Aba funcional completa (combat.js + combat-patch.js)
+           ═══════════════════════════════════════════════════════ -->
+      <section class="panel" id="tab_combat" role="tabpanel" style="display:none">
+        <div class="panel-inner">
+          <!-- CombatUI renderiza aqui dinamicamente -->
+        </div>
+      </section>
+
+      <!-- Initiative placeholder -->
+      <section class="panel" id="tab_initiative" role="tabpanel" style="display:none">
+        <div class="panel-inner">
+          <div class="panel-title"><h3>🧭 Iniciativa</h3></div>
+          <div class="card">
+            <div style="font-weight:950;margin-bottom:6px">Placeholder conectado</div>
+            <div class="muted">Estrutura pronta para consumir dados do battle/initiative e pieces.</div>
+          </div>
+          <pre id="initiative_preview">—</pre>
+        </div>
+      </section>
+
+      <!-- Sheets placeholder -->
+      <section class="panel" id="tab_sheets" role="tabpanel" style="display:none">
+        <div class="panel-inner">
+          <div class="panel-title"><h3>📋 Fichas</h3></div>
+          <div class="card">
+            <div style="font-weight:950;margin-bottom:6px">Placeholder conectado</div>
+            <div class="muted">Usa a seleção no grid para decidir qual ficha abrir (próxima etapa).</div>
+          </div>
+          <pre id="sheets_preview">—</pre>
+        </div>
+      </section>
+
+      <!-- Log -->
+      <section class="panel" id="tab_log" role="tabpanel" style="display:none">
+        <div class="panel-inner log-wrap">
+          <div class="panel-title">
+            <h3>📜 Log</h3>
+            <div class="pill mono" id="log_count">0</div>
+          </div>
+          <div class="card" style="margin-bottom:0">
+            <div class="log-compose">
+              <input class="input" id="log_text" placeholder="Escreva um log (ADD_LOG)..." />
+              <button class="btn" id="btn_add_log">Enviar</button>
+            </div>
+            <div class="muted" style="margin-top:10px">Mostrando <code>public_state/battle.logs</code> em tempo real.</div>
+          </div>
+          <div class="log-list" id="log_list"></div>
+        </div>
+      </section>
+
+      <!-- Dev tools (colapsável) -->
+      <details class="dev" id="devtools">
+        <summary>
+          <span>🛠️ Dev tools (debug / ações manuais)</span>
+          <span class="pill mono" id="last_action">—</span>
+        </summary>
+        <div class="dev-body">
+          <div class="grid2">
+            <div class="card" style="margin-bottom:0">
+              <div style="font-weight:950;margin-bottom:10px">Mover peça (MOVE_PIECE)</div>
+              <label class="label" for="pieceId">pieceId (id interno)</label>
+              <input class="input mono" id="pieceId" placeholder="ex.: 3db901a3" />
+              <div style="height:10px"></div>
+              <div class="row">
+                <div style="flex:1">
+                  <label class="label" for="row">row</label>
+                  <input class="input mono" id="row" type="number" placeholder="ex.: 4" />
+                </div>
+                <div style="flex:1">
+                  <label class="label" for="col">col</label>
+                  <input class="input mono" id="col" type="number" placeholder="ex.: 6" />
+                </div>
+              </div>
+              <div style="height:10px"></div>
+              <button class="btn" id="btn_move_piece">Enviar MOVE_PIECE</button>
+              <div class="muted" style="margin-top:10px">Dica: <b>pieceId</b> vem de <code>public_state/state.pieces[].id</code>.</div>
+            </div>
+
+            <div class="card" style="margin-bottom:0">
+              <div style="font-weight:950;margin-bottom:10px">Últimas actions (para ver rejected/erro)</div>
+              <pre id="actions_log">—</pre>
+            </div>
+          </div>
+
+          <div style="height:10px"></div>
+          <div class="grid2">
+            <div class="card" style="margin-bottom:0">
+              <div style="font-weight:950;margin-bottom:10px">Dex / Sprites (opcional)</div>
+              <div class="muted" style="margin-bottom:10px">
+                Se seus <code>pid</code> são IDs custom, carregue um JSON <code>{"218":"Bronzong"}</code>.
+              </div>
+              <label class="label" for="dex_json_file">Carregar mapeamento (pokedex.json)</label>
+              <input class="input" id="dex_json_file" type="file" accept="application/json" />
+              <div style="height:10px"></div>
+              <button class="btn secondary" id="dex_clear">Limpar mapeamento</button>
+              <div class="muted" style="margin-top:10px">Salvo no <code>localStorage</code>.</div>
+            </div>
+
+            <div class="card" style="margin-bottom:0">
+              <div style="font-weight:950;margin-bottom:10px">Mapa (opcional)</div>
+              <div class="muted" style="margin-bottom:10px">
+                URL de um PNG para usar como fundo do mapa.
+              </div>
+              <label class="label" for="map_url_override">Override de URL (PNG)</label>
+              <input class="input mono" id="map_url_override" placeholder="https://.../map.png" />
+              <div style="height:10px"></div>
+              <button class="btn secondary" id="map_url_apply">Aplicar</button>
+              <button class="btn ghost" id="map_url_clear" style="margin-left:8px">Limpar</button>
+            </div>
+          </div>
+
+          <div style="height:10px"></div>
+          <div class="grid2">
+            <div class="card" style="margin-bottom:0">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+                <div style="font-weight:950">Players</div>
+                <div class="pill mono" id="players_count">0</div>
+              </div>
+              <pre id="players">—</pre>
+            </div>
+            <div class="card" style="margin-bottom:0">
+              <div style="font-weight:950;margin-bottom:10px">public_state/state</div>
+              <pre id="state">—</pre>
+            </div>
+          </div>
+
+          <div style="height:10px"></div>
+          <div class="card" style="margin-bottom:0">
+            <div style="font-weight:950;margin-bottom:10px">public_state/battle</div>
+            <pre id="battle">—</pre>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <!-- RIGHT PANEL -->
+    <section class="panel" aria-label="Oponentes">
+      <div class="panel-inner">
+        <div class="panel-title">
+          <h3>🆚 Oponentes</h3>
+          <div class="pill mono" id="opp_count">0</div>
+        </div>
+
+        <div id="opp_list"></div>
+
+        <div class="card" style="margin-top:12px">
+          <div style="font-weight:950;margin-bottom:6px">Info</div>
+          <div class="muted">Esta lateral pode mostrar mochila, status, ações do turno etc. (próxima etapa).</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ═══════════════════════════════════════════════════════
+       Scripts: main.js (original) + combat-patch.js (novo)
+       ═══════════════════════════════════════════════════════ -->
+  <script type="module" src="./main.js"></script>
+  <script type="module" src="./combat-patch.js"></script>
+</body>
+</html>
