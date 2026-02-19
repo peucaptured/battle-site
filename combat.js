@@ -112,7 +112,8 @@ export class CombatUI {
   // ─── Firestore refs ───────────────────────────────────────────────
   _battleRef() {
     const db = this.getDb(); const rid = this.getRid();
-    if (!db || !rid) return null;
+    if (!db) { console.warn("[CombatUI] _battleRef: db é null!"); return null; }
+    if (!rid) { console.warn("[CombatUI] _battleRef: rid é null/vazio!"); return null; }
     return doc(db, "rooms", rid, "public_state", "battle");
   }
 
@@ -198,6 +199,8 @@ export class CombatUI {
         <div class="pill mono" id="combat_phase_pill">idle</div>
       </div>
       <div id="combat_body"></div>
+      <!-- Hidden: main.js writes to these, keep them alive to prevent crashes -->
+      <pre id="battle_preview" style="display:none">—</pre>
     `;
     this._body = this.container.querySelector("#combat_body");
     this._phasePill = this.container.querySelector("#combat_phase_pill");
@@ -283,18 +286,24 @@ export class CombatUI {
     `;
     const btn = this._body.querySelector("#cb_new_battle");
     btn.addEventListener("click", async () => {
+      console.log("[CombatUI] 🔴 CLIQUE em Nova Batalha!");
+      console.log("[CombatUI]   by =", by);
+      console.log("[CombatUI]   getDb() =", this.getDb());
+      console.log("[CombatUI]   getRid() =", this.getRid());
       // Immediately disable to prevent double-click and give visual feedback
       btn.disabled = true;
       btn.textContent = "⏳ Iniciando...";
       btn.style.opacity = "0.6";
       try {
         const ref = this._battleRef();
+        console.log("[CombatUI]   ref =", ref);
         if (!ref) { btn.disabled = false; btn.textContent = "⚔️ Nova Batalha (Atacar)"; btn.style.opacity = ""; return; }
         // Invalidate render key so the next snapshot triggers a real re-render
         this._lastRenderKey = "";
         await setDoc(ref, { status: "setup", attacker: by, attack_move: null, logs: [] });
+        console.log("[CombatUI]   ✅ setDoc concluído com sucesso!");
       } catch (e) {
-        console.error("combat: setDoc error", e);
+        console.error("[CombatUI]   ❌ ERRO no setDoc:", e);
         btn.disabled = false;
         btn.textContent = "⚔️ Nova Batalha (Atacar)";
         btn.style.opacity = "";
