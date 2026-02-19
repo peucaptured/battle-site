@@ -2,6 +2,7 @@ import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12
 import {
   getFirestore,
   doc,
+  setDoc,
   collection,
   onSnapshot,
   addDoc,
@@ -346,6 +347,7 @@ const appState = {
   pieces: [],
   // UI selection
   selectedPieceId: null,
+  placingPid: null,
   hover: { row: null, col: null },
   // drag
   drag: {
@@ -1200,7 +1202,7 @@ function renderPartyCard(it, ownerName) {
   const extBadge = isExt ? `<span class="pvp-ext-badge">EXT</span>` : "";
   const actionsHtml = mine ? `
     <div class="pvp-actions">
-      <button class="pvp-btn" data-act="select">🎯 Selecionar</button>
+      <button class="pvp-btn" data-act="${onMap ? "select" : "place"}">${onMap ? "🎯 Selecionar" : (appState.placingPid === pid ? "📍 Clique no mapa" : "➕ Colocar")}</button>
       <button class="pvp-btn pvp-btn-icon" data-act="toggle"${onMap ? "" : " disabled"}>👁️</button>
       <button class="pvp-btn pvp-btn-icon pvp-btn-danger" data-act="remove"${onMap ? "" : " disabled"}>❌</button>
     </div>` : "";
@@ -1215,7 +1217,18 @@ function renderPartyCard(it, ownerName) {
         <div class="pvp-card-sub">PID ${escapeHtml(pid)} &bull; ${onMap ? "No campo" : "Mochila"}</div>
         <div class="pvp-hp-row">
           <span class="pvp-hp-icon">${hpIcon}</span>
-          <div class="pvp-hp-track"><div class="pvp-hp-fill" style="width:${hpPct}%;background:${hpCol};"></div></div>
+          <input
+            type="range"
+            class="pvp-hp-slider"
+            min="0"
+            max="${maxHp}"
+            step="1"
+            value="${hp}"
+            data-act="hp-slider"
+            data-owner="${escapeAttr(ownerName)}"
+            data-pid="${escapeAttr(pid)}"
+            style="--hp-pct:${hpPct}%;--hp-col:${hpCol};"
+          />
           <span class="pvp-hp-label">${hp}/${maxHp}</span>
         </div>
         <div class="pvp-cond-row">${condHtml}</div>
@@ -1232,6 +1245,10 @@ function renderPartyCard(it, ownerName) {
     if (p?.id) selectPiece(String(p.id));
     else setStatus("warn", "esse Pokemon nao esta no campo");
   });
+  card.querySelector('[data-act="place"]')?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    startPlacePokemon(pid);
+  });
   card.querySelector('[data-act="toggle"]')?.addEventListener("click", async (ev) => {
     ev.stopPropagation();
     if (p?.id) await togglePieceRevealed(String(p.id));
@@ -1240,7 +1257,32 @@ function renderPartyCard(it, ownerName) {
     ev.stopPropagation();
     if (p?.id) await removePieceFromBoard(String(p.id));
   });
+
+  card.querySelector('[data-act="hp-slider"]')?.addEventListener("input", async (ev) => {
+    ev.stopPropagation();
+    const newHp = Number(ev.target.value);
+    if (!Number.isFinite(newHp)) return;
+    await updatePartyStateHp(ownerName, pid, newHp);
+  });
   return card;
+}
+
+async function updatePartyStateHp(ownerName, pid, hp) {
+  const db = currentDb;
+  const rid = currentRid;
+  const trainer = safeStr(ownerName);
+  const monPid = safeStr(pid);
+  if (!db || !rid || !trainer || !monPid) return;
+  const newHp = Math.max(0, Math.min(6, Number(hp) || 0));
+
+  const ref = doc(db, "rooms", rid, "public_state", "party_states");
+  const patch = {
+    [trainer]: {
+      [monPid]: { hp: newHp },
+    },
+    updated_at: serverTimestamp(),
+  };
+  await setDoc(ref, patch, { merge: true });
 }
 
 
@@ -1361,7 +1403,16 @@ function updateSidePanels() {
     if (!grouped.has(o)) grouped.set(o, []);
     grouped.get(o).push(p);
   }
-  const oppOwners = Array.from(grouped.keys()).sort((a, b) => a.localeCompare(b));
+  const knownOwners = new Set(Array.from(grouped.keys()));
+  for (const p of (oppPiecesRaw || [])) {
+    const o = safeStr(p?.owner);
+    if (o && o !== by) knownOwners.add(o);
+  }
+  for (const pl of (appState.players || [])) {
+    const o = safeStr(pl?.trainer_name);
+    if (o && o !== by) knownOwners.add(o);
+  }
+  const oppOwners = Array.from(knownOwners).sort((a, b) => a.localeCompare(b));
   if (oppCount) oppCount.textContent = String(oppOwners.length);
   for (const owner of oppOwners) {
     const ownerBox = document.createElement("div");
@@ -1369,13 +1420,14 @@ function updateSidePanels() {
     const initial = owner.charAt(0).toUpperCase();
     const hdr = document.createElement("div");
     hdr.className = "pvp-opp-header";
-    hdr.innerHTML = `<div class="pvp-opp-avatar">${escapeHtml(initial)}</div><div class="pvp-opp-name">🔴 ${escapeHtml(owner)}</div><div class="pvp-opp-count">${grouped.get(owner).length}</div>`;
+    const visiblePieces = grouped.get(owner) || [];
+    hdr.innerHTML = `<div class="pvp-opp-avatar">${escapeHtml(initial)}</div><div class="pvp-opp-name">🔴 ${escapeHtml(owner)}</div><div class="pvp-opp-count">${Math.max(visiblePieces.length, getPartyForTrainer(owner).length)}</div>`;
     ownerBox.appendChild(hdr);
     const oppParty = getPartyForTrainer(owner);
     if (oppParty.length > 0) {
       for (const it of oppParty) {
         const oppPid = safeStr(it?.pid || it);
-        const oppPiece = grouped.get(owner).find(px => safeStr(px?.pid) === oppPid);
+        const oppPiece = visiblePieces.find(px => safeStr(px?.pid) === oppPid);
         const oppOnMap = !!oppPiece?.id && safeStr(oppPiece?.status || "active") !== "deleted";
         const oppRevealed = oppPiece ? !!oppPiece.revealed : false;
         const oppName = dexNameFromPid(oppPid) || (oppPid.startsWith("EXT:") ? oppPid.slice(4) : `PID ${oppPid}`);
@@ -1389,7 +1441,7 @@ function updateSidePanels() {
         mc.className = "pvp-party-card pvp-opp-card";
         const oppImg = oppRevealed && oppSprite
           ? `<img class="pvp-sprite" src="${escapeAttr(oppSprite)}" loading="lazy" onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'"/>`
-          : `<img class="pvp-sprite" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png" style="filter:brightness(0.3)"/>`;
+          : `<img class="pvp-sprite" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png"/>`;
         mc.innerHTML = `
           <div class="pvp-card-row">
             <div class="pvp-sprite-wrap">
@@ -1398,19 +1450,36 @@ function updateSidePanels() {
             </div>
             <div class="pvp-card-info">
               <div class="pvp-card-name">${oppRevealed ? escapeHtml(oppName) : "???"}<span style="font-size:10px;color:#94a3b8;margin-left:6px;">${oppOnMap ? "No campo" : "Mochila"}</span></div>
-              <div class="pvp-hp-row">
+              ${oppRevealed ? `<div class="pvp-hp-row">
                 <span class="pvp-hp-icon">${oppHpIcon}</span>
-                <div class="pvp-hp-track"><div class="pvp-hp-fill" style="width:${oppHpPct}%;background:${oppHpCol};"></div></div>
+                <input
+                  type="range"
+                  class="pvp-hp-slider"
+                  min="0"
+                  max="6"
+                  step="1"
+                  value="${oppHp}"
+                  data-act="hp-slider"
+                  data-owner="${escapeAttr(owner)}"
+                  data-pid="${escapeAttr(oppPid)}"
+                  style="--hp-pct:${oppHpPct}%;--hp-col:${oppHpCol};"
+                />
                 <span class="pvp-hp-label">${oppHp}/6</span>
-              </div>
+              </div>` : ""}
             </div>
           </div>
         `;
+        mc.querySelector('[data-act="hp-slider"]')?.addEventListener("input", async (ev) => {
+          ev.stopPropagation();
+          const newHp = Number(ev.target.value);
+          if (!Number.isFinite(newHp)) return;
+          await updatePartyStateHp(owner, oppPid, newHp);
+        });
         if (oppPiece?.id) mc.addEventListener("click", () => selectPiece(String(oppPiece.id)));
         ownerBox.appendChild(mc);
       }
     } else {
-      for (const p of grouped.get(owner)) ownerBox.appendChild(renderPieceMiniRow(p));
+      for (const p of visiblePieces) ownerBox.appendChild(renderPieceMiniRow(p));
     }
     oppRoot.appendChild(ownerBox);
   }
@@ -1673,6 +1742,86 @@ function sendMoveSelected(toRow, toCol) {
   sendAction("MOVE_PIECE", by, { pieceId, row: toRow, col: toCol });
 }
 
+
+function makePieceId() {
+  return `pc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function startPlacePokemon(pid) {
+  const monPid = safeStr(pid);
+  if (!monPid) return;
+  if (!appState.connected || !appState.rid) {
+    setStatus("err", "conecte antes de colocar pokémon no mapa");
+    return;
+  }
+  if (!safeStr(appState.by)) {
+    setStatus("err", "preencha o campo by para colocar pokémon");
+    return;
+  }
+  appState.placingPid = monPid;
+  setStatus("ok", `modo de posicionar ativo: ${monPid}. Clique em um tile vazio no mapa.`);
+  updateSidePanels();
+}
+
+async function placePokemonOnBoardAt(pid, row, col) {
+  const monPid = safeStr(pid);
+  const by = safeStr(appState.by);
+  const ref = getStateDocRef();
+  if (!monPid || !by || !ref) return;
+
+  const r = Number(row);
+  const c = Number(col);
+  if (!Number.isFinite(r) || !Number.isFinite(c)) {
+    setStatus("err", "tile inválido para posicionar pokémon");
+    return;
+  }
+
+  try {
+    let createdId = null;
+    await runTransaction(currentDb, async (tx) => {
+      const snap = await tx.get(ref);
+      const data = snap.exists() ? snap.data() : {};
+      const pieces = Array.isArray(data?.pieces) ? data.pieces : [];
+      const seen = Array.isArray(data?.seen) ? data.seen : [];
+
+      const occupied = pieces.some((p) =>
+        safeStr(p?.status || "active") === "active" && Number(p?.row) === r && Number(p?.col) === c
+      );
+      if (occupied) throw new Error("tile ocupado");
+
+      const alreadyOnBoard = pieces.some((p) =>
+        safeStr(p?.owner) === by && safeStr(p?.pid) === monPid && safeStr(p?.status || "active") === "active"
+      );
+      if (alreadyOnBoard) throw new Error("esse pokémon já está no campo");
+
+      createdId = makePieceId();
+      const newPiece = {
+        id: createdId,
+        owner: by,
+        kind: "pokemon",
+        pid: monPid,
+        row: r,
+        col: c,
+        revealed: true,
+        status: "active",
+      };
+
+      const nextSeen = seen.includes(monPid) ? seen : [...seen, monPid];
+      tx.set(
+        ref,
+        { pieces: [...pieces, newPiece], seen: nextSeen, updatedAt: serverTimestamp() },
+        { merge: true }
+      );
+    });
+
+    appState.placingPid = null;
+    if (createdId) selectPiece(createdId);
+    setStatus("ok", "pokémon colocado no mapa");
+  } catch (e) {
+    setStatus("err", `falha ao colocar pokémon: ${e?.message || e}`);
+  }
+}
+
 // Interações Arena
 // - Canvas (preferencial)
 // - DOM fallback (se Canvas falhar)
@@ -1807,6 +1956,7 @@ function bindArenaInteractionsCanvas() {
   });
 
   canvas.addEventListener("mousedown", (ev) => {
+    if (appState.placingPid) return;
     if (ev.button !== 0) return;
     const rect = canvas.getBoundingClientRect();
     const x = ev.clientX - rect.left;
@@ -1850,6 +2000,11 @@ function bindArenaInteractionsCanvas() {
     const tile = screenToTile(x, y);
     if (!tile) return;
 
+    if (appState.placingPid) {
+      placePokemonOnBoardAt(appState.placingPid, tile.row, tile.col);
+      return;
+    }
+
     const p = getPieceAt(tile.row, tile.col);
     if (p) {
       selectPiece(p.id);
@@ -1886,6 +2041,12 @@ function bindArenaInteractionsDom() {
     if (!cell) return;
     const row = Number(cell.dataset.row);
     const col = Number(cell.dataset.col);
+
+    if (appState.placingPid) {
+      placePokemonOnBoardAt(appState.placingPid, row, col);
+      return;
+    }
+
     const p = getPieceAt(row, col);
     if (p) {
       selectPiece(p.id);
@@ -2934,6 +3095,10 @@ try {
 window.appState           = appState;
 window.updateSidePanels   = updateSidePanels;
 window.getPartyForTrainer = getPartyForTrainer;
+window.selectPiece        = selectPiece;
+window.togglePieceRevealed = togglePieceRevealed;
+window.removePieceFromBoard = removePieceFromBoard;
+window.startPlacePokemon  = startPlacePokemon;
 window.currentDb          = null;
 window.currentRid         = null;
 // Mantém window.currentRid e window.currentDb sincronizados com appState
