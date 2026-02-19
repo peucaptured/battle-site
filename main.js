@@ -1448,20 +1448,9 @@ function fitToView() {
   const gs = appState.gridSize || 10;
   const rect = canvasWrap.getBoundingClientRect();
   const pad = 20;
-
   const w = rect.width - pad * 2;
   const h = rect.height - pad * 2;
-
-  // ✅ container sem tamanho (aba oculta / layout ainda não mediu)
-  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
-    view.scale = 1;
-    view.offX = 0;
-    view.offY = 0;
-    return;
-  }
-
-  // ✅ nunca deixa tile <= 0
-  const tile = Math.max(1, Math.floor(Math.min(w / gs, h / gs)));
+  const tile = Math.floor(Math.min(w / gs, h / gs));
   view.scale = tile;
   view.offX = Math.floor((rect.width - gs * tile) / 2);
   view.offY = Math.floor((rect.height - gs * tile) / 2);
