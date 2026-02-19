@@ -12,6 +12,7 @@ import {
   getDocs,
   runTransaction,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+import { getAuth, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
 
 /**
  * PvP Arena (HTML/JS) — Realtime Firestore
