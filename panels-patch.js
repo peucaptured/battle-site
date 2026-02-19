@@ -233,7 +233,7 @@ function injectPanelStyles() {
   margin-top: 2px;
 }
 
-/* HP Bar */
+/* HP Bar / Slider */
 .pp-hp-wrap {
   margin-top: 6px;
   display: flex; align-items: center; gap: 6px;
@@ -242,40 +242,60 @@ function injectPanelStyles() {
   font-size: 11px;
   flex: 0 0 auto;
 }
-.pp-hp-bars {
-  display: flex; gap: 2.5px;
-  flex: 1;
-}
-.pp-hp-bar {
+.pp-hp-range {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
   flex: 1;
   height: 7px;
   border-radius: 4px;
-  transition: all .3s ease;
-}
-.pp-hp-bar.pp-hp-full {
-  background: linear-gradient(180deg, rgba(34,197,94,.7) 0%, rgba(34,197,94,.5) 100%);
-  border: 1px solid rgba(34,197,94,.35);
-  box-shadow: 0 0 4px rgba(34,197,94,.15);
-}
-.pp-hp-bar.pp-hp-warn {
-  background: linear-gradient(180deg, rgba(251,191,36,.7) 0%, rgba(251,191,36,.5) 100%);
-  border: 1px solid rgba(251,191,36,.35);
-  box-shadow: 0 0 4px rgba(251,191,36,.15);
-}
-.pp-hp-bar.pp-hp-crit {
-  background: linear-gradient(180deg, rgba(248,113,113,.7) 0%, rgba(248,113,113,.5) 100%);
-  border: 1px solid rgba(248,113,113,.35);
-  box-shadow: 0 0 4px rgba(248,113,113,.15);
-  animation: ppHpPulse 1.8s ease-in-out infinite;
-}
-.pp-hp-bar.pp-hp-empty {
+  border: 1px solid rgba(148,163,184,.2);
   background: rgba(30,30,40,.4);
-  border: 1px solid rgba(148,163,184,.12);
 }
-
-@keyframes ppHpPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: .6; }
+.pp-hp-range::-webkit-slider-runnable-track {
+  height: 7px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(34,197,94,.8), rgba(251,191,36,.8), rgba(248,113,113,.8));
+}
+.pp-hp-range::-moz-range-track {
+  height: 7px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(34,197,94,.8), rgba(251,191,36,.8), rgba(248,113,113,.8));
+}
+.pp-hp-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 13px; height: 13px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.5);
+  background: #e2e8f0;
+  margin-top: -3px;
+  box-shadow: 0 0 0 2px rgba(15,23,42,.5);
+}
+.pp-hp-range::-moz-range-thumb {
+  width: 13px; height: 13px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.5);
+  background: #e2e8f0;
+  box-shadow: 0 0 0 2px rgba(15,23,42,.5);
+}
+.pp-hp-range:disabled {
+  opacity: .72;
+}
+.pp-hp-range.pp-hp-low::-webkit-slider-runnable-track,
+.pp-hp-range.pp-hp-low::-moz-range-track {
+  background: linear-gradient(90deg, rgba(248,113,113,.9), rgba(251,146,60,.8));
+}
+.pp-hp-range.pp-hp-mid::-webkit-slider-runnable-track,
+.pp-hp-range.pp-hp-mid::-moz-range-track {
+  background: linear-gradient(90deg, rgba(251,191,36,.9), rgba(34,197,94,.8));
+}
+.pp-hp-range.pp-hp-high::-webkit-slider-runnable-track,
+.pp-hp-range.pp-hp-high::-moz-range-track {
+  background: linear-gradient(90deg, rgba(34,197,94,.95), rgba(74,222,128,.85));
+}
+.pp-hp-range.pp-hp-zero::-webkit-slider-runnable-track,
+.pp-hp-range.pp-hp-zero::-moz-range-track {
+  background: rgba(100,116,139,.7);
 }
 
 .pp-hp-label {
@@ -517,13 +537,6 @@ function hpIcon(hp) {
   return "💀";
 }
 
-function hpBarClass(hp, idx) {
-  if (idx >= hp) return "pp-hp-empty";
-  if (hp >= 5) return "pp-hp-full";
-  if (hp >= 3) return "pp-hp-warn";
-  return "pp-hp-crit";
-}
-
 // ─── Get party_states data ──────────────────────────────────────────
 function getPartyStateData() {
   // Try the global appState or _partyStates from sheets
@@ -599,16 +612,13 @@ function getDisplayName(pid) {
 }
 
 // ─── Build HP bars HTML ─────────────────────────────────────────────
-function renderHpBarsHtml(hp, maxHp = 6) {
-  let bars = "";
-  for (let i = 0; i < maxHp; i++) {
-    bars += `<div class="pp-hp-bar ${hpBarClass(hp, i)}"></div>`;
-  }
+function renderHpBarsHtml(hp, maxHp = 6, isMine = false) {
+  const hpClass = hp <= 0 ? "pp-hp-zero" : hp >= 5 ? "pp-hp-high" : hp >= 3 ? "pp-hp-mid" : "pp-hp-low";
   return `
     <div class="pp-hp-wrap">
       <span class="pp-hp-icon">${hpIcon(hp)}</span>
-      <div class="pp-hp-bars">${bars}</div>
-      <span class="pp-hp-label">${hp}/${maxHp}</span>
+      <input type="range" class="pp-hp-range ${hpClass}" min="0" max="${maxHp}" value="${hp}" ${isMine ? 'data-act="hp-slider"' : "disabled"} />
+      <span class="pp-hp-label">${isMine ? `${hp}/${maxHp}` : `HP atual: ${hp}/${maxHp}`}</span>
     </div>
   `;
 }
@@ -673,18 +683,6 @@ function buildMonCard(pid, ownerName, options = {}) {
     ? `PID ${escapeHtml(safeStr(pid))} • ${isOnMap ? "No campo" : "Mochila"}`
     : (isOnMap ? "No campo" : "Mochila");
 
-  // HP controls (only for own team)
-  let hpControlsHtml = "";
-  if (isMine) {
-    hpControlsHtml = `
-      <div class="pp-hp-controls">
-        <button class="pp-hp-ctrl-btn pp-minus" data-act="hp-down" title="−1 HP">−</button>
-        <input type="range" class="pp-hp-slider" min="0" max="6" value="${hp}" data-act="hp-slider" />
-        <button class="pp-hp-ctrl-btn" data-act="hp-up" title="+1 HP">+</button>
-      </div>
-    `;
-  }
-
   // Damage message
   let dmgHtml = "";
   if (dmgMsg) {
@@ -723,12 +721,11 @@ function buildMonCard(pid, ownerName, options = {}) {
       <div class="pp-mon-info">
         <div class="pp-mon-name">${nameDisplay}</div>
         <div class="pp-mon-sub">${subDisplay}</div>
-        ${renderHpBarsHtml(hp)}
+        ${renderHpBarsHtml(hp, 6, isMine)}
         ${renderConditionsHtml(cond)}
         ${dmgHtml}
       </div>
     </div>
-    ${hpControlsHtml}
     ${actionsHtml}
   `;
 
@@ -761,8 +758,6 @@ function buildMonCard(pid, ownerName, options = {}) {
   });
 
   // HP controls
-  const hpDown = card.querySelector('[data-act="hp-down"]');
-  const hpUp = card.querySelector('[data-act="hp-up"]');
   const hpSlider = card.querySelector('[data-act="hp-slider"]');
 
   function updateHpFirestore(newHp) {
@@ -786,14 +781,6 @@ function buildMonCard(pid, ownerName, options = {}) {
     }
   }
 
-  hpDown?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    updateHpFirestore(hp - 1);
-  });
-  hpUp?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    updateHpFirestore(hp + 1);
-  });
   hpSlider?.addEventListener("input", (e) => {
     e.stopPropagation();
     updateHpFirestore(Number(e.target.value));
