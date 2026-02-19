@@ -898,15 +898,16 @@ function spriteSlugFromPokemonName(name) {
 
   // Atalhos do seu padrão: Muk-A, A-Muk, etc
   // (faz isso ANTES de virar slug final)
-  n = n.replace(/\b([a-zA-Z]+)\s*-\s*a\b/g, "$1-alola");  // Muk-A
-  n = n.replace(/\b([a-zA-Z]+)\s*-\s*g\b/g, "$1-galar");  // Ponyta-G
-  n = n.replace(/\b([a-zA-Z]+)\s*-\s*h\b/g, "$1-hisui");  // Growlithe-H
-  n = n.replace(/\b([a-zA-Z]+)\s*-\s*p\b/g, "$1-paldea"); // Tauros-P
+  n = n.replace(/\b([a-zA-Z-]+)\s*-\s*a\b/g, "$1-alola");   // Muk-A, Mr-Mime-A
+  n = n.replace(/\b([a-zA-Z-]+)\s*-\s*g\b/g, "$1-galar");
+  n = n.replace(/\b([a-zA-Z-]+)\s*-\s*h\b/g, "$1-hisui");
+  n = n.replace(/\b([a-zA-Z-]+)\s*-\s*p\b/g, "$1-paldea");
 
-  n = n.replace(/\ba\s*-\s*([a-zA-Z]+)\b/g, "$1-alola");  // A-Muk
-  n = n.replace(/\bg\s*-\s*([a-zA-Z]+)\b/g, "$1-galar");  // G-Ponyta
-  n = n.replace(/\bh\s*-\s*([a-zA-Z]+)\b/g, "$1-hisui");  // H-Growlithe
-  n = n.replace(/\bp\s*-\s*([a-zA-Z]+)\b/g, "$1-paldea"); // P-Tauros
+  n = n.replace(/\ba\s*-\s*([a-zA-Z-]+)\b/g, "$1-alola");   // A-Muk
+  n = n.replace(/\bg\s*-\s*([a-zA-Z-]+)\b/g, "$1-galar");
+  n = n.replace(/\bh\s*-\s*([a-zA-Z-]+)\b/g, "$1-hisui");
+  n = n.replace(/\bp\s*-\s*([a-zA-Z-]+)\b/g, "$1-paldea");
+
 
   // Agora sim: usa a SUA slugify (mantém consistência)
   let slug = slugifyPokemonName(n);
@@ -968,7 +969,8 @@ function spriteUrlFromPokemonName(name) {
 function getSpriteUrlForPiece(p) {
   // 1) Prefer explicit spriteUrl if present
   const direct = safeStr(p?.spriteUrl || p?.sprite_url || "");
-  if (direct) return direct;
+  if (direct && (direct.startsWith("http://") || direct.startsWith("https://"))) return direct;
+
 
   // 2) Try resolve by name via Dex mapping
   const name = resolvePokemonNameFromPid(p?.pid);
