@@ -5,21 +5,24 @@
  *
  * Lógica:
  *  - Lê as peças do tabuleiro (public_state/state.pieces)
+ *  - Lê stats de speed em public_state/party_states (igual ao app.py get_poke_data)
  *  - Lê/escreve iniciativas em public_state/battle.initiative
  *  - Calcula: d20 + mod_speed + bonus  (Pokémon)
  *             bonus                     (Treinador/Avatar)
+ *
+ * Estrutura Firestore:
+ *   party_states[trainerName][pid].stats.speed
  *
  * Tabela Speed → Mod:
  *   1–40 = -4 | 41–60 = -1 | 61–70 = 0 | 71–80 = +1 | 81–100 = +2 | 101–120 = +4 | 121+ = +8
  *
  * Permissões:
- *   - "owner" (role = owner/gm) → rola todos, edita qualquer bonus
+ *   - "owner" / "gm" → rola todos, edita qualquer bonus
  *   - jogador comum → rola e edita apenas os próprios Pokémon
  */
 
 import {
   doc,
-  getDoc,
   onSnapshot,
   updateDoc,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
@@ -52,10 +55,10 @@ function speedToMod(speed) {
   return 8;
 }
 
-/** Tenta extrair Speed de um objeto de stats */
+/** Extrai Speed de um objeto de stats (várias chaves possíveis) */
 function extractSpeed(statsObj) {
   if (!statsObj || typeof statsObj !== "object") return 0;
-  for (const k of ["speed", "spe", "spd", "velocidade", "vel"]) {
+  for (const k of ["speed", "spe", "spd", "velocidade", "vel", "Speed"]) {
     if (k in statsObj) return safeInt(statsObj[k], 0);
   }
   return 0;
@@ -78,13 +81,15 @@ export class InitiativeUI {
     this._role = role;
     this._container = container;
 
-    // Estado local em memória (espelha battle.initiative)
-    this._initStore = {};
-    this._pieces = [];
-    this._bonusEdits = {}; // { [key]: number } — edições locais não salvas ainda
+    // Estado local em memória
+    this._initStore = {};   // battle.initiative
+    this._pieces = [];      // state.pieces
+    this._partyStates = {}; // party_states — { trainerName: { pid: { stats: { speed, ... } } } }
+    this._bonusEdits = {};  // { [key]: number } — edições locais não salvas ainda
 
     this._unsubBattle = null;
     this._unsubState = null;
+    this._unsubParty = null;
 
     this._render();
     this._subscribe();
@@ -97,22 +102,31 @@ export class InitiativeUI {
   _stateRef() {
     return doc(this._db, "rooms", this._rid, "public_state", "state");
   }
+  _partyStatesRef() {
+    return doc(this._db, "rooms", this._rid, "public_state", "party_states");
+  }
 
   // ─── Subscrições em tempo real ─────────────────────────────────────
   _subscribe() {
     // Escuta battle → pega initiative salvo
     this._unsubBattle = onSnapshot(this._battleRef(), (snap) => {
       if (!snap.exists()) return;
-      const data = snap.data() || {};
-      this._initStore = data.initiative || {};
+      this._initStore = snap.data()?.initiative || {};
       this._renderRows();
     });
 
     // Escuta state → pega peças
     this._unsubState = onSnapshot(this._stateRef(), (snap) => {
       if (!snap.exists()) return;
-      const data = snap.data() || {};
-      this._pieces = data.pieces || [];
+      this._pieces = snap.data()?.pieces || [];
+      this._renderRows();
+    });
+
+    // Escuta party_states → pega stats (speed) de todos os Pokémon
+    // Estrutura: { trainerName: { pid: { stats: { speed, dodge, ... } } } }
+    this._unsubParty = onSnapshot(this._partyStatesRef(), (snap) => {
+      if (!snap.exists()) return;
+      this._partyStates = snap.data() || {};
       this._renderRows();
     });
   }
@@ -120,6 +134,7 @@ export class InitiativeUI {
   destroy() {
     try { this._unsubBattle?.(); } catch {}
     try { this._unsubState?.(); } catch {}
+    try { this._unsubParty?.(); } catch {}
   }
 
   // ─── Estrutura raiz (renderizada uma vez) ──────────────────────────
@@ -267,10 +282,28 @@ export class InitiativeUI {
         speed_mod = 0;
       } else {
         pid = String(p.pid || "");
-        display = p.name || p.display_name || pid || "Pokémon";
-        // Tenta pegar speed dos stats guardados na própria peça
-        const pStats = p.stats || p.poke_stats || {};
-        speed_val = extractSpeed(pStats);
+
+        // Nome de exibição: tenta dexMap global (injetado pelo main.js), depois p.name, depois pid
+        if (window.dexMap) {
+          const mapped = window.dexMap[pid] || window.dexMap[String(Number(pid))];
+          display = mapped || p.name || p.display_name || pid || "Pokémon";
+        } else {
+          display = p.name || p.display_name || pid || "Pokémon";
+        }
+
+        // ── Busca speed do party_states (igual ao app.py get_poke_data)
+        // Estrutura: party_states[trainerName][pid].stats
+        const ownerParty = this._partyStates[owner] || {};
+        const pokeData   = ownerParty[pid] || ownerParty[String(Number(pid))] || {};
+        const statsObj   = pokeData.stats || {};
+
+        speed_val = extractSpeed(statsObj);
+
+        // Fallback: tenta stats direto na peça (caso antigo)
+        if (speed_val === 0) {
+          speed_val = extractSpeed(p.stats || p.poke_stats || {});
+        }
+
         speed_mod = speedToMod(speed_val);
       }
 
