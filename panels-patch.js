@@ -1028,17 +1028,35 @@ function renderEnhancedPanels() {
 
 // ─── Monkey-patch updateSidePanels ──────────────────────────────────
 function patchSidePanels() {
-  // Wait for main.js to define updateSidePanels, then override it
+  // main.js chama updateSidePanels() por referencia local (ES module),
+  // entao o monkey-patch de window.updateSidePanels nao intercepta chamadas internas.
+  // Usamos MutationObserver no team_list e opp_list para detectar quando
+  // o main.js atualiza os paineis e re-renderizamos em cima.
+
+  const debounce = (fn, ms) => {
+    let t;
+    return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  };
+  const debouncedRender = debounce(renderEnhancedPanels, 80);
+
+  const targets = [
+    document.getElementById("team_list"),
+    document.getElementById("opp_list"),
+  ].filter(Boolean);
+
+  const observer = new MutationObserver(debouncedRender);
+  for (const el of targets) {
+    observer.observe(el, { childList: true, subtree: true });
+  }
+
+  // Tambem sobrescreve window.updateSidePanels para patches futuros
   const origFn = window.updateSidePanels;
-  
   window.updateSidePanels = function() {
-    // Call original first (it may update appState fields we need)
     try { if (origFn) origFn.call(this); } catch {}
-    // Then render our enhanced version on top
     renderEnhancedPanels();
   };
-  
-  console.log("%c[panels-patch]", "color:#a78bfa;font-weight:bold", "✅ updateSidePanels patched");
+
+  console.log("%c[panels-patch]", "color:#a78bfa;font-weight:bold", "\u2705 MutationObserver ativo nos paineis");
 }
 
 // ─── Listen for party_states changes (for HP/conditions) ────────────

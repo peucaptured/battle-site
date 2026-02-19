@@ -2835,3 +2835,16 @@ try {
 
 
 
+
+// ─── Expor globais para patches externos (panels-patch, combat-patch, etc.) ───
+// ES Modules não expõem nada no window por padrão — fazemos isso manualmente.
+window.appState           = appState;
+window.updateSidePanels   = updateSidePanels;
+window.getPartyForTrainer = getPartyForTrainer;
+window.currentDb          = null;
+window.currentRid         = null;
+// Mantém window.currentRid e window.currentDb sincronizados com appState
+setInterval(() => {
+  window.currentRid = appState.rid || null;
+  window.currentDb  = window._combatDb || null;
+}, 300);
