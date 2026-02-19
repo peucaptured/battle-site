@@ -282,7 +282,6 @@ async function ensureLoggedInIfNeeded(db, auth, typedName) {
       if (db) appState.selfPartySnapshot = await buildPartySnapshotFromFirestore(db, tn, appState.selfUserData);
       return { ok: true, name: tn };
     }
-}
 
 
   // 2) pede senha via prompt (não exige mexer no HTML)
@@ -321,6 +320,7 @@ async function ensureLoggedInIfNeeded(db, auth, typedName) {
   saveLoginCache(tn, appState.selfUserData, appState.selfTrainerId, token);
   
   return { ok: true, name: tn };
+}
 
 // -------------------------
 // Local state (update incremental)
