@@ -113,6 +113,19 @@
       overflow:hidden;
     }
     .panel-inner{padding:12px; height:100%; overflow:auto}
+
+    /* Tab panels dentro do .mid devem expandir quando ativos */
+    .mid [role="tabpanel"].panel {
+      flex: 1;
+      min-height: 500px;
+      overflow: hidden;
+    }
+    .mid [role="tabpanel"].panel .panel-inner {
+      height: 100%;
+      overflow: auto;
+    }
+    /* Arena-card tambem deve expandir */
+    .arena-card { flex: 1; }
     .panel-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
     .panel-title h3{margin:0;font-size:14px;letter-spacing:.2px}
 
@@ -438,14 +451,14 @@
       <!-- ═══════════════════════════════════════════════════════
            ⚔️ COMBATE — Aba funcional completa (combat.js + combat-patch.js)
            ═══════════════════════════════════════════════════════ -->
-      <section class="panel" id="tab_combat" role="tabpanel" style="display:none">
+      <section class="panel" id="tab_combat" role="tabpanel" style="display:none;flex:1;min-height:0">
         <div class="panel-inner">
           <!-- CombatUI renderiza aqui dinamicamente -->
         </div>
       </section>
 
       <!-- Initiative placeholder -->
-      <section class="panel" id="tab_initiative" role="tabpanel" style="display:none">
+      <section class="panel" id="tab_initiative" role="tabpanel" style="display:none;flex:1;min-height:0">
         <div class="panel-inner">
           <div class="panel-title"><h3>🧭 Iniciativa</h3></div>
           <div class="card">
@@ -457,7 +470,7 @@
       </section>
 
       <!-- Sheets placeholder -->
-      <section class="panel" id="tab_sheets" role="tabpanel" style="display:none">
+      <section class="panel" id="tab_sheets" role="tabpanel" style="display:none;flex:1;min-height:0">
         <div class="panel-inner">
           <div class="panel-title"><h3>📋 Fichas</h3></div>
           <div class="card">
@@ -469,7 +482,7 @@
       </section>
 
       <!-- Log -->
-      <section class="panel" id="tab_log" role="tabpanel" style="display:none">
+      <section class="panel" id="tab_log" role="tabpanel" style="display:none;flex:1;min-height:0">
         <div class="panel-inner log-wrap">
           <div class="panel-title">
             <h3>📜 Log</h3>
