@@ -1127,67 +1127,78 @@ function getPartyForTrainer(trainerName) {
 
 function renderPartyCard(it, ownerName) {
   const pid = safeStr(it?.pid || it?.pokemon?.id || it);
-  const name = dexNameFromPid(pid) || `PID ${pid}`;
+  const name = dexNameFromPid(pid) || (pid.startsWith("EXT:") ? pid.slice(4) : `PID ${pid}`);
   const spriteUrl = getSpriteUrlFromPid(pid);
-
-  // Tenta achar peça no campo para este PID/owner
+  const mine = safeStr(ownerName) && safeStr(ownerName) === safeStr(appState.by);
   const p = (appState.pieces || []).find(
     (x) => safeStr(x?.owner) === safeStr(ownerName) && safeStr(x?.pid) === safeStr(pid)
   );
-
   const onMap = !!p?.id && safeStr(p?.status || "active") !== "deleted";
-  const mine = safeStr(ownerName) && safeStr(ownerName) === safeStr(appState.by);
-
+  const isExt = pid.startsWith("EXT:");
+  const ps = ((_partyStates && _partyStates[ownerName]) ? _partyStates[ownerName] : {})[pid] || {};
+  const hp = (ps.hp != null ? Number(ps.hp) : 6);
+  const maxHp = 6;
+  const cond = Array.isArray(ps.cond) ? ps.cond : [];
+  const hpPct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
+  const hpCol = hpPct > 66 ? "#22c55e" : hpPct > 33 ? "#f59e0b" : hp <= 0 ? "#64748b" : "#ef4444";
+  const hpIcon = hp >= 5 ? "💚" : hp >= 3 ? "🟡" : hp >= 1 ? "🔴" : "💀";
   const card = document.createElement("div");
-  card.className = "card";
+  card.className = "pvp-party-card";
+  card.dataset.pid = pid;
+  card.dataset.owner = ownerName;
+  if (hp <= 0) card.classList.add("pvp-fainted");
+  const imgHtml = spriteUrl
+    ? `<img class="pvp-sprite" src="${escapeAttr(spriteUrl)}" alt="${escapeAttr(name)}" loading="lazy" onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'"/>`
+    : `<div class="pvp-sprite pvp-sprite-fallback">?</div>`;
+  const locBadge = onMap
+    ? `<span class="pvp-loc-badge pvp-loc-field">⚔️</span>`
+    : `<span class="pvp-loc-badge pvp-loc-bag">🎒</span>`;
+  const condHtml = cond.length
+    ? cond.slice(0, 3).map(c => `<span class="pvp-cond-pill">${escapeHtml(c)}</span>`).join("")
+    : `<span class="pvp-no-cond">Sem status negativos.</span>`;
+  const extBadge = isExt ? `<span class="pvp-ext-badge">EXT</span>` : "";
+  const actionsHtml = mine ? `
+    <div class="pvp-actions">
+      <button class="pvp-btn" data-act="select">🎯 Selecionar</button>
+      <button class="pvp-btn pvp-btn-icon" data-act="toggle"${onMap ? "" : " disabled"}>👁️</button>
+      <button class="pvp-btn pvp-btn-icon pvp-btn-danger" data-act="remove"${onMap ? "" : " disabled"}>❌</button>
+    </div>` : "";
   card.innerHTML = `
-    <div class="row spread" style="align-items:flex-start; gap:12px">
-      <div class="row" style="align-items:flex-start">
-        ${spriteUrl ? `<img class="mini" src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" onerror="this.style.display='none'"/>` : `<div class="avatar" style="width:40px;height:40px;border-radius:14px">#</div>`}
-        <div style="flex:1; min-width:0">
-          <div style="font-weight:950; line-height:1.1">${escapeHtml(name)}</div>
-          <div class="muted">PID <span class="mono">${escapeHtml(pid)}</span>${it?.np != null ? ` • NP ${escapeHtml(String(it.np))}` : ""}</div>
-          <div class="tiny" style="margin-top:6px">${onMap ? "📍 No campo" : "🎒 Mochila"}</div>
-        </div>
+    <div class="pvp-card-row">
+      <div class="pvp-sprite-wrap">
+        ${imgHtml}
+        ${locBadge}
       </div>
-
-      <div class="row" style="gap:8px; flex-wrap:wrap; justify-content:flex-end">
-        <button class="btn ghost" data-act="select" title="Selecionar no mapa">🎯</button>
-        <button class="btn ghost" data-act="toggle" ${mine && onMap ? "" : "disabled"} title="Revelar/Esconder">👁️</button>
-        <button class="btn ghost" data-act="remove" ${mine && onMap ? "" : "disabled"} title="Retirar do campo">❌</button>
+      <div class="pvp-card-info">
+        <div class="pvp-card-name">${escapeHtml(name)} ${extBadge}</div>
+        <div class="pvp-card-sub">PID ${escapeHtml(pid)} &bull; ${onMap ? "No campo" : "Mochila"}</div>
+        <div class="pvp-hp-row">
+          <span class="pvp-hp-icon">${hpIcon}</span>
+          <div class="pvp-hp-track"><div class="pvp-hp-fill" style="width:${hpPct}%;background:${hpCol};"></div></div>
+          <span class="pvp-hp-label">${hp}/${maxHp}</span>
+        </div>
+        <div class="pvp-cond-row">${condHtml}</div>
       </div>
     </div>
+    ${actionsHtml}
   `;
-
-  // Click no card seleciona (se existir)
-  const doSelect = () => {
-    if (p?.id) selectPiece(String(p.id));
-    else setStatus("warn", "esse Pokémon não está no campo (ainda)");
-  };
-
   card.addEventListener("click", (ev) => {
-    const tag = ev.target?.tagName?.toLowerCase?.();
-    if (tag === "button") return;
-    doSelect();
+    if (ev.target.closest("button")) return;
+    if (p?.id) selectPiece(String(p.id));
   });
-
   card.querySelector('[data-act="select"]')?.addEventListener("click", (ev) => {
     ev.stopPropagation();
-    doSelect();
+    if (p?.id) selectPiece(String(p.id));
+    else setStatus("warn", "esse Pokemon nao esta no campo");
   });
-
   card.querySelector('[data-act="toggle"]')?.addEventListener("click", async (ev) => {
     ev.stopPropagation();
-    if (!p?.id) return;
-    await togglePieceRevealed(String(p.id));
+    if (p?.id) await togglePieceRevealed(String(p.id));
   });
-
   card.querySelector('[data-act="remove"]')?.addEventListener("click", async (ev) => {
     ev.stopPropagation();
-    if (!p?.id) return;
-    await removePieceFromBoard(String(p.id));
+    if (p?.id) await removePieceFromBoard(String(p.id));
   });
-
   return card;
 }
 
@@ -1312,14 +1323,55 @@ function updateSidePanels() {
   const oppOwners = Array.from(grouped.keys()).sort((a, b) => a.localeCompare(b));
   if (oppCount) oppCount.textContent = String(oppOwners.length);
   for (const owner of oppOwners) {
-    const box = document.createElement("div");
-    box.className = "card";
-    box.innerHTML = `<div class="row spread"><div style="font-weight:950">${escapeHtml(owner)}</div><div class="pill mono">${grouped.get(owner).length}</div></div>`;
-    const list = document.createElement("div");
-    list.style.marginTop = "10px";
-    for (const p of grouped.get(owner)) list.appendChild(renderPieceMiniRow(p));
-    box.appendChild(list);
-    oppRoot.appendChild(box);
+    const ownerBox = document.createElement("div");
+    ownerBox.className = "pvp-opp-group";
+    const initial = owner.charAt(0).toUpperCase();
+    const hdr = document.createElement("div");
+    hdr.className = "pvp-opp-header";
+    hdr.innerHTML = `<div class="pvp-opp-avatar">${escapeHtml(initial)}</div><div class="pvp-opp-name">🔴 ${escapeHtml(owner)}</div><div class="pvp-opp-count">${grouped.get(owner).length}</div>`;
+    ownerBox.appendChild(hdr);
+    const oppParty = getPartyForTrainer(owner);
+    if (oppParty.length > 0) {
+      for (const it of oppParty) {
+        const oppPid = safeStr(it?.pid || it);
+        const oppPiece = grouped.get(owner).find(px => safeStr(px?.pid) === oppPid);
+        const oppOnMap = !!oppPiece?.id && safeStr(oppPiece?.status || "active") !== "deleted";
+        const oppRevealed = oppPiece ? !!oppPiece.revealed : false;
+        const oppName = dexNameFromPid(oppPid) || (oppPid.startsWith("EXT:") ? oppPid.slice(4) : `PID ${oppPid}`);
+        const oppSprite = getSpriteUrlFromPid(oppPid);
+        const oppPs = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[oppPid] || {};
+        const oppHp = oppPs.hp != null ? Number(oppPs.hp) : 6;
+        const oppHpPct = Math.max(0, Math.min(100, (oppHp / 6) * 100));
+        const oppHpCol = oppHpPct > 66 ? "#22c55e" : oppHpPct > 33 ? "#f59e0b" : oppHp <= 0 ? "#64748b" : "#ef4444";
+        const oppHpIcon = oppHp >= 5 ? "💚" : oppHp >= 3 ? "🟡" : oppHp >= 1 ? "🔴" : "💀";
+        const mc = document.createElement("div");
+        mc.className = "pvp-party-card pvp-opp-card";
+        const oppImg = oppRevealed && oppSprite
+          ? `<img class="pvp-sprite" src="${escapeAttr(oppSprite)}" loading="lazy" onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'"/>`
+          : `<img class="pvp-sprite" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png" style="filter:brightness(0.3)"/>`;
+        mc.innerHTML = `
+          <div class="pvp-card-row">
+            <div class="pvp-sprite-wrap">
+              ${oppImg}
+              ${oppOnMap ? `<span class="pvp-loc-badge pvp-loc-field">⚔️</span>` : `<span class="pvp-loc-badge pvp-loc-bag">🎒</span>`}
+            </div>
+            <div class="pvp-card-info">
+              <div class="pvp-card-name">${oppRevealed ? escapeHtml(oppName) : "???"}<span style="font-size:10px;color:#94a3b8;margin-left:6px;">${oppOnMap ? "No campo" : "Mochila"}</span></div>
+              <div class="pvp-hp-row">
+                <span class="pvp-hp-icon">${oppHpIcon}</span>
+                <div class="pvp-hp-track"><div class="pvp-hp-fill" style="width:${oppHpPct}%;background:${oppHpCol};"></div></div>
+                <span class="pvp-hp-label">${oppHp}/6</span>
+              </div>
+            </div>
+          </div>
+        `;
+        if (oppPiece?.id) mc.addEventListener("click", () => selectPiece(String(oppPiece.id)));
+        ownerBox.appendChild(mc);
+      }
+    } else {
+      for (const p of grouped.get(owner)) ownerBox.appendChild(renderPieceMiniRow(p));
+    }
+    oppRoot.appendChild(ownerBox);
   }
 
   // ── Fichas (tab) ──

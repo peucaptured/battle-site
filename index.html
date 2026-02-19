@@ -267,6 +267,103 @@
     details.dev > summary{cursor:pointer;padding:10px 12px;font-weight:950;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px}
     details.dev > summary::-webkit-details-marker{display:none}
     .dev-body{padding:12px;border-top:1px solid rgba(255,255,255,.08)}
+
+    /* ═══ PVP Party Cards (replicando app.py) ═══ */
+    .pvp-party-card {
+      border-radius: 14px;
+      border: 1.5px solid rgba(148,163,184,.2);
+      background: rgba(2,6,23,.22);
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all .18s;
+      position: relative;
+    }
+    .pvp-party-card:hover {
+      border-color: rgba(148,163,184,.38);
+      background: rgba(2,6,23,.32);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(2,6,23,.28);
+    }
+    .pvp-party-card.pvp-fainted { opacity:.5; filter: grayscale(.7); }
+    .pvp-opp-card { border-color: rgba(248,113,113,.18); }
+    .pvp-card-row { display:flex; align-items:flex-start; gap:10px; }
+    .pvp-sprite-wrap { position:relative; flex:0 0 56px; }
+    .pvp-sprite {
+      width:56px; height:56px;
+      object-fit:contain; image-rendering:pixelated;
+      border-radius:12px;
+      border:1px solid rgba(226,232,240,.12);
+      background:rgba(255,255,255,.03);
+      padding:3px;
+    }
+    .pvp-sprite-fallback {
+      display:flex; align-items:center; justify-content:center;
+      font-size:22px; color:rgba(148,163,184,.6);
+    }
+    .pvp-loc-badge {
+      position:absolute; bottom:-3px; right:-5px;
+      font-size:11px; padding:1px 5px; border-radius:6px;
+      font-weight:800; line-height:1.4;
+      border:1px solid;
+    }
+    .pvp-loc-field { background:rgba(34,197,94,.18); border-color:rgba(34,197,94,.4); color:rgba(34,197,94,.95); }
+    .pvp-loc-bag   { background:rgba(148,163,184,.12); border-color:rgba(148,163,184,.3); color:rgba(148,163,184,.8); }
+    .pvp-card-info { flex:1; min-width:0; }
+    .pvp-card-name {
+      font-weight:900; font-size:13px; line-height:1.2;
+      color:rgba(226,232,240,.95); display:flex; align-items:center; gap:6px;
+    }
+    .pvp-ext-badge {
+      font-size:9px; font-weight:800; padding:1px 5px; border-radius:5px;
+      background:rgba(168,85,247,.15); border:1px solid rgba(168,85,247,.3); color:rgba(168,85,247,.85);
+    }
+    .pvp-card-sub { font-size:11px; color:rgba(148,163,184,.7); margin-top:2px; }
+    .pvp-hp-row { display:flex; align-items:center; gap:6px; margin-top:5px; }
+    .pvp-hp-icon { font-size:13px; flex:0 0 auto; }
+    .pvp-hp-track {
+      flex:1; height:10px;
+      background:rgba(148,163,184,.2); border:1px solid rgba(148,163,184,.18);
+      border-radius:999px; overflow:hidden;
+    }
+    .pvp-hp-fill { height:100%; border-radius:999px; transition:width .4s; }
+    .pvp-hp-label { font-size:11px; font-weight:800; color:rgba(226,232,240,.8); min-width:30px; text-align:right; font-family:monospace; }
+    .pvp-cond-row { margin-top:4px; }
+    .pvp-cond-pill {
+      font-size:10px; font-weight:800; padding:2px 7px; border-radius:7px; margin-right:4px;
+      background:rgba(248,113,113,.12); border:1px solid rgba(248,113,113,.28); color:rgba(248,113,113,.85);
+    }
+    .pvp-no-cond { font-size:11px; color:rgba(148,163,184,.55); }
+    .pvp-actions { display:flex; gap:6px; margin-top:8px; }
+    .pvp-btn {
+      flex:1; appearance:none; cursor:pointer; font-weight:800; font-size:11.5px;
+      padding:6px 10px; border-radius:10px; border:1px solid rgba(148,163,184,.25);
+      background:rgba(2,6,23,.3); color:rgba(226,232,240,.85);
+      transition:all .15s;
+    }
+    .pvp-btn:hover:not(:disabled) { background:rgba(56,189,248,.14); border-color:rgba(56,189,248,.4); transform:translateY(-1px); }
+    .pvp-btn:disabled { opacity:.35; cursor:default; }
+    .pvp-btn-icon { flex:0 0 36px; text-align:center; }
+    .pvp-btn-danger:hover:not(:disabled) { background:rgba(248,113,113,.14); border-color:rgba(248,113,113,.4); }
+    /* Opponent group */
+    .pvp-opp-group { margin-bottom:10px; }
+    .pvp-opp-header {
+      display:flex; align-items:center; gap:8px; padding:8px 10px;
+      border-radius:12px; background:rgba(248,113,113,.06); border:1px solid rgba(248,113,113,.15);
+      margin-bottom:8px; cursor:default;
+    }
+    .pvp-opp-avatar {
+      width:32px; height:32px; border-radius:10px; display:flex; align-items:center;
+      justify-content:center; font-weight:900; font-size:14px;
+      background:rgba(248,113,113,.15); border:1px solid rgba(248,113,113,.3); color:rgba(248,113,113,.9);
+      flex:0 0 32px;
+    }
+    .pvp-opp-name { font-weight:900; font-size:13px; flex:1; color:rgba(226,232,240,.9); }
+    .pvp-opp-count {
+      font-size:10px; font-weight:800; padding:2px 7px; border-radius:6px;
+      background:rgba(248,113,113,.12); border:1px solid rgba(248,113,113,.25); color:rgba(248,113,113,.8);
+    }
+
     pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.35;color:rgba(226,232,240,.92)}
     .grid2{display:grid;grid-template-columns:1fr;gap:10px}
     @media (min-width: 1100px){.grid2{grid-template-columns: 1fr 1fr}}
@@ -608,6 +705,5 @@
   <script type="module" src="./main.js"></script>
   <script type="module" src="./combat-patch.js"></script>
   <script type="module" src="./initiative-patch.js"></script>
-  <script type="module" src="./panels-patch.js"></script>
 </body>
 </html>
