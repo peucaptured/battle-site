@@ -695,7 +695,7 @@ function buildMonCard(pid, ownerName, options = {}) {
   if (isMine) {
     actionsHtml = `
       <div class="pp-actions">
-        <button class="pp-act-btn" data-act="select" title="Selecionar no mapa">🎯 Selecionar</button>
+        <button class="pp-act-btn" data-act="${isOnMap ? "select" : "place"}" title="${isOnMap ? "Selecionar no mapa" : "Colocar no mapa"}">${isOnMap ? "🎯 Selecionar" : (isPlacing ? "📍 Clique no mapa" : "➕ Colocar")}</button>
         <button class="pp-act-btn" data-act="toggle" ${isOnMap ? "" : "disabled"} title="Revelar/Ocultar">👁️</button>
         <button class="pp-act-btn pp-act-danger" data-act="remove" ${isOnMap ? "" : "disabled"} title="Retirar do campo">❌</button>
       </div>
@@ -742,6 +742,12 @@ function buildMonCard(pid, ownerName, options = {}) {
   card.querySelector('[data-act="select"]')?.addEventListener("click", () => {
     if (pieceId && typeof window.selectPiece === "function") {
       window.selectPiece(pieceId);
+    }
+  });
+
+  card.querySelector('[data-act="place"]')?.addEventListener("click", () => {
+    if (typeof window.startPlacePokemon === "function") {
+      window.startPlacePokemon(pid);
     }
   });
 
@@ -844,6 +850,7 @@ function renderMyTeam(teamRoot, by, pieces, myParty) {
       isMine: true,
       isOnMap,
       isSelected,
+      isPlacing: safeStr(window.appState?.placingPid) === pid && !isOnMap,
       pieceId: piece?.id || null,
       revealed: piece ? !!piece.revealed : true,
       piece,

@@ -347,6 +347,7 @@ const appState = {
   pieces: [],
   // UI selection
   selectedPieceId: null,
+  placingPid: null,
   hover: { row: null, col: null },
   // drag
   drag: {
@@ -1160,7 +1161,7 @@ function renderPartyCard(it, ownerName) {
   const extBadge = isExt ? `<span class="pvp-ext-badge">EXT</span>` : "";
   const actionsHtml = mine ? `
     <div class="pvp-actions">
-      <button class="pvp-btn" data-act="select">🎯 Selecionar</button>
+      <button class="pvp-btn" data-act="${onMap ? "select" : "place"}">${onMap ? "🎯 Selecionar" : (appState.placingPid === pid ? "📍 Clique no mapa" : "➕ Colocar")}</button>
       <button class="pvp-btn pvp-btn-icon" data-act="toggle"${onMap ? "" : " disabled"}>👁️</button>
       <button class="pvp-btn pvp-btn-icon pvp-btn-danger" data-act="remove"${onMap ? "" : " disabled"}>❌</button>
     </div>` : "";
@@ -1202,6 +1203,10 @@ function renderPartyCard(it, ownerName) {
     ev.stopPropagation();
     if (p?.id) selectPiece(String(p.id));
     else setStatus("warn", "esse Pokemon nao esta no campo");
+  });
+  card.querySelector('[data-act="place"]')?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    startPlacePokemon(pid);
   });
   card.querySelector('[data-act="toggle"]')?.addEventListener("click", async (ev) => {
     ev.stopPropagation();
@@ -1686,6 +1691,86 @@ function sendMoveSelected(toRow, toCol) {
   sendAction("MOVE_PIECE", by, { pieceId, row: toRow, col: toCol });
 }
 
+
+function makePieceId() {
+  return `pc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function startPlacePokemon(pid) {
+  const monPid = safeStr(pid);
+  if (!monPid) return;
+  if (!appState.connected || !appState.rid) {
+    setStatus("err", "conecte antes de colocar pokémon no mapa");
+    return;
+  }
+  if (!safeStr(appState.by)) {
+    setStatus("err", "preencha o campo by para colocar pokémon");
+    return;
+  }
+  appState.placingPid = monPid;
+  setStatus("ok", `modo de posicionar ativo: ${monPid}. Clique em um tile vazio no mapa.`);
+  updateSidePanels();
+}
+
+async function placePokemonOnBoardAt(pid, row, col) {
+  const monPid = safeStr(pid);
+  const by = safeStr(appState.by);
+  const ref = getStateDocRef();
+  if (!monPid || !by || !ref) return;
+
+  const r = Number(row);
+  const c = Number(col);
+  if (!Number.isFinite(r) || !Number.isFinite(c)) {
+    setStatus("err", "tile inválido para posicionar pokémon");
+    return;
+  }
+
+  try {
+    let createdId = null;
+    await runTransaction(currentDb, async (tx) => {
+      const snap = await tx.get(ref);
+      const data = snap.exists() ? snap.data() : {};
+      const pieces = Array.isArray(data?.pieces) ? data.pieces : [];
+      const seen = Array.isArray(data?.seen) ? data.seen : [];
+
+      const occupied = pieces.some((p) =>
+        safeStr(p?.status || "active") === "active" && Number(p?.row) === r && Number(p?.col) === c
+      );
+      if (occupied) throw new Error("tile ocupado");
+
+      const alreadyOnBoard = pieces.some((p) =>
+        safeStr(p?.owner) === by && safeStr(p?.pid) === monPid && safeStr(p?.status || "active") === "active"
+      );
+      if (alreadyOnBoard) throw new Error("esse pokémon já está no campo");
+
+      createdId = makePieceId();
+      const newPiece = {
+        id: createdId,
+        owner: by,
+        kind: "pokemon",
+        pid: monPid,
+        row: r,
+        col: c,
+        revealed: true,
+        status: "active",
+      };
+
+      const nextSeen = seen.includes(monPid) ? seen : [...seen, monPid];
+      tx.set(
+        ref,
+        { pieces: [...pieces, newPiece], seen: nextSeen, updatedAt: serverTimestamp() },
+        { merge: true }
+      );
+    });
+
+    appState.placingPid = null;
+    if (createdId) selectPiece(createdId);
+    setStatus("ok", "pokémon colocado no mapa");
+  } catch (e) {
+    setStatus("err", `falha ao colocar pokémon: ${e?.message || e}`);
+  }
+}
+
 // Interações Arena
 // - Canvas (preferencial)
 // - DOM fallback (se Canvas falhar)
@@ -1820,6 +1905,7 @@ function bindArenaInteractionsCanvas() {
   });
 
   canvas.addEventListener("mousedown", (ev) => {
+    if (appState.placingPid) return;
     if (ev.button !== 0) return;
     const rect = canvas.getBoundingClientRect();
     const x = ev.clientX - rect.left;
@@ -1863,6 +1949,11 @@ function bindArenaInteractionsCanvas() {
     const tile = screenToTile(x, y);
     if (!tile) return;
 
+    if (appState.placingPid) {
+      placePokemonOnBoardAt(appState.placingPid, tile.row, tile.col);
+      return;
+    }
+
     const p = getPieceAt(tile.row, tile.col);
     if (p) {
       selectPiece(p.id);
@@ -1899,6 +1990,12 @@ function bindArenaInteractionsDom() {
     if (!cell) return;
     const row = Number(cell.dataset.row);
     const col = Number(cell.dataset.col);
+
+    if (appState.placingPid) {
+      placePokemonOnBoardAt(appState.placingPid, row, col);
+      return;
+    }
+
     const p = getPieceAt(row, col);
     if (p) {
       selectPiece(p.id);
@@ -2947,6 +3044,10 @@ try {
 window.appState           = appState;
 window.updateSidePanels   = updateSidePanels;
 window.getPartyForTrainer = getPartyForTrainer;
+window.selectPiece        = selectPiece;
+window.togglePieceRevealed = togglePieceRevealed;
+window.removePieceFromBoard = removePieceFromBoard;
+window.startPlacePokemon  = startPlacePokemon;
 window.currentDb          = null;
 window.currentRid         = null;
 // Mantém window.currentRid e window.currentDb sincronizados com appState
