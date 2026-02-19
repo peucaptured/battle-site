@@ -64,6 +64,48 @@ function extractSpeed(statsObj) {
   return 0;
 }
 
+/**
+ * Cache em memória para speeds da PokeAPI.
+ * Evita chamadas repetidas para o mesmo nome.
+ */
+const _speedCache = new Map();
+
+/**
+ * Converte nome para o formato PokeAPI (igual ao to_pokeapi_name do app.py).
+ * Remove "EXT:", sufixos " - Delta" / " - Alolan", etc.
+ */
+function toPokeAPIName(raw) {
+  return String(raw || "")
+    .replace(/^EXT:/i, "")
+    .split(" - ")[0]
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+}
+
+/**
+ * Busca Speed base na PokeAPI pelo nome do Pokémon.
+ * Retorna 0 em caso de erro. Resultado fica cacheado.
+ */
+async function fetchSpeedFromPokeAPI(name) {
+  const key = toPokeAPIName(name);
+  if (!key) return 0;
+  if (_speedCache.has(key)) return _speedCache.get(key);
+
+  try {
+    const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(key)}`);
+    if (!res.ok) { _speedCache.set(key, 0); return 0; }
+    const json = await res.json();
+    const speedStat = (json.stats || []).find(s => s.stat?.name === "speed");
+    const val = safeInt(speedStat?.base_stat, 0);
+    _speedCache.set(key, val);
+    return val;
+  } catch {
+    _speedCache.set(key, 0);
+    return 0;
+  }
+}
+
 // ─── classe principal ────────────────────────────────────────────────
 export class InitiativeUI {
   /**
@@ -263,7 +305,7 @@ export class InitiativeUI {
     });
   }
 
-  // ─── Constrói lista de linhas a partir das peças ───────────────────
+  // ─── Constrói lista de linhas (síncrona, usa cache de speed) ────────
   _buildRows() {
     const rows = [];
     for (const p of this._pieces) {
@@ -283,7 +325,7 @@ export class InitiativeUI {
       } else {
         pid = String(p.pid || "");
 
-        // Nome de exibição: tenta dexMap global (injetado pelo main.js), depois p.name, depois pid
+        // Nome de exibição
         if (window.dexMap) {
           const mapped = window.dexMap[pid] || window.dexMap[String(Number(pid))];
           display = mapped || p.name || p.display_name || pid || "Pokémon";
@@ -291,17 +333,29 @@ export class InitiativeUI {
           display = p.name || p.display_name || pid || "Pokémon";
         }
 
-        // ── Busca speed do party_states (igual ao app.py get_poke_data)
-        // Estrutura: party_states[trainerName][pid].stats
+        // 1) tenta party_states[owner][pid].stats.speed
         const ownerParty = this._partyStates[owner] || {};
         const pokeData   = ownerParty[pid] || ownerParty[String(Number(pid))] || {};
         const statsObj   = pokeData.stats || {};
-
         speed_val = extractSpeed(statsObj);
 
-        // Fallback: tenta stats direto na peça (caso antigo)
+        // 2) fallback: stats direto na peça
         if (speed_val === 0) {
           speed_val = extractSpeed(p.stats || p.poke_stats || {});
+        }
+
+        // 3) fallback: cache da PokeAPI (preenchido assincronamente)
+        const cacheKey = toPokeAPIName(pid.startsWith("EXT:") ? pid : display);
+        if (speed_val === 0 && _speedCache.has(cacheKey)) {
+          speed_val = _speedCache.get(cacheKey);
+        }
+
+        // 4) dispara fetch assíncrono se ainda 0 e não está no cache
+        if (speed_val === 0 && !_speedCache.has(cacheKey)) {
+          const nameForAPI = pid.startsWith("EXT:") ? pid : display;
+          fetchSpeedFromPokeAPI(nameForAPI).then(v => {
+            if (v > 0) this._renderRows(); // re-renderiza ao obter o valor
+          });
         }
 
         speed_mod = speedToMod(speed_val);
