@@ -135,11 +135,21 @@ function loadLoginCache() {
   }
 }
 
-function saveLoginCache(name, userData) {
+function saveLoginCache(name, userData, uid, customToken) {
   try {
-    localStorage.setItem(LOGIN_CACHE_KEY, JSON.stringify({ name, userData, savedAt: Date.now() }));
+    localStorage.setItem(
+      LOGIN_CACHE_KEY,
+      JSON.stringify({
+        name,
+        userData,
+        uid: uid || null,
+        customToken: customToken || null,
+        savedAt: Date.now(),
+      })
+    );
   } catch {}
 }
+
 
 function clearLoginCache() {
   try { localStorage.removeItem(LOGIN_CACHE_KEY); } catch {}
@@ -169,7 +179,14 @@ try {
 
     // normaliza
     const st = safeStr(json.status || json.result || "");
-    if (st === "OK") return { status: "OK", data: json.data };
+    if (st === "OK") {
+      return {
+        status: "OK",
+        data: json.data,
+        uid: safeStr(json.uid || json.trainerId || ""),
+        customToken: safeStr(json.customToken || json.token || ""),
+      };
+    }
     if (st === "NOT_FOUND") return { status: "NOT_FOUND" };
     if (st === "WRONG_PASS") return { status: "WRONG_PASS" };
 
@@ -189,7 +206,7 @@ async function buildPartySnapshotFromFirestore(db, trainerName, userData, limitS
   // replica app.py: pega fichas mais recentes e casa por pokemon.id (primeira ocorrência, pois já está order desc)
   const byPid = new Map();
   try {
-    const trainerId = safeDocId(tn);
+    const trainerId = safeStr(appState.selfTrainerId) || safeDocId(tn);
     const q = query(
       collection(db, "trainers", trainerId, "sheets"),
       orderBy("updated_at", "desc"),
@@ -219,7 +236,8 @@ async function buildPartySnapshotFromFirestore(db, trainerName, userData, limitS
 }
 
 // Faz login antes de conectar
-async function ensureLoggedInIfNeeded(db, typedName) {
+async function ensureLoggedInIfNeeded(db, auth, typedName) {
+
   const tn = safeStr(typedName);
 
   // se não preencheu nome, deixa conectar como espectador
@@ -227,6 +245,7 @@ async function ensureLoggedInIfNeeded(db, typedName) {
     appState.selfUserData = null;
     appState.selfPartySnapshot = null;
     appState.selfAuthStatus = null;
+    appState.selfTrainerId = null;
     return { ok: true, name: "" };
   }
 
@@ -242,32 +261,66 @@ async function ensureLoggedInIfNeeded(db, typedName) {
   // 1) cache (se o usuário já logou antes)
   const cache = loadLoginCache();
   if (cache && safeStr(cache.name) === tn && cache.userData) {
-    appState.selfUserData = cache.userData;
-    appState.selfAuthStatus = "OK";
-    // party snapshot é opcional; monta se tiver db
-    if (db) appState.selfPartySnapshot = await buildPartySnapshotFromFirestore(db, tn, appState.selfUserData);
-    return { ok: true, name: tn };
-  }
+    // tenta restaurar Auth sem pedir senha
+    const tok = safeStr(cache.customToken);
+    if (auth && tok) {
+      try {
+        await signInWithCustomToken(auth, tok);
+        appState.selfTrainerId = safeStr(cache.uid || auth.currentUser?.uid || "");
+      } catch (e) {
+        // token inválido/expirado -> força relogar
+        clearLoginCache();
+      }
+    }
+  
+    // se não conseguiu restaurar auth, cai pra prompt de senha abaixo
+    if (auth && !auth.currentUser) {
+      // continua fluxo normal (vai pedir senha)
+    } else {
+      appState.selfUserData = cache.userData;
+      appState.selfAuthStatus = "OK";
+      if (db) appState.selfPartySnapshot = await buildPartySnapshotFromFirestore(db, tn, appState.selfUserData);
+      return { ok: true, name: tn };
+    }
+}
+
 
   // 2) pede senha via prompt (não exige mexer no HTML)
   const pw = window.prompt(`Senha do treinador "${tn}" (mesma da planilha):`, "");
   if (pw == null) return { ok: false, cancel: true };
 
-  const auth = await sheetAuthenticateUser(tn, pw);
-  appState.selfAuthStatus = auth.status;
-
-  if (auth.status !== "OK") {
+  const result = await sheetAuthenticateUser(tn, pw);
+  appState.selfAuthStatus = result.status;
+  
+  if (result.status !== "OK") {
     appState.selfUserData = null;
     appState.selfPartySnapshot = null;
+    appState.selfTrainerId = null;
     clearLoginCache();
-    return { ok: false, status: auth.status, message: auth.message };
+    return { ok: false, status: result.status, message: result.message };
   }
-
-  appState.selfUserData = auth.data || {};
+  
+  // 🔐 loga no Firebase Auth com custom token (necessário pras rules opção B)
+  const token = safeStr(result.customToken);
+  if (!auth || !token) {
+    appState.selfUserData = null;
+    appState.selfPartySnapshot = null;
+    appState.selfTrainerId = null;
+    clearLoginCache();
+    return { ok: false, status: "ERROR", message: "endpoint não retornou customToken (Auth obrigatório para rules B)" };
+  }
+  
+  await signInWithCustomToken(auth, token);
+  appState.selfTrainerId = safeStr(result.uid || auth.currentUser?.uid || "");
+  
+  // segue igual
+  appState.selfUserData = result.data || {};
   if (db) appState.selfPartySnapshot = await buildPartySnapshotFromFirestore(db, tn, appState.selfUserData);
-  saveLoginCache(tn, appState.selfUserData);
+  
+  // cache agora guarda uid+token também (pra não pedir senha toda hora)
+  saveLoginCache(tn, appState.selfUserData, appState.selfTrainerId, token);
+  
   return { ok: true, name: tn };
-}
 
 // -------------------------
 // Local state (update incremental)
@@ -623,10 +676,11 @@ connectBtn?.addEventListener("click", async () => {
 
   const app = initializeApp(DEFAULT_FIREBASE_CONFIG);
   const db = getFirestore(app);
-
-  // 🔐 Login (opcional): se preencheu nome, valida na mesma planilha do Streamlit
+  const auth = getAuth(app);
+  
+  // login
   const typedName = safeStr(byInput?.value || "");
-  const login = await ensureLoggedInIfNeeded(db, typedName);
+  const login = await ensureLoggedInIfNeeded(db, auth, typedName);
   if (!login.ok) {
     if (login.cancel) {
       setStatus("warn", "login cancelado");
