@@ -440,6 +440,21 @@
 </head>
 
 <body>
+  <!-- HUD de Rolagens Globais -->
+  <div id="rolls_banner" style="
+    display:none;
+    position:fixed; top:0; left:0; right:0; z-index:9999;
+    background:linear-gradient(90deg,#1e293b 0%,#334155 50%,#1e293b 100%);
+    border-bottom:2px solid #f59e0b;
+    color:#fbbf24; font-weight:900; font-size:14px;
+    text-align:center; padding:6px 16px;
+    animation: rollBannerIn .3s ease-out;
+  ">🎲 —</div>
+  <style>
+    @keyframes rollBannerIn { from { transform: translateY(-100%); opacity:0; } to { transform: translateY(0); opacity:1; } }
+    body.has-roll-banner .topbar { margin-top: 34px; }
+  </style>
+
   <header class="topbar">
     <div class="brand">
       <div style="font-size:20px">🏟️</div>

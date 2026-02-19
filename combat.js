@@ -256,7 +256,7 @@ export class CombatUI {
       if (isPlayer && by) await this._loadSheets(by);
 
       switch (status) {
-        case "idle":       this._renderIdle(isPlayer, by); break;
+        case "idle":       this._renderIdle(isPlayer, by, battle); break;
         case "setup":      await this._renderSetup(battle, isPlayer, by); break;
         case "hit_confirmed": this._renderHitConfirmed(battle, by); break;
         case "missed":     this._renderMissed(battle, by); break;
@@ -272,25 +272,43 @@ export class CombatUI {
   // ═══════════════════════════════════════════════════════════════════
   // FASE 0 — IDLE
   // ═══════════════════════════════════════════════════════════════════
-  _renderIdle(isPlayer, by) {
+  _renderIdle(isPlayer, by, battle) {
     if (!isPlayer) {
       this._body.innerHTML = `<div class="card"><div class="muted">Aguardando combate...</div></div>`;
       return;
     }
+
+    // Detecta se o combate anterior acabou de terminar (logs existem e o jogador era o atacante)
+    const prevAttacker = safeStr(battle.attacker);
+    const prevLogs = battle.logs || [];
+    const canSecondary = (prevAttacker === by) && prevLogs.length > 0 && safeStr(battle.target_id);
+
+    let secondaryHtml = "";
+    if (canSecondary) {
+      secondaryHtml = `
+        <button class="btn" id="cb_secondary_effect" style="width:100%;margin-top:8px;background:linear-gradient(135deg,#7c3aed,#a855f7);border:none">
+          ⚡ Efeito Secundário
+        </button>
+        <div class="muted" style="margin-top:4px;font-size:11px">Reabre a rolagem de dano/efeito sem reiniciar o combate.</div>
+      `;
+    }
+
     this._body.innerHTML = `
       <div class="card">
         <div style="font-weight:950;margin-bottom:8px">Nenhum combate ativo</div>
         <div class="muted" style="margin-bottom:12px">Inicie um novo ataque contra um oponente.</div>
         <button class="btn" id="cb_new_battle">⚔️ Nova Batalha (Atacar)</button>
+        ${secondaryHtml}
       </div>
     `;
+
+    // ── Botão Nova Batalha ──
     const btn = this._body.querySelector("#cb_new_battle");
     btn.addEventListener("click", async () => {
       console.log("[CombatUI] 🔴 CLIQUE em Nova Batalha!");
       console.log("[CombatUI]   by =", by);
       console.log("[CombatUI]   getDb() =", this.getDb());
       console.log("[CombatUI]   getRid() =", this.getRid());
-      // Immediately disable to prevent double-click and give visual feedback
       btn.disabled = true;
       btn.textContent = "⏳ Iniciando...";
       btn.style.opacity = "0.6";
@@ -298,7 +316,6 @@ export class CombatUI {
         const ref = this._battleRef();
         console.log("[CombatUI]   ref =", ref);
         if (!ref) { btn.disabled = false; btn.textContent = "⚔️ Nova Batalha (Atacar)"; btn.style.opacity = ""; return; }
-        // Invalidate render key so the next snapshot triggers a real re-render
         this._lastRenderKey = "";
         await setDoc(ref, { status: "setup", attacker: by, attack_move: null, logs: [] });
         console.log("[CombatUI]   ✅ setDoc concluído com sucesso!");
@@ -309,6 +326,21 @@ export class CombatUI {
         btn.style.opacity = "";
       }
     });
+
+    // ── Botão Efeito Secundário ──
+    if (canSecondary) {
+      const secBtn = this._body.querySelector("#cb_secondary_effect");
+      secBtn.addEventListener("click", async () => {
+        secBtn.disabled = true;
+        secBtn.textContent = "⏳...";
+        this._lastRenderKey = "";
+        const ref = this._battleRef(); if (!ref) return;
+        await updateDoc(ref, {
+          status: "hit_confirmed",
+          logs: arrayUnion("⚡ Efeito secundário ativado — defina o rank/efeito."),
+        });
+      });
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -818,7 +850,15 @@ export class CombatUI {
             resMsg = `FALHA por ${diff}`;
           }
 
-          const finalMsg = `🛡️ Defensor rolou ${roll} + ${statVal} = ${checkTotal} (${defType.toUpperCase()}). ${resMsg}. Barras perdidas: ${barsLost}`;
+          // ── Lesão por dano massivo ──────────────────────────────
+          const maxHp = 6; // sistema de 6 barras
+          const injuryStages = barsLost > 0 ? Math.floor(barsLost / (maxHp / 2)) : 0;
+          const targetName = this._getDisplayName(tPid);
+
+          let finalMsg = `🛡️ Defensor rolou ${roll} + ${statVal} = ${checkTotal} (${defType.toUpperCase()}). ${resMsg}. Barras perdidas: ${barsLost}`;
+          if (injuryStages > 0) {
+            finalMsg += ` | 💥 ${targetName} recebeu um golpe massivo e caiu ${injuryStages} estágio(s)!`;
+          }
 
           const ref = this._battleRef(); if (!ref) return;
           await updateDoc(ref, {

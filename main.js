@@ -870,6 +870,34 @@ connectBtn?.addEventListener("click", async () => {
       }
     )
   );
+
+  // ── HUD de Rolagens Globais ────────────────────────────────────────
+  const rollsBanner = $("rolls_banner");
+  if (rollsBanner) {
+    try {
+      const rollsCol = collection(db, "rooms", rid, "rolls");
+      const rollsQ = query(rollsCol, orderBy("createdAt", "desc"), limit(1));
+      let rollBannerTimer = null;
+      unsub.push(
+        onSnapshot(rollsQ, (qs) => {
+          if (qs.empty) return;
+          const latestRoll = qs.docs[0].data();
+          const trainer = safeStr(latestRoll.trainer) || "???";
+          const value = latestRoll.value != null ? latestRoll.value : "?";
+          const label = safeStr(latestRoll.label);
+          rollsBanner.textContent = `🎲 ${trainer} rolou ${value}${label ? " (" + label + ")" : ""}`;
+          rollsBanner.style.display = "block";
+          document.body.classList.add("has-roll-banner");
+          // auto-hide after 8s
+          if (rollBannerTimer) clearTimeout(rollBannerTimer);
+          rollBannerTimer = setTimeout(() => {
+            rollsBanner.style.display = "none";
+            document.body.classList.remove("has-roll-banner");
+          }, 8000);
+        }, () => {})
+      );
+    } catch (e) { console.warn("rolls listener error:", e); }
+  }
 });
 
 // Keep badges updated when user edits inputs
@@ -1049,14 +1077,27 @@ function getSpriteUrlForPiece(p) {
   const direct = safeStr(p?.spriteUrl || p?.sprite_url || "");
   if (direct && (direct.startsWith("http://") || direct.startsWith("https://"))) return direct;
 
-
-  // 2) Try resolve by name via Dex mapping
-  const name = resolvePokemonNameFromPid(p?.pid);
-  if (name) return spriteUrlFromPokemonName(name);
+  // 2) Try resolve by name via Dex mapping, with form variant support
+  let name = resolvePokemonNameFromPid(p?.pid);
+  const form = safeStr(p?.form);
+  if (name) {
+    // Se a peça possui um campo "form", concatena ao nome (ex: "Rotom" + "Wash" -> "Rotom-Wash")
+    if (form && !name.toLowerCase().includes(form.toLowerCase())) {
+      name = name + "-" + form;
+    }
+    return spriteUrlFromPokemonName(name);
+  }
 
   // 3) Fallback: treat pid as NatDex number
   const pidRaw = Number(p?.pid);
   if (Number.isFinite(pidRaw) && pidRaw > 0 && pidRaw < 20000) {
+    // Se tiver form, tenta buscar via slug do PokeAPI (ex: rotom-wash)
+    if (form) {
+      const baseName = dexNameFromPid(p?.pid) || "";
+      if (baseName) {
+        return spriteUrlFromPokemonName(baseName + "-" + form);
+      }
+    }
     return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pidRaw}.png`;
   }
   return "";
