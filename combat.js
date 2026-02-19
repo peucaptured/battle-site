@@ -201,32 +201,68 @@ export class CombatUI {
     `;
     this._body = this.container.querySelector("#combat_body");
     this._phasePill = this.container.querySelector("#combat_phase_pill");
+    this._lastRenderKey = ""; // tracks last rendered state to avoid redundant re-renders
+    this._rendering = false;  // prevents concurrent renders
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // render() — chamado pelo main.js sempre que battle muda
+  // render() — chamado sempre que battle muda
+  //
+  // CRITICAL FIX: gera uma "render key" a partir do status + campos
+  // relevantes. Se a key não mudou, NÃO re-renderiza — isso impede
+  // que o innerHTML seja destruído e recriado enquanto o usuário
+  // está no meio de um clique.
   // ═══════════════════════════════════════════════════════════════════
   async render() {
-    const battle = this.getBattle() || {};
-    const status = safeStr(battle.status) || "idle";
-    const by = this.getBy();
-    const role = this.getRole();
-    const isPlayer = (role === "owner" || role === "challenger");
+    if (this._rendering) return; // skip if already rendering
+    this._rendering = true;
 
-    this._phasePill.textContent = status;
-    this._phasePill.className = `pill mono ${status === "idle" ? "" : "warn"}`;
+    try {
+      const battle = this.getBattle() || {};
+      const status = safeStr(battle.status) || "idle";
+      const by = this.getBy();
+      const role = this.getRole();
+      const isPlayer = (role === "owner" || role === "challenger");
 
-    // ensure sheets loaded for current player
-    if (isPlayer && by) await this._loadSheets(by);
+      // Build a render key — only re-render when something meaningful changes
+      const renderKey = [
+        status,
+        by,
+        role,
+        safeStr(battle.attacker),
+        safeStr(battle.target_owner),
+        safeStr(battle.target_pid),
+        safeInt(battle.dmg_base),
+        safeInt(battle.crit_bonus),
+        battle.is_effect ? "1" : "0",
+        (battle.logs || []).length,
+      ].join("|");
 
-    switch (status) {
-      case "idle":       this._renderIdle(isPlayer, by); break;
-      case "setup":      await this._renderSetup(battle, isPlayer, by); break;
-      case "hit_confirmed": this._renderHitConfirmed(battle, by); break;
-      case "missed":     this._renderMissed(battle, by); break;
-      case "aoe_defense": this._renderAoeDefense(battle, by); break;
-      case "waiting_defense": this._renderWaitingDefense(battle, by); break;
-      default:           this._body.innerHTML = `<div class="card"><div class="muted">Status desconhecido: ${escHtml(status)}</div></div>`;
+      if (renderKey === this._lastRenderKey) {
+        // Nothing changed — just update the pill text and skip DOM rebuild
+        this._phasePill.textContent = status;
+        this._phasePill.className = `pill mono ${status === "idle" ? "" : "warn"}`;
+        return;
+      }
+      this._lastRenderKey = renderKey;
+
+      this._phasePill.textContent = status;
+      this._phasePill.className = `pill mono ${status === "idle" ? "" : "warn"}`;
+
+      // ensure sheets loaded for current player
+      if (isPlayer && by) await this._loadSheets(by);
+
+      switch (status) {
+        case "idle":       this._renderIdle(isPlayer, by); break;
+        case "setup":      await this._renderSetup(battle, isPlayer, by); break;
+        case "hit_confirmed": this._renderHitConfirmed(battle, by); break;
+        case "missed":     this._renderMissed(battle, by); break;
+        case "aoe_defense": this._renderAoeDefense(battle, by); break;
+        case "waiting_defense": this._renderWaitingDefense(battle, by); break;
+        default:           this._body.innerHTML = `<div class="card"><div class="muted">Status desconhecido: ${escHtml(status)}</div></div>`;
+      }
+    } finally {
+      this._rendering = false;
     }
   }
 
@@ -245,10 +281,24 @@ export class CombatUI {
         <button class="btn" id="cb_new_battle">⚔️ Nova Batalha (Atacar)</button>
       </div>
     `;
-    this._body.querySelector("#cb_new_battle").addEventListener("click", async () => {
-      const ref = this._battleRef();
-      if (!ref) return;
-      await setDoc(ref, { status: "setup", attacker: by, attack_move: null, logs: [] });
+    const btn = this._body.querySelector("#cb_new_battle");
+    btn.addEventListener("click", async () => {
+      // Immediately disable to prevent double-click and give visual feedback
+      btn.disabled = true;
+      btn.textContent = "⏳ Iniciando...";
+      btn.style.opacity = "0.6";
+      try {
+        const ref = this._battleRef();
+        if (!ref) { btn.disabled = false; btn.textContent = "⚔️ Nova Batalha (Atacar)"; btn.style.opacity = ""; return; }
+        // Invalidate render key so the next snapshot triggers a real re-render
+        this._lastRenderKey = "";
+        await setDoc(ref, { status: "setup", attacker: by, attack_move: null, logs: [] });
+      } catch (e) {
+        console.error("combat: setDoc error", e);
+        btn.disabled = false;
+        btn.textContent = "⚔️ Nova Batalha (Atacar)";
+        btn.style.opacity = "";
+      }
     });
   }
 
@@ -425,12 +475,19 @@ export class CombatUI {
 
     // Cancel
     this._body.querySelector("#cb_cancel").addEventListener("click", async () => {
+      const cancelBtn = this._body.querySelector("#cb_cancel");
+      cancelBtn.disabled = true; cancelBtn.textContent = "⏳...";
+      this._lastRenderKey = "";
       const ref = this._battleRef(); if (!ref) return;
       await setDoc(ref, { status: "idle", logs: [] });
     });
 
     // ─── ROLL NORMAL ATTACK ─────────────────────────────────────────
     this._body.querySelector("#cb_roll_attack").addEventListener("click", async () => {
+      const rollBtn = this._body.querySelector("#cb_roll_attack");
+      rollBtn.disabled = true; rollBtn.textContent = "⏳ Rolando..."; rollBtn.style.opacity = "0.6";
+      this._lastRenderKey = "";
+
       const targetOpt = targetSel.selectedOptions[0];
       if (!targetOpt || !targetOpt.value) { alert("Selecione um alvo."); return; }
 
@@ -505,6 +562,10 @@ export class CombatUI {
 
     // ─── LAUNCH AREA ATTACK ─────────────────────────────────────────
     this._body.querySelector("#cb_launch_area").addEventListener("click", async () => {
+      const launchBtn = this._body.querySelector("#cb_launch_area");
+      launchBtn.disabled = true; launchBtn.textContent = "⏳ Lançando..."; launchBtn.style.opacity = "0.6";
+      this._lastRenderKey = "";
+
       const targetOpt = targetSel.selectedOptions[0];
       if (!targetOpt || !targetOpt.value) { alert("Selecione um alvo."); return; }
 
@@ -564,6 +625,11 @@ export class CombatUI {
     if (isDefender) {
       this._body.querySelectorAll("[data-def]").forEach(btn => {
         btn.addEventListener("click", async () => {
+          // Disable ALL defense buttons immediately
+          this._body.querySelectorAll("[data-def]").forEach(b => { b.disabled = true; b.style.opacity = "0.5"; });
+          btn.textContent = "⏳...";
+          this._lastRenderKey = "";
+
           const defType = btn.dataset.def;
           const tPid = safeStr(battle.target_pid);
           const tStats = this._getPokeStats(by, tPid);
@@ -628,7 +694,10 @@ export class CombatUI {
     this._body.innerHTML = html;
 
     if (isAttacker) {
-      this._body.querySelector("#cb_confirm_rank").addEventListener("click", async () => {
+      const confirmBtn = this._body.querySelector("#cb_confirm_rank");
+      confirmBtn.addEventListener("click", async () => {
+        confirmBtn.disabled = true; confirmBtn.textContent = "⏳...";
+        this._lastRenderKey = "";
         const dmg = safeInt(this._body.querySelector("#cb_dmg_input").value);
         const isEff = this._body.querySelector("#cb_is_effect").checked;
         const ref = this._battleRef(); if (!ref) return;
@@ -663,7 +732,10 @@ export class CombatUI {
     this._body.innerHTML = html;
 
     if (isAttacker) {
-      this._body.querySelector("#cb_end_miss").addEventListener("click", async () => {
+      const endBtn = this._body.querySelector("#cb_end_miss");
+      endBtn.addEventListener("click", async () => {
+        endBtn.disabled = true; endBtn.textContent = "⏳...";
+        this._lastRenderKey = "";
         const ref = this._battleRef(); if (!ref) return;
         await updateDoc(ref, { status: "idle", logs: [] });
       });
@@ -714,6 +786,11 @@ export class CombatUI {
     if (isDefender) {
       this._body.querySelectorAll("[data-def]").forEach(btn => {
         btn.addEventListener("click", async () => {
+          // Disable ALL defense buttons immediately
+          this._body.querySelectorAll("[data-def]").forEach(b => { b.disabled = true; b.style.opacity = "0.5"; });
+          btn.textContent = "⏳...";
+          this._lastRenderKey = "";
+
           const defType = btn.dataset.def;
           const tPid = safeStr(battle.target_pid);
           const tStats = this._getPokeStats(by, tPid);
