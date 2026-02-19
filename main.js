@@ -926,7 +926,7 @@ if (rollsBanner) {
     if (rollPillText) rollPillText.textContent = "erro (try/catch)";
   }
 } // <- fecha o if (rollsBanner)
-}; 
+}); 
 
 // Keep badges updated when user edits inputs
 byInput?.addEventListener("input", () => {
