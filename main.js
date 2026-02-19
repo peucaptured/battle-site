@@ -283,6 +283,7 @@ async function ensureLoggedInIfNeeded(db, auth, typedName) {
       return { ok: true, name: tn };
     }
 
+  }
 
   // 2) pede senha via prompt (não exige mexer no HTML)
   const pw = window.prompt(`Senha do treinador "${tn}" (mesma da planilha):`, "");
@@ -2829,4 +2830,4 @@ try {
 } catch {}
 
 
-}
+
