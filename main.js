@@ -884,7 +884,7 @@ connectBtn?.addEventListener("click", async () => {
         onSnapshot(rollsQ, (qs) => {
           if (qs.empty) return;
           const latestRoll = qs.docs[0].data();
-          const trainer = safeStr(latestRoll.trainer) || "???";
+          const trainer = safeStr(latestRoll.trainer || latestRoll.by) || "???";
           const value = latestRoll.value != null ? latestRoll.value : "?";
           const label = safeStr(latestRoll.label);
           rollsBanner.textContent = `🎲 ${trainer} rolou ${value}${label ? " (" + label + ")" : ""}`;

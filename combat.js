@@ -25,6 +25,7 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  addDoc,
   collection,
   getDocs,
   query,
@@ -32,6 +33,7 @@ import {
   limit as fbLimit,
   onSnapshot,
   arrayUnion,
+  serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
 // ─── helpers ────────────────────────────────────────────────────────
@@ -121,6 +123,23 @@ export class CombatUI {
     const db = this.getDb(); const rid = this.getRid();
     if (!db || !rid) return null;
     return doc(db, "rooms", rid, "public_state", "party_states");
+  }
+
+  async _publishRoll(value, label = "d20") {
+    const db = this.getDb();
+    const rid = this.getRid();
+    const by = safeStr(this.getBy()) || "—";
+    if (!db || !rid) return;
+    try {
+      await addDoc(collection(db, "rooms", rid, "rolls"), {
+        by,
+        value: safeInt(value, 0),
+        label: safeStr(label) || "d20",
+        createdAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.warn("[CombatUI] falha ao publicar rolagem no HUD:", err);
+    }
   }
 
   // ─── Listen to party_states ───────────────────────────────────────
@@ -548,6 +567,7 @@ export class CombatUI {
 
       // roll
       const roll = d20Roll();
+      this._publishRoll(roll, `Ataque • ${attackerPid || "—"}`);
       const totalAtk = atkMod + roll;
       let hit, critBonus;
       if (roll === 1) { hit = false; critBonus = 0; }
@@ -677,6 +697,7 @@ export class CombatUI {
           const statVal = safeInt(tStats[defType]);
 
           const roll = d20Roll();
+          this._publishRoll(roll, `Defesa área • ${defType.toUpperCase()}`);
           const totalRoll = roll + statVal;
           const dc = safeInt(battle.aoe_dc, 10);
           const baseRank = safeInt(battle.dmg_base);
@@ -838,6 +859,7 @@ export class CombatUI {
           const statVal = safeInt(tStats[defType]);
 
           const roll = d20Roll();
+          this._publishRoll(roll, `Defesa • ${defType.toUpperCase()}`);
           const checkTotal = roll + statVal;
           const diff = dcTotal - checkTotal;
 
