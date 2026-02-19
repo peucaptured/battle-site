@@ -48,6 +48,25 @@ function escHtml(s) {
   const d = document.createElement("div"); d.textContent = s; return d.innerHTML;
 }
 
+function parseBarsLost(logLine) {
+  const txt = safeStr(logLine);
+  if (!txt) return 0;
+  const patterns = [
+    /Barras perdidas:\s*(\d+)/i,
+    /Perdeu\s*\*\*(\d+)\*\*\s*barras/i,
+    /Perdeu\s*(\d+)\s*barras/i,
+  ];
+  for (const re of patterns) {
+    const match = txt.match(re);
+    if (match) return safeInt(match[1], 0);
+  }
+  return 0;
+}
+
+function cleanCombatLog(logLine) {
+  return safeStr(logLine).replace(/\*\*/g, "");
+}
+
 // ─── _move_stat_value (replica do app.py) ───────────────────────────
 function moveBasedStat(meta) {
   meta = meta || {};
@@ -305,19 +324,38 @@ export class CombatUI {
     let secondaryHtml = "";
     if (canSecondary) {
       secondaryHtml = `
-        <button class="btn" id="cb_secondary_effect" style="width:100%;margin-top:8px;background:linear-gradient(135deg,#7c3aed,#a855f7);border:none">
-          ⚡ Efeito Secundário
+        <button class="btn cb-secondary-btn" id="cb_secondary_effect">
+          ⚡ Efeito Secundário em ${escHtml(this._getDisplayName(safeStr(battle.target_pid)))}
         </button>
-        <div class="muted" style="margin-top:4px;font-size:11px">Reabre a rolagem de dano/efeito sem reiniciar o combate.</div>
       `;
     }
+
+    const barsLost = prevLogs.length ? parseBarsLost(prevLogs[prevLogs.length - 1]) : 0;
+    const logItemsHtml = prevLogs.map((line) => {
+      const cleanLine = cleanCombatLog(line);
+      const icon = cleanLine.includes("ACERTOU") ? "✅" : (cleanLine.includes("FALHA") ? "🛡️" : "•");
+      return `<div class="cb-result-log-line">${icon} ${escHtml(cleanLine)}</div>`;
+    }).join("");
+
+    const resultHtml = prevLogs.length > 0
+      ? `
+        <div class="cb-result-card">
+          <div class="cb-result-title">🩸 Resultado: -${barsLost} Barras</div>
+          <div class="cb-result-log">${logItemsHtml}</div>
+          <div class="cb-result-actions">
+            <button class="btn" id="cb_end_battle">Encerrar Combate</button>
+            ${secondaryHtml}
+          </div>
+        </div>
+      `
+      : "";
 
     this._body.innerHTML = `
       <div class="card">
         <div style="font-weight:950;margin-bottom:8px">Nenhum combate ativo</div>
         <div class="muted" style="margin-bottom:12px">Inicie um novo ataque contra um oponente.</div>
+        ${resultHtml}
         <button class="btn" id="cb_new_battle">⚔️ Nova Batalha (Atacar)</button>
-        ${secondaryHtml}
       </div>
     `;
 
@@ -345,6 +383,17 @@ export class CombatUI {
         btn.style.opacity = "";
       }
     });
+
+    const endBtn = this._body.querySelector("#cb_end_battle");
+    if (endBtn) {
+      endBtn.addEventListener("click", async () => {
+        endBtn.disabled = true;
+        endBtn.textContent = "⏳ Encerrando...";
+        this._lastRenderKey = "";
+        const ref = this._battleRef(); if (!ref) return;
+        await updateDoc(ref, { logs: [], attacker: "", target_owner: "", target_id: "", target_pid: "", attack_move: null });
+      });
+    }
 
     // ── Botão Efeito Secundário ──
     if (canSecondary) {
