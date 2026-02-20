@@ -515,19 +515,32 @@ function getPokemonState(ownerName, pid) {
 }
 
 // ─── Sprite URL helpers (reuse from main.js) ────────────────────────
-function getSpriteUrl(pid) {
+function getSpriteUrl(pid, opts) {
+  // opts: { type: "battle"|"art", shiny: bool }
+  // Delegate to main.js if available (has full slug logic + local repo)
+  if (typeof window.getSpriteUrlFromPid === "function") {
+    return window.getSpriteUrlFromPid(pid, opts) || "";
+  }
+  // Fallback (main.js not yet loaded)
+  const type = opts?.type || "art";
+  const shiny = !!opts?.shiny;
   const k = safeStr(pid);
   if (!k) return "";
+  const _localSprite = (slug) => {
+    if (!slug || typeof window.localSpriteUrl !== "function") return "";
+    return window.localSpriteUrl(slug, type, shiny);
+  };
   // Try dexMap
   try {
     if (window.dexMap) {
       const name = window.dexMap[k] || window.dexMap[String(Number(k))];
       if (name) {
-        const slug = name.toLowerCase()
-          .replace(/[♀]/g, "f").replace(/[♂]/g, "m")
-          .replace(/[''‛′'`\.]/g, "")
-          .replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-        return `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
+        const slug = typeof window.spriteSlugFromPokemonName === "function"
+          ? window.spriteSlugFromPokemonName(name)
+          : name.toLowerCase().replace(/[♀]/g, "f").replace(/[♂]/g, "m")
+              .replace(/[''‛′'`\.]/g, "").replace(/[^a-z0-9]+/g, "-")
+              .replace(/-+/g, "-").replace(/^-|-$/g, "");
+        return _localSprite(slug) || `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
       }
     }
   } catch {}
@@ -535,11 +548,12 @@ function getSpriteUrl(pid) {
   if (k.startsWith("EXT:")) {
     const name = k.slice(4).trim();
     if (!name) return "";
-    const slug = name.toLowerCase()
-      .replace(/[♀]/g, "f").replace(/[♂]/g, "m")
-      .replace(/[''‛′'`\.]/g, "")
-      .replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-    return `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
+    const slug = typeof window.spriteSlugFromPokemonName === "function"
+      ? window.spriteSlugFromPokemonName(name)
+      : name.toLowerCase().replace(/[♀]/g, "f").replace(/[♂]/g, "m")
+          .replace(/[''‛′'`\.]/g, "").replace(/[^a-z0-9]+/g, "-")
+          .replace(/-+/g, "-").replace(/^-|-$/g, "");
+    return _localSprite(slug) || `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
   }
   // Numeric -> PokeAPI
   if (/^\d+$/.test(k)) {
@@ -617,7 +631,7 @@ function buildMonCard(pid, ownerName, options = {}) {
   const dmgMsg = _damageMessages.get(dmgKey);
 
   const displayName = getDisplayName(pid);
-  const spriteUrl = getSpriteUrl(pid);
+  const spriteUrl = getSpriteUrl(pid, { type: "art", shiny: state.shiny });
   const isExt = safeStr(pid).startsWith("EXT:");
 
   // Card classes

@@ -269,10 +269,18 @@ function getMyPieces() {
   return pieces.filter(p => safeStr(p?.owner) === _by && safeStr(p?.status || "active") === "active");
 }
 
-function getSpriteUrl(pid) {
-  if (typeof window.getSpriteUrlFromPid === "function") return window.getSpriteUrlFromPid(pid);
+function getSpriteUrl(pid, opts) {
+  // opts: { type: "battle"|"art", shiny: bool }
+  if (typeof window.getSpriteUrlFromPid === "function") return window.getSpriteUrlFromPid(pid, opts);
   const k = safeStr(pid);
-  if (!k || isNaN(Number(k))) return "";
+  if (!k) return "";
+  const type = opts?.type || "art";
+  const shiny = !!opts?.shiny;
+  if (typeof window.localSpriteUrl === "function" && typeof window.spriteSlugFromPokemonName === "function") {
+    const slug = window.spriteSlugFromPokemonName(k);
+    if (slug) return window.localSpriteUrl(slug, type, shiny) || "";
+  }
+  if (isNaN(Number(k))) return "";
   return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${Number(k)}.png`;
 }
 
@@ -372,7 +380,7 @@ function renderModalSelect() {
 
   const chips = myPieces.map(p => {
     const name = getDisplayName(p.pid);
-    const sprite = getSpriteUrl(p.pid);
+    const sprite = getSpriteUrl(p.pid, { type: "art" });
     const sel = _selectedPieceIds.has(p.id);
     return `<div class="pp-poke-chip${sel ? " selected" : ""}" data-piece-id="${escHtml(p.id)}">
       ${sprite ? `<img src="${escHtml(sprite)}" alt="${escHtml(name)}" onerror="this.style.display='none'"/>` : ""}
@@ -415,7 +423,7 @@ function renderModalText() {
 
   const fields = selected.map(p => {
     const name = getDisplayName(p.pid);
-    const sprite = getSpriteUrl(p.pid);
+    const sprite = getSpriteUrl(p.pid, { type: "art" });
     const saved = escHtml(_prepTexts.get(p.id) || "");
     return `
       <div class="pp-text-wrap" style="margin-bottom:4px;">

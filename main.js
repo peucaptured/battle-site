@@ -1245,22 +1245,40 @@ function dexNameFromPid(pid) {
   return "";
 }
 
-function getSpriteUrlFromPid(pid) {
+function getSpriteUrlFromPid(pid, opts) {
+  // opts: { type: "battle"|"art", shiny: bool }
+  const type = opts?.type || "art";
+  const shiny = !!opts?.shiny;
   const k = safeStr(pid);
   if (!k) return "";
 
   // 1) EXT:Nome (convenção do seu app)
   if (k.startsWith("EXT:")) {
     const nm = safeStr(k.slice(4));
-    return nm ? spriteUrlFromPokemonName(nm) : "";
+    if (!nm) return "";
+    const slug = spriteSlugFromPokemonName(nm);
+    return localSpriteUrl(slug, type, shiny)
+      || (type === "art"
+          ? `https://img.pokemondb.net/artwork/large/${slug}.jpg`
+          : `https://img.pokemondb.net/sprites/home/normal/${slug}.png`);
   }
 
   // 2) ✅ Regional Dex: id -> name -> slug -> sprite
   const nm = dexNameFromPid(k);
-  if (nm) return spriteUrlFromPokemonName(nm);
+  if (nm) {
+    const slug = spriteSlugFromPokemonName(nm);
+    return localSpriteUrl(slug, type, shiny)
+      || (type === "art"
+          ? `https://img.pokemondb.net/artwork/large/${slug}.jpg`
+          : `https://img.pokemondb.net/sprites/home/normal/${slug}.png`);
+  }
 
   // 3) Se vier um nome/slug direto, tenta sprite por nome (ex.: "Muk-A")
-  if (!/^\d+$/.test(k)) return spriteUrlFromPokemonName(k);
+  if (!/^\d+$/.test(k)) {
+    const slug = spriteSlugFromPokemonName(k);
+    return localSpriteUrl(slug, type, shiny)
+      || `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
+  }
 
   // 4) Fallback: trata como NatDex (último recurso)
   const n = Number(k);
@@ -1386,14 +1404,52 @@ function spriteSlugFromPokemonName(name) {
 function spriteUrlFromPokemonName(name) {
   const slug = spriteSlugFromPokemonName(name);
   if (!slug) return "";
-  return `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
+  return localSpriteUrl(slug, "art", false)
+    || `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
+}
+
+// ── Local sprite repo ─────────────────────────────────────────────
+// Base path relative to the site root where pokemon folders live.
+const LOCAL_POKEMON_BASE = "pokemon";
+
+/**
+ * Returns a local sprite URL for the given slug.
+ * @param {string} slug   - pokemondb-style slug (e.g. "charizard", "muk-alolan")
+ * @param {"battle"|"art"} type
+ *   "battle" → animated showdown gif (used on the arena canvas)
+ *   "art"    → official artwork png (used everywhere else)
+ * @param {boolean} shiny
+ */
+function localSpriteUrl(slug, type, shiny) {
+  if (!slug) return "";
+  const file = type === "battle"
+    ? (shiny ? "showdown_male_shiny_animated_preview.gif" : "showdown_male_animated_preview.gif")
+    : (shiny ? "official_artwork_male_shiny.png" : "official_artwork_male.png");
+  return `${LOCAL_POKEMON_BASE}/${slug}/${file}`;
+}
+
+/**
+ * Full sprite URL with local-first, remote fallback.
+ * For non-battle contexts (art): local official_artwork → pokemondb → pokeapi
+ * For battle context: local showdown gif → pokemondb → pokeapi
+ */
+function spriteUrlWithFallback(slug, type, shiny) {
+  if (!slug) return "";
+  return localSpriteUrl(slug, type, shiny)
+    || (type === "art"
+        ? `https://img.pokemondb.net/artwork/large/${slug}.jpg`
+        : `https://img.pokemondb.net/sprites/home/normal/${slug}.png`);
 }
 
 
 
 
-function getSpriteUrlForPiece(p) {
-  // 1) Prefer explicit spriteUrl if present
+function getSpriteUrlForPiece(p, opts) {
+  // opts: { type: "battle"|"art", shiny: bool }
+  const type = opts?.type || "battle";
+  const shiny = !!(opts?.shiny ?? p?.shiny);
+
+  // 1) Prefer explicit spriteUrl if present (only for remote URLs)
   const direct = safeStr(p?.spriteUrl || p?.sprite_url || "");
   if (direct && (direct.startsWith("http://") || direct.startsWith("https://"))) return direct;
 
@@ -1405,7 +1461,11 @@ function getSpriteUrlForPiece(p) {
     if (form && !name.toLowerCase().includes(form.toLowerCase())) {
       name = name + "-" + form;
     }
-    return spriteUrlFromPokemonName(name);
+    const slug = spriteSlugFromPokemonName(name);
+    return localSpriteUrl(slug, type, shiny)
+      || (type === "art"
+          ? `https://img.pokemondb.net/artwork/large/${slug}.jpg`
+          : `https://img.pokemondb.net/sprites/home/normal/${slug}.png`);
   }
 
   // 3) Fallback: treat pid as NatDex number
@@ -1415,7 +1475,9 @@ function getSpriteUrlForPiece(p) {
     if (form) {
       const baseName = dexNameFromPid(p?.pid) || "";
       if (baseName) {
-        return spriteUrlFromPokemonName(baseName + "-" + form);
+        const slug = spriteSlugFromPokemonName(baseName + "-" + form);
+        return localSpriteUrl(slug, type, shiny)
+          || `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
       }
     }
     return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pidRaw}.png`;
@@ -1525,7 +1587,8 @@ function getPartyForTrainer(trainerName) {
 function renderPartyCard(it, ownerName) {
   const pid = safeStr(it?.pid || it?.pokemon?.id || it);
   const name = dexNameFromPid(pid) || (pid.startsWith("EXT:") ? pid.slice(4) : `PID ${pid}`);
-  const spriteUrl = getSpriteUrlFromPid(pid);
+  const _psPartyCard = ((_partyStates && _partyStates[ownerName]) ? _partyStates[ownerName] : {})[pid] || {};
+  const spriteUrl = getSpriteUrlFromPid(pid, { type: "art", shiny: !!_psPartyCard.shiny });
   const mine = safeStr(ownerName) && safeStr(ownerName) === safeStr(appState.by);
   const p = (appState.pieces || []).find(
     (x) => safeStr(x?.owner) === safeStr(ownerName) && safeStr(x?.pid) === safeStr(pid)
@@ -1642,7 +1705,9 @@ function renderPartyWindow() {
   root.innerHTML = slots.map((entry, idx) => {
     const pid = safeStr(entry?.pid || entry || "");
     if (!pid) return `<button type="button" class="party-slot empty" data-slot="${idx}" disabled><span class="slot-badge">vazio</span></button>`;
-    const sprite = getSpriteUrlFromPid(pid);
+    const _psSlot = ((_partyStates && _partyStates[by]) ? _partyStates[by] : {})[pid] || {};
+    const _slotSlug = spriteSlugFromPokemonName(typeof resolvePokemonNameFromPid === "function" ? resolvePokemonNameFromPid(pid) : "") || "";
+    const sprite = (_slotSlug ? localSpriteUrl(_slotSlug, "art", !!_psSlot.shiny) : "") || getSpriteUrlFromPid(pid);
     const hp = getPartyHp(by, pid);
     const ko = hp <= 0;
     const onBoard = isPokemonAlreadyOnBoard(by, pid);
@@ -1699,7 +1764,8 @@ function renderSelectedControlsCard() {
   const pid = safeStr(p?.pid ?? "?");
 
   const title = mine ? "🎒 Sua peça" : "🆚 Peça do oponente";
-  const spriteUrl = getSpriteUrlForPiece(p);
+  const _psOwner1 = ((_partyStates && _partyStates[safeStr(p?.owner)]) ? _partyStates[safeStr(p?.owner)] : {})[safeStr(p?.pid)] || {};
+  const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!_psOwner1.shiny });
 
   card.innerHTML = `
     <div class="row spread" style="align-items:flex-start; gap:10px">
@@ -1782,7 +1848,8 @@ function renderInspectorCard() {
   const pid = safeStr(p?.pid) || "—";
   const revealed = !!p?.revealed;
   const name = revealed ? (dexNameFromPid(pid) || pid) : "???";
-  const spriteUrl = getSpriteUrlForPiece(p);
+  const _psInspector = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
+  const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!_psInspector.shiny });
 
   const hp = Number(getPartyHp(owner, pid) ?? 0);
   const hpMax = 6;
@@ -2011,7 +2078,7 @@ function renderSheetsInspectorCard(wrap) {
     }
   }
 
-  const art = _artUrlFromPidForSheets(pid) || _spriteUrlFromPidForSheets(pid) || "";
+  const art = _artUrlFromPidForSheets(pid, ps.shiny) || _spriteUrlFromPidForSheets(pid) || "";
 
   wrap.innerHTML = `
     <div class="inspector-head">
@@ -2162,7 +2229,8 @@ function renderPieceCard(p, isMine) {
   card.className = `card ${selected ? "selected" : ""}`;
   card.dataset.pieceId = id;
 
-  const spriteUrl = getSpriteUrlForPiece(p);
+  const _psCard = ((_partyStates && _partyStates[safeStr(p?.owner)]) ? _partyStates[safeStr(p?.owner)] : {})[safeStr(p?.pid)] || {};
+  const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!_psCard.shiny });
   const imgHtml = spriteUrl
     ? `<img class="mini" src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" onerror="this.style.display='none'"/>`
     : `<div class="avatar" style="width:40px;height:40px;border-radius:14px">#</div>`;
@@ -2193,7 +2261,8 @@ function renderPieceMiniRow(p) {
   const row = Number(p?.row);
   const col = Number(p?.col);
   const revealed = !!p?.revealed;
-  const spriteUrl = getSpriteUrlForPiece(p);
+  const _psMini = ((_partyStates && _partyStates[safeStr(p?.owner)]) ? _partyStates[safeStr(p?.owner)] : {})[safeStr(p?.pid)] || {};
+  const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!_psMini.shiny });
 
   const wrap = document.createElement("div");
   wrap.className = "row";
@@ -3706,7 +3775,8 @@ function draw() {
     ctx.fillRect(x + 2, y + 2, tile - 4, tile - 4);
 
     // sprite
-    const spriteUrl = getSpriteUrlForPiece(p);
+    const _psPiece = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[safeStr(p?.pid)] || {};
+    const spriteUrl = getSpriteUrlForPiece(p, { type: "battle", shiny: !!_psPiece.shiny });
     const spr = spriteUrl ? loadSprite(spriteUrl) : null;
     const pad = Math.max(6, Math.floor(tile * 0.12));
     if (spr?.ready && !spr?.failed) {
@@ -4102,19 +4172,22 @@ function _spriteUrlFromPidForSheets(pid) {
   try { return getSpriteUrlFromPid(pid) || ""; } catch { return ""; }
 }
 
-function _artUrlFromPidForSheets(pid) {
+function _artUrlFromPidForSheets(pid, shiny) {
   const k = safeStr(pid);
   if (!k) return "";
+  const isShiny = !!shiny;
   if (k.startsWith("EXT:")) {
     const nm = safeStr(k.slice(4));
     if (!nm) return "";
     const slug = (typeof spriteSlugFromPokemonName === "function") ? spriteSlugFromPokemonName(nm) : slugifyPokemonName(nm);
-    return slug ? `https://img.pokemondb.net/artwork/large/${slug}.jpg` : "";
+    return slug
+      ? localSpriteUrl(slug, "art", isShiny) || `https://img.pokemondb.net/artwork/large/${slug}.jpg`
+      : "";
   }
   const nm = (typeof resolvePokemonNameFromPid === "function") ? resolvePokemonNameFromPid(k) : "";
   if (nm) {
     const slug = (typeof spriteSlugFromPokemonName === "function") ? spriteSlugFromPokemonName(nm) : slugifyPokemonName(nm);
-    if (slug) return `https://img.pokemondb.net/artwork/large/${slug}.jpg`;
+    if (slug) return localSpriteUrl(slug, "art", isShiny) || `https://img.pokemondb.net/artwork/large/${slug}.jpg`;
   }
   if (/^\d+$/.test(k)) {
     const n = Number(k);
@@ -4276,7 +4349,8 @@ function renderSheetsTab() {
       <span class="type-pill" style="background:${_tc(t)}33;border-color:${_tc(t)}55;color:${_tc(t)}">${escapeHtml(t)}</span>
     `).join("");
 
-    const sprite = _spriteUrlFromPidForSheets(pid) || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
+    const _psCard2 = ((_partyStates && _partyStates[by]) ? _partyStates[by] : {})[pid] || {};
+    const sprite = _artUrlFromPidForSheets(pid, _psCard2.shiny) || _spriteUrlFromPidForSheets(pid) || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
 
     const card = document.createElement("div");
     card.className = `poke-card${isSel ? " selected" : ""}`;
@@ -4414,7 +4488,7 @@ function renderSheetsTab() {
     }
   }
 
-  const art = _artUrlFromPidForSheets(pid) || _spriteUrlFromPidForSheets(pid) || "";
+  const art = _artUrlFromPidForSheets(pid, ps.shiny) || _spriteUrlFromPidForSheets(pid) || "";
 
   detailEl.innerHTML = `
     <div class="sheet-panel ficha-v2">
@@ -4497,6 +4571,9 @@ window.canCurrentPlayerStartCombat = canCurrentPlayerStartCombat;
 window.canCurrentPlayerPassTurn = canCurrentPlayerPassTurn;
 window.isPieceVisibleToMe = isPieceVisibleToMe;
 window.getSpriteUrlFromPid = getSpriteUrlFromPid;
+window.localSpriteUrl      = localSpriteUrl;
+window.spriteUrlWithFallback = spriteUrlWithFallback;
+window.spriteSlugFromPokemonName = spriteSlugFromPokemonName;
 window._arenaView         = view;
 window.currentDb          = null;
 window.currentRid         = null;

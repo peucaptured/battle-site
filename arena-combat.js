@@ -59,14 +59,21 @@ function moveStatValue(meta, stats) {
   return [based, 0];
 }
 
-function spriteUrl(pid) {
+function spriteUrl(pid, opts) {
+  // opts: { type: "battle"|"art", shiny: bool }
   try {
     if (typeof window.getSpriteUrlFromPid === "function") {
-      return safeStr(window.getSpriteUrlFromPid(pid));
+      return safeStr(window.getSpriteUrlFromPid(pid, opts));
     }
   } catch {}
   const k = safeStr(pid);
   if (!k) return "";
+  const type = opts?.type || "art";
+  const shiny = !!opts?.shiny;
+  if (typeof window.localSpriteUrl === "function" && typeof window.spriteSlugFromPokemonName === "function") {
+    const slug = window.spriteSlugFromPokemonName(k);
+    if (slug) return window.localSpriteUrl(slug, type, shiny) || "";
+  }
   if (/^\d+$/.test(k)) return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${Number(k)}.png`;
   return "";
 }
@@ -945,7 +952,8 @@ export class ArenaCombatUI {
     const tPid = safeStr(targetPiece.pid);
     const tOwner = safeStr(targetPiece.owner);
     const tName = displayName(tPid);
-    const tSprite = spriteUrl(tPid);
+    const _tPs = ((this._partyStates && this._partyStates[tOwner]) ? this._partyStates[tOwner] : {})[tPid] || {};
+    const tSprite = spriteUrl(tPid, { type: "battle", shiny: !!_tPs.shiny });
 
     const el = document.createElement("div");
     el.className = "ac-overlay";
@@ -1308,7 +1316,9 @@ export class ArenaCombatUI {
 
     // Center: target sprite
     const tPid = safeStr(targetPiece.pid);
-    const tSprite = spriteUrl(tPid);
+    const _tOwnerRadial = safeStr(targetPiece.owner);
+    const _tPsRadial = ((this._partyStates && this._partyStates[_tOwnerRadial]) ? this._partyStates[_tOwnerRadial] : {})[tPid] || {};
+    const tSprite = spriteUrl(tPid, { type: "battle", shiny: !!_tPsRadial.shiny });
     el.innerHTML = `
       <div class="ac-radial-center" title="${escHtml(displayName(tPid))}">
         <img src="${escHtml(tSprite)}" alt="" onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'" />
@@ -1614,7 +1624,7 @@ export class ArenaCombatUI {
 
     const typeHtml = types.map((t) => `<span class="chip">${escHtml(safeStr(t))}</span>`).join("");
     const abHtml = abilities.slice(0, 3).map((a) => `<span class="chip">${escHtml(safeStr(a))}</span>`).join("");
-    const art = spriteUrl(pid);
+    const art = spriteUrl(pid, { type: "art", shiny: !!pData.shiny });
 
     root.innerHTML = `
       <div class="arena-sheet-card">

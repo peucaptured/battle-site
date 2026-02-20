@@ -475,7 +475,7 @@ function buildSlots(player) {
       const revealed = piece ? !!piece.revealed : false;
       const hp = ps.hp != null ? Number(ps.hp) : null;
       const ko = hp != null && hp <= 0;
-      const spriteUrl = getSpriteUrl(pid);
+      const spriteUrl = getSpriteUrl(pid, { type: "art", shiny: !!ps.shiny });
       slots.push({ pid, revealed, ko, hp, spriteUrl, empty: false });
     } else {
       slots.push({ pid: null, revealed: false, ko: false, hp: null, spriteUrl: "", empty: true });
@@ -485,11 +485,12 @@ function buildSlots(player) {
 }
 
 // ── Sprite resolution ──
-function getSpriteUrl(pid) {
+function getSpriteUrl(pid, opts) {
+  // opts: { type: "battle"|"art", shiny: bool }
   const k = safeStr(pid);
   if (!k) return "";
   if (typeof window.getSpriteUrlFromPid === "function") {
-    return window.getSpriteUrlFromPid(k) || POKE_BALL_URL;
+    return window.getSpriteUrlFromPid(k, opts) || POKE_BALL_URL;
   }
   if (k.startsWith("EXT:")) return POKE_BALL_URL;
   const n = Number(k);

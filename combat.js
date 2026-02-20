@@ -88,9 +88,19 @@ function moveStatValue(meta, stats) {
 }
 
 // ─── Sprite helper ──────────────────────────────────────────────────
-function spriteUrl(pid) {
+function spriteUrl(pid, opts) {
+  // opts: { type: "battle"|"art", shiny: bool }
+  if (typeof window.getSpriteUrlFromPid === "function") {
+    return safeStr(window.getSpriteUrlFromPid(pid, opts));
+  }
   const k = safeStr(pid);
   if (!k) return "";
+  const type = opts?.type || "art";
+  const shiny = !!opts?.shiny;
+  if (typeof window.localSpriteUrl === "function" && typeof window.spriteSlugFromPokemonName === "function") {
+    const slug = window.spriteSlugFromPokemonName(k);
+    if (slug) return window.localSpriteUrl(slug, type, shiny) || "";
+  }
   if (/^\d+$/.test(k)) return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${Number(k)}.png`;
   return "";
 }
