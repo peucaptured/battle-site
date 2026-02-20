@@ -94,7 +94,7 @@
     .app{
       height:calc(100% - 56px); /* adjusted dynamically by scoreboard JS */
       display:grid;
-      grid-template-columns: 320px 1fr 320px;
+      grid-template-columns: minmax(0, 1fr);
       gap:12px;
       padding:12px;
       min-height:0;
@@ -114,6 +114,7 @@
       overflow:hidden;
     }
     .panel-inner{padding:12px; height:100%; overflow:auto}
+    .panel.side-panel{display:none}
 
     /* Tab panels dentro do .mid devem expandir quando ativos */
     .mid [role="tabpanel"].panel {
@@ -178,7 +179,7 @@
     .arena-head .left{display:flex;align-items:center;gap:10px;min-width:0}
     .arena-head .left .name{font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .arena-head .left .meta{font-size:12px;color:var(--muted)}
-    .arena-wrap{position:relative;flex:1;min-height: 420px;background:rgba(0,0,0,.18)}
+    .arena-wrap{position:relative;flex:1;min-height: 640px;background:rgba(0,0,0,.18)}
     canvas#arena{position:absolute;inset:0;width:100%;height:100%;display:block}
 
     /* DOM fallback */
@@ -218,6 +219,31 @@
       display:flex;flex-direction:column;gap:8px;
       align-items:flex-end;
     }
+    .piece-context-menu{
+      position:absolute;
+      z-index:15;
+      min-width:170px;
+      display:none;
+      flex-direction:column;
+      gap:6px;
+      padding:8px;
+      border-radius:12px;
+      border:1px solid rgba(148,163,184,.45);
+      background:rgba(2,6,23,.94);
+      box-shadow:0 14px 35px rgba(2,6,23,.45);
+    }
+    .piece-context-menu button{
+      width:100%;
+      text-align:left;
+      padding:8px 10px;
+      border-radius:10px;
+      border:1px solid rgba(148,163,184,.25);
+      background:rgba(255,255,255,.04);
+      color:var(--text);
+      font-weight:800;
+      cursor:pointer;
+    }
+    .piece-context-menu button:hover{background:rgba(56,189,248,.15);border-color:rgba(56,189,248,.45)}
 
     /* Cards list */
     .card{
@@ -722,7 +748,7 @@
 
   <main class="app">
     <!-- LEFT PANEL -->
-    <section class="panel" aria-label="Sua equipe">
+    <section class="panel side-panel" aria-label="Sua equipe">
       <div class="panel-inner">
         <div class="panel-title">
           <h3>🧑‍🎤 Sua Equipe</h3>
@@ -804,7 +830,13 @@
           </div>
           <div class="arena-hint">
             <div class="hint">Clique numa peça para selecionar • Clique num tile para mover • Arraste para mover</div>
+            <div class="hint">Clique com o botão direito no pokémon para ocultar, retirar da arena ou reduzir HP.</div>
             <div class="hint">Envio sempre por <b>rooms/{rid}/actions</b> (front não mexe no state)</div>
+          </div>
+          <div id="piece_context_menu" class="piece-context-menu" role="menu" aria-label="Ações do pokémon">
+            <button type="button" data-menu-act="toggle">👁️ Ocultar / revelar</button>
+            <button type="button" data-menu-act="remove">❌ Retirar da arena</button>
+            <button type="button" data-menu-act="hp-down">💔 Reduzir 1 HP</button>
           </div>
         </div>
       </section>
@@ -946,7 +978,7 @@
     </section>
 
     <!-- RIGHT PANEL -->
-    <section class="panel" aria-label="Oponentes">
+    <section class="panel side-panel" aria-label="Oponentes">
       <div class="panel-inner">
         <div class="panel-title">
           <h3>🆚 Oponentes</h3>
