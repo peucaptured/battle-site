@@ -2228,6 +2228,8 @@ async function handlePieceMenuAction(action, pieceId) {
   }
 }
 
+window.handlePieceMenuAction = handlePieceMenuAction;
+
 pieceContextMenu?.addEventListener("click", async (ev) => {
   const btn = ev.target?.closest?.("[data-menu-act]");
   if (!btn) return;
