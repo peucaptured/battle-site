@@ -765,6 +765,7 @@ export class ArenaCombatUI {
 
     canvas.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
+      ev.stopImmediatePropagation();
       const rect = canvas.getBoundingClientRect();
       const x = ev.clientX - rect.left;
       const y = ev.clientY - rect.top;
@@ -779,7 +780,7 @@ export class ArenaCombatUI {
       const cy = ev.clientY - wrapRect.top;
 
       this._showContextMenu(piece, tile, cx, cy);
-    });
+    }, true);
   }
 
   _showContextMenu(piece, tile, x, y) {
@@ -794,6 +795,7 @@ export class ArenaCombatUI {
     if (piece) {
       const owner = safeStr(piece.owner);
       const isEnemy = owner && owner !== by;
+      const isMine = owner && owner === by;
       const name = displayName(safeStr(piece.pid));
 
       if (isEnemy && isPlayer) {
@@ -804,6 +806,21 @@ export class ArenaCombatUI {
         items.push({ icon: "🌀", label: "Ataque em Área", action: () => { this._closeAll(); this._openAttackOverlay(piece, x, y, "area"); } });
         items.push({ type: "sep" });
       }
+
+      if (isMine) {
+        const pieceId = safeStr(piece.id);
+        const isRevealed = !!piece.revealed;
+        items.push({ icon: "🎯", label: "Selecionar peça", action: () => { this._closeAll(); window.selectPiece?.(pieceId); } });
+        items.push({
+          icon: isRevealed ? "🙈" : "👁️",
+          label: isRevealed ? "Ocultar peça" : "Revelar peça",
+          action: () => { this._closeAll(); window.togglePieceRevealed?.(pieceId); },
+        });
+        items.push({ icon: "💔", label: "Reduzir 1 HP", action: () => { this._closeAll(); window.handlePieceMenuAction?.("hp-down", pieceId); } });
+        items.push({ icon: "❌", label: "Retirar da arena", action: () => { this._closeAll(); window.removePieceFromBoard?.(pieceId); } });
+        items.push({ type: "sep" });
+      }
+
       items.push({ icon: "📋", label: `Ver ficha de ${name}`, action: () => { this._closeAll(); this._viewSheet(piece); } });
     } else if (isPlayer && window.appState?.selectedPieceId) {
       items.push({ icon: "🚶", label: `Mover para (${tile.row}, ${tile.col})`, action: () => { this._closeAll(); } });
