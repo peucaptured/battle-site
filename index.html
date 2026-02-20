@@ -315,14 +315,24 @@
        HUD BODY — 3-column grid
        ═══════════════════════════════════════════════════════ */
     .hud-body{
+      /* Grid columns (default) */
+      --hud-left-col: 280px;
+      --hud-right-col: 320px;
+      --hud-right-col-wide: minmax(440px, 680px);
+
       display:grid;
-      grid-template-columns: 280px 1fr 320px;
+      grid-template-columns: var(--hud-left-col) 1fr var(--hud-right-col);
       gap: 12px;
       padding: 8px 20px 16px;
       max-width: 1440px;
       margin: 0 auto;
       height: calc(100vh - 72px - 52px); /* hero + tabs */
       min-height: 0;
+    }
+
+    /* When a ficha estiver aberta no Inspector, a coluna direita expande */
+    body.sheet-inspector-mode .hud-body{
+      grid-template-columns: var(--hud-left-col) 1fr var(--hud-right-col-wide);
     }
 
     /* Left sidebar: Fichas */
@@ -1126,7 +1136,9 @@
        ═══════════════════════════════════════════════════════ */
     @media (max-width: 1200px) {
       .hud-body{
-        grid-template-columns: 240px 1fr 280px;
+        --hud-left-col: 240px;
+        --hud-right-col: 280px;
+        --hud-right-col-wide: minmax(380px, 560px);
         padding: 8px 12px 14px;
       }
     }
@@ -1471,5 +1483,6 @@
   <script type="module" src="./initiative-patch.js"></script>
   <script type="module" src="./arena-combat-patch.js"></script>
   <script type="module" src="./scoreboard-patch.js"></script>
+  <script type="module" src="./fichas-inspector-patch.js"></script>
 </body>
 </html>
