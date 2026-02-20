@@ -621,17 +621,23 @@ moveBtn?.addEventListener("click", async () => {
     setStatus("err", "row/col precisam ser números");
     return;
   }
+  if (!canCurrentPlayerMovePiece(pieceId)) {
+    setStatus("err", "você só pode mover peças suas");
+    return;
+  }
   await sendAction("MOVE_PIECE", by, { pieceId, row, col });
 });
 
 // Expor no console (compatibilidade com debug antigo)
 window.sendAddLog = async (by, text) => sendAction("ADD_LOG", by || "Anon", { text: text || "teste" });
 window.sendMovePiece = async (by, pieceId, row, col) =>
-  sendAction("MOVE_PIECE", by || "Anon", {
-    pieceId: String(pieceId || ""),
-    row: Number(row),
-    col: Number(col),
-  });
+  canCurrentPlayerMovePiece(pieceId)
+    ? sendAction("MOVE_PIECE", by || "Anon", {
+        pieceId: String(pieceId || ""),
+        row: Number(row),
+        col: Number(col),
+      })
+    : setStatus("err", "você só pode mover peças suas");
 
 topRollBtn?.addEventListener("click", async () => {
   if (!currentDb || !currentRid || !appState.connected) {
@@ -1796,6 +1802,10 @@ function selectPiece(pieceId) {
 function sendMoveSelected(toRow, toCol) {
   const pieceId = safeStr(appState.selectedPieceId);
   if (!pieceId) return;
+  if (!canCurrentPlayerMovePiece(pieceId)) {
+    setStatus("err", "você só pode mover peças suas");
+    return;
+  }
   const by = safeStr(byInput?.value || "Anon") || "Anon";
   sendAction("MOVE_PIECE", by, { pieceId, row: toRow, col: toCol });
 }
@@ -1896,6 +1906,16 @@ function getStateDocRef() {
 function isPieceMine(p) {
   const by = safeStr(appState.by);
   return by && safeStr(p?.owner) === by;
+}
+
+function canCurrentPlayerMovePiece(pieceId) {
+  const pid = safeStr(pieceId);
+  if (!pid) return false;
+  const pieces = Array.isArray(appState.pieces) ? appState.pieces : [];
+  const piece = pieces.find((p) => safeStr(p?.id) === pid);
+  if (!piece) return false;
+  if (safeStr(piece?.status || "active") !== "active") return false;
+  return isPieceMine(piece);
 }
 
 // Visibilidade no mapa (mesma lógica do app.py):
@@ -2023,6 +2043,7 @@ function bindArenaInteractionsCanvas() {
     if (!tile) return;
     const p = getPieceAt(tile.row, tile.col);
     if (!p) return;
+    if (!isPieceMine(p)) return;
     const id = safeStr(p.id);
     selectPiece(id);
     appState.drag.active = true;
