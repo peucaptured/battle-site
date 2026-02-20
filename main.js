@@ -52,6 +52,7 @@ const playersCount = $("players_count");
 const lastActionEl = $("last_action");
 const actionsLogEl = $("actions_log");
 const topRollBtn = $("top_roll_btn");
+const cancelPlaceBtn = $("btn_cancel_place");
 
 const playersPre = $("players");
 const statePre = $("state");
@@ -68,6 +69,7 @@ try {
 
 const connectBtn = $("connect");
 const disconnectBtn = $("disconnect");
+const disconnectPanelBtn = $("disconnect_panel");
 const entryDisconnectBtn = $("entry_disconnect");
 const addLogBtn = $("btn_add_log");
 const logTextInput = $("log_text");
@@ -397,6 +399,10 @@ const appState = {
   // logs
   renderedLogKeys: new Set(),
 };
+
+
+// Local UI state (não vai pro Firestore)
+let armedPokemonId = null; // modo posicionamento via pokébola
 
 // -------------------------
 // Dex / Map overrides (localStorage)
@@ -761,6 +767,7 @@ function cleanup() {
 }
 
 disconnectBtn?.addEventListener("click", cleanup);
+disconnectPanelBtn?.addEventListener("click", cleanup);
 entryDisconnectBtn?.addEventListener("click", cleanup);
 
 connectBtn?.addEventListener("click", async () => {
@@ -1391,7 +1398,15 @@ function renderPartyCard(it, ownerName) {
   });
   card.querySelector('[data-act="place"]')?.addEventListener("click", (ev) => {
     ev.stopPropagation();
+    // toggle: clicar na mesma pokébola desarma
+    if (getPlacingPokemonPid() && getPlacingPokemonPid() === pid) {
+      clearPokemonPlacingMode();
+      updateSidePanels();
+      setStatus("ok", "posicionamento cancelado");
+      return;
+    }
     startPlacePokemon(pid);
+    updateSidePanels();
   });
   card.querySelector('[data-act="toggle"]')?.addEventListener("click", async (ev) => {
     ev.stopPropagation();
@@ -1448,7 +1463,8 @@ function renderPartyWindow() {
     const onBoard = isPokemonAlreadyOnBoard(by, pid);
     const placing = placingPid && placingPid === pid;
     const disabled = ko || onBoard;
-    const badges = `${onBoard ? '<span class="slot-badge">em campo</span>' : ''}${ko ? '<span class="slot-badge">KO</span>' : ''}`;
+    const readyBadge = placing ? '<span class="slot-badge ready">pronto</span>' : '';
+    const badges = `${readyBadge}${onBoard ? '<span class="slot-badge">em campo</span>' : ''}${ko ? '<span class="slot-badge">KO</span>' : ''}`;
     return `<button type="button" class="party-slot ${ko ? 'ko' : ''} ${placing ? 'placing' : ''}" data-slot="${idx}" data-pid="${escapeAttr(pid)}" ${disabled ? 'disabled' : ''}>
       ${sprite ? `<img src="${escapeAttr(sprite)}" alt="${escapeAttr(pid)}" loading="lazy" onerror="this.style.display='none'"/>` : ''}
       <span class="slot-label">${idx + 1}</span>
@@ -1545,131 +1561,183 @@ function renderSelectedControlsCard() {
   return card;
 }
 
+
+function renderInspectorCard() {
+  const wrap = document.createElement("div");
+  wrap.className = "inspector";
+
+  const selId = safeStr(appState.selectedPieceId);
+  if (!selId) {
+    wrap.innerHTML = `
+      <div class="inspector-empty">
+        <div class="inspector-title">Inspector</div>
+        <div class="muted">Clique em um Pokémon no mapa para inspecionar.</div>
+      </div>
+    `;
+    return wrap;
+  }
+
+  const p = (appState.pieces || []).find((x) => safeStr(x?.id) === selId) || null;
+  if (!p) {
+    wrap.innerHTML = `
+      <div class="inspector-empty">
+        <div class="inspector-title">Inspector</div>
+        <div class="muted">Peça não encontrada (talvez foi removida).</div>
+      </div>
+    `;
+    return wrap;
+  }
+
+  const owner = safeStr(p?.owner) || "—";
+  const pid = safeStr(p?.pid) || "—";
+  const revealed = !!p?.revealed;
+  const name = revealed ? (dexNameFromPid(pid) || pid) : "???";
+  const spriteUrl = getSpriteUrlForPiece(p);
+
+  const hp = Number(getPartyHp(owner, pid) ?? 0);
+  const hpMax = 6;
+  const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
+
+  const chips = [
+    `<span class="chip">${escapeHtml(owner)}</span>`,
+    `<span class="chip mono">${escapeHtml(pid)}</span>`,
+    `<span class="chip ${revealed ? "ok" : "warn"}">${revealed ? "revelado" : "oculto"}</span>`,
+  ].join("");
+
+  wrap.innerHTML = `
+    <div class="inspector-head">
+      <div class="inspector-title">Inspector</div>
+      <div class="inspector-sub mono">id: ${escapeHtml(selId)}</div>
+    </div>
+
+    <div class="inspector-card">
+      <div class="inspector-media">
+        ${spriteUrl ? `<img src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" onerror="this.style.display='none'"/>` : `<div class="inspector-sprite-fallback">#</div>`}
+      </div>
+      <div class="inspector-body">
+        <div class="inspector-name">${escapeHtml(name)}</div>
+        <div class="inspector-chips">${chips}</div>
+
+        <div class="hpbar">
+          <div class="hpbar-track"><div class="hpbar-fill" style="width:${hpPct}%"></div></div>
+          <div class="hpbar-meta mono">${hp}/${hpMax}</div>
+        </div>
+
+        <div class="inspector-actions">
+          <button type="button" class="btn primary" data-ins-act="move">Mover</button>
+          <button type="button" class="btn secondary" data-ins-act="toggle">Ocultar</button>
+          <button type="button" class="btn danger" data-ins-act="remove">Retirar da arena</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // handlers
+  wrap.querySelector('[data-ins-act="move"]')?.addEventListener("click", () => {
+    setStatus("ok", "Mover: clique no tile de destino na arena");
+    // nada além disso: o click no tile já move a seleção atual
+  });
+  wrap.querySelector('[data-ins-act="toggle"]')?.addEventListener("click", async () => {
+    await togglePieceRevealed(selId);
+  });
+  wrap.querySelector('[data-ins-act="remove"]')?.addEventListener("click", async () => {
+    await removePieceFromBoard(selId);
+  });
+
+  return wrap;
+}
+
 function updateSidePanels() {
-  // Team list (prioridade: party_snapshot/users_raw -> fallback: peças no tabuleiro)
   const by = safeStr(appState.by);
   const pieces = Array.isArray(appState.pieces) ? appState.pieces : [];
 
-  const myParty = by ? getPartyForTrainer(by) : [];
-  const myPieces = by ? pieces.filter((p) => safeStr(p?.owner) === by && safeStr(p?.status || "active") !== "deleted") : [];
+  // Render pokébolas (Time / posicionamento)
   renderPartyWindow();
-  const oppPiecesRaw = by ? pieces.filter((p) => safeStr(p?.owner) && safeStr(p?.owner) !== by && safeStr(p?.status || "active") !== "deleted") : pieces;
+
+  // Botão de cancelar: só aparece quando estiver armado
+  try {
+    const placingPid = getPlacingPokemonPid();
+    if (cancelPlaceBtn) cancelPlaceBtn.style.display = placingPid ? "" : "none";
+    const armedLabel = document.getElementById("armed_label");
+    if (armedLabel) {
+      armedLabel.textContent = placingPid ? `pronto: ${dexNameFromPid(placingPid) || placingPid}` : "—";
+    }
+  } catch {}
+
+  // Inspector (direita)
+  const inspectorRoot = $("inspector_root");
+  if (inspectorRoot) {
+    inspectorRoot.innerHTML = "";
+    inspectorRoot.appendChild(renderInspectorCard());
+  }
+
+  // Oponentes (secundário, colapsável)
+  const oppPiecesRaw = by
+    ? pieces.filter((p) => safeStr(p?.owner) && safeStr(p?.owner) !== by && safeStr(p?.status || "active") !== "deleted")
+    : pieces;
   const oppPieces = (oppPiecesRaw || []).filter((p) => isPieceVisibleToMe(p));
 
-  // LEFT
-  const teamRoot = $("team_list");
-  if (!teamRoot) return;
-  teamRoot.innerHTML = "";
-  // Card de controles do selecionado (mover/ocultar/retirar)
-  teamRoot.appendChild(renderSelectedControlsCard());
-  if (!appState.connected) {
-    const c = document.createElement("div");
-    c.className = "card";
-    c.innerHTML = `<div class="muted">Conecte numa sala para ver suas peças.</div>`;
-    teamRoot.appendChild(c);
-  } else if (!myParty.length && !myPieces.length) {
-    const c = document.createElement("div");
-    c.className = "card";
-    c.innerHTML = `<div style="font-weight:950;margin-bottom:6px">Equipe não encontrada</div><div class="muted">Ainda não achei <code>party_snapshot</code>/<code>users_raw</code> e você não tem peças no tabuleiro. Opções: (1) preencha <code>by</code> e faça login (planilha) no conectar, ou (2) entre na sala 1x pelo Streamlit (ele espelha seu perfil para o Firestore).</div>`;
-    teamRoot.appendChild(c);
-  } else {
-    for (const p of myPieces) teamRoot.appendChild(renderPieceCard(p, true));
-  }
-
-  // RIGHT
   const oppRoot = $("opp_list");
-  if (!oppRoot) return;
-  oppRoot.innerHTML = "";
-  const grouped = new Map();
-  for (const p of oppPieces) {
-    const o = safeStr(p?.owner) || "—";
-    if (!grouped.has(o)) grouped.set(o, []);
-    grouped.get(o).push(p);
-  }
-  const knownOwners = new Set(Array.from(grouped.keys()));
-  for (const p of (oppPiecesRaw || [])) {
-    const o = safeStr(p?.owner);
-    if (o && o !== by) knownOwners.add(o);
-  }
-  for (const pl of (appState.players || [])) {
-    const o = safeStr(pl?.trainer_name);
-    if (o && o !== by) knownOwners.add(o);
-  }
-  const oppOwners = Array.from(knownOwners).sort((a, b) => a.localeCompare(b));
-  if (oppCount) oppCount.textContent = String(oppOwners.length);
-  for (const owner of oppOwners) {
-    const ownerBox = document.createElement("div");
-    ownerBox.className = "pvp-opp-group";
-    const initial = owner.charAt(0).toUpperCase();
-    const hdr = document.createElement("div");
-    hdr.className = "pvp-opp-header";
-    const visiblePieces = grouped.get(owner) || [];
-    hdr.innerHTML = `<div class="pvp-opp-avatar">${escapeHtml(initial)}</div><div class="pvp-opp-name">🔴 ${escapeHtml(owner)}</div><div class="pvp-opp-count">${Math.max(visiblePieces.length, getPartyForTrainer(owner).length)}</div>`;
-    ownerBox.appendChild(hdr);
-    const oppParty = getPartyForTrainer(owner);
-    if (oppParty.length > 0) {
-      for (const it of oppParty) {
-        const oppPid = safeStr(it?.pid || it);
-        const oppPiece = visiblePieces.find(px => safeStr(px?.pid) === oppPid);
-        const oppOnMap = !!oppPiece?.id && safeStr(oppPiece?.status || "active") !== "deleted";
-        const oppRevealed = oppPiece ? !!oppPiece.revealed : false;
-        const oppName = dexNameFromPid(oppPid) || (oppPid.startsWith("EXT:") ? oppPid.slice(4) : `PID ${oppPid}`);
-        const oppSprite = getSpriteUrlFromPid(oppPid);
-        const oppPs = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[oppPid] || {};
-        const oppHp = oppPs.hp != null ? Number(oppPs.hp) : 6;
-        const oppHpPct = Math.max(0, Math.min(100, (oppHp / 6) * 100));
-        const oppHpCol = oppHpPct > 66 ? "#22c55e" : oppHpPct > 33 ? "#f59e0b" : oppHp <= 0 ? "#64748b" : "#ef4444";
-        const oppHpIcon = oppHp >= 5 ? "💚" : oppHp >= 3 ? "🟡" : oppHp >= 1 ? "🔴" : "💀";
-        const mc = document.createElement("div");
-        mc.className = "pvp-party-card pvp-opp-card";
-        const oppImg = oppRevealed && oppSprite
-          ? `<img class="pvp-sprite" src="${escapeAttr(oppSprite)}" loading="lazy" onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'"/>`
-          : `<img class="pvp-sprite" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png"/>`;
-        mc.innerHTML = `
-          <div class="pvp-card-row">
-            <div class="pvp-sprite-wrap">
-              ${oppImg}
-              ${oppOnMap ? `<span class="pvp-loc-badge pvp-loc-field">⚔️</span>` : `<span class="pvp-loc-badge pvp-loc-bag">🎒</span>`}
-            </div>
-            <div class="pvp-card-info">
-              <div class="pvp-card-name">${oppRevealed ? escapeHtml(oppName) : "???"}<span style="font-size:10px;color:#94a3b8;margin-left:6px;">${oppOnMap ? "No campo" : "Mochila"}</span></div>
-              ${oppRevealed ? `<div class="pvp-hp-row">
-                <span class="pvp-hp-icon">${oppHpIcon}</span>
-                <input
-                  type="range"
-                  class="pvp-hp-slider"
-                  min="0"
-                  max="6"
-                  step="1"
-                  value="${oppHp}"
-                  data-act="hp-slider"
-                  data-owner="${escapeAttr(owner)}"
-                  data-pid="${escapeAttr(oppPid)}"
-                  style="--hp-pct:${oppHpPct}%;--hp-col:${oppHpCol};"
-                />
-                <span class="pvp-hp-label">${oppHp}/6</span>
-              </div>` : ""}
-            </div>
-          </div>
-        `;
-        mc.querySelector('[data-act="hp-slider"]')?.addEventListener("input", async (ev) => {
-          ev.stopPropagation();
-          const newHp = Number(ev.target.value);
-          if (!Number.isFinite(newHp)) return;
-          await updatePartyStateHp(owner, oppPid, newHp);
-        });
-        if (oppPiece?.id) mc.addEventListener("click", () => selectPiece(String(oppPiece.id)));
-        ownerBox.appendChild(mc);
-      }
-    } else {
-      for (const p of visiblePieces) ownerBox.appendChild(renderPieceMiniRow(p));
+  if (oppRoot) {
+    oppRoot.innerHTML = "";
+    const grouped = new Map();
+    for (const p of oppPieces) {
+      const o = safeStr(p?.owner) || "—";
+      if (!grouped.has(o)) grouped.set(o, []);
+      grouped.get(o).push(p);
     }
-    oppRoot.appendChild(ownerBox);
-  }
+    const knownOwners = new Set(Array.from(grouped.keys()));
+    for (const p of (oppPiecesRaw || [])) {
+      const o = safeStr(p?.owner);
+      if (o && o !== by) knownOwners.add(o);
+    }
+    for (const pl of (appState.players || [])) {
+      const o = safeStr(pl?.trainer_name);
+      if (o && o !== by) knownOwners.add(o);
+    }
+    const oppOwners = Array.from(knownOwners).sort((a, b) => a.localeCompare(b));
+    if (oppCount) oppCount.textContent = String(oppOwners.length);
 
-  // ── Fichas (tab) ──
-  try { ensureSheetsRealtime(); renderSheetsTab(); } catch {}
+    for (const owner of oppOwners) {
+      const ownerBox = document.createElement("div");
+      ownerBox.className = "pvp-opp-group";
+      const initial = owner.charAt(0).toUpperCase();
+      const hdr = document.createElement("div");
+      hdr.className = "pvp-opp-header";
+      const visiblePieces = grouped.get(owner) || [];
+      hdr.innerHTML = `<div class="pvp-opp-avatar">${escapeHtml(initial)}</div><div class="pvp-opp-name">🔴 ${escapeHtml(owner)}</div><div class="pvp-opp-count">${Math.max(visiblePieces.length, getPartyForTrainer(owner).length)}</div>`;
+      ownerBox.appendChild(hdr);
+
+      const oppParty = getPartyForTrainer(owner);
+      if (oppParty.length > 0) {
+        for (const it of oppParty) {
+          const oppPid = safeStr(it?.pid || it);
+          const oppPiece = visiblePieces.find(px => safeStr(px?.pid) === oppPid);
+          const oppOnMap = !!oppPiece?.id && safeStr(oppPiece?.status || "active") !== "deleted";
+          const oppRevealed = oppPiece ? !!oppPiece.revealed : false;
+          const oppName = dexNameFromPid(oppPid) || (oppPid.startsWith("EXT:") ? oppPid.slice(4) : oppPid);
+          const row = document.createElement("div");
+          row.className = "pvp-opp-row";
+          row.innerHTML = `
+            <div class="pvp-opp-mini">${oppRevealed ? "👁️" : "❔"}</div>
+            <div class="pvp-opp-mon">${escapeHtml(oppRevealed ? oppName : "???" )}</div>
+            <div class="pvp-opp-tag">${oppOnMap ? "em campo" : "fora"}</div>
+          `;
+          ownerBox.appendChild(row);
+        }
+      } else {
+        const empty = document.createElement("div");
+        empty.className = "muted tiny";
+        empty.style.padding = "8px 10px";
+        empty.textContent = "Sem party_snapshot";
+        ownerBox.appendChild(empty);
+      }
+
+      oppRoot.appendChild(ownerBox);
+    }
+  }
 }
+
 
 function renderPieceCard(p, isMine) {
   const { pid, id } = pieceDisplayName(p);
@@ -1839,7 +1907,9 @@ const view = {
   offX: 0,
   offY: 0,
   autoFit: true,
+  showGrid: true,
 };
+
 
 // DOM fallback grid cache
 let domGridSize = 0;
@@ -1876,11 +1946,44 @@ function fitToView() {
 
 $("btn_zoom_fit")?.addEventListener("click", () => {
   view.autoFit = true;
+  const b = $("btn_zoom_fit");
+  if (b) b.setAttribute("aria-pressed", "true");
   fitToView();
 });
 $("btn_center")?.addEventListener("click", () => {
   view.autoFit = false;
+  const b = $("btn_zoom_fit");
+  if (b) b.setAttribute("aria-pressed", "false");
   fitToView();
+});
+
+// Cancelar posicionamento (pokébola armada)
+cancelPlaceBtn?.addEventListener("click", () => {
+  if (!getPlacingPokemonPid()) return;
+  clearPokemonPlacingMode();
+  updateSidePanels();
+  setStatus("ok", "posicionamento cancelado");
+});
+
+// Zoom manual (+ / -)
+$("btn_zoom_in")?.addEventListener("click", () => {
+  view.autoFit = false;
+  const b = $("btn_zoom_fit");
+  if (b) b.setAttribute("aria-pressed", "false");
+  view.scale = Math.min(128, Math.floor(view.scale * 1.15));
+});
+$("btn_zoom_out")?.addEventListener("click", () => {
+  view.autoFit = false;
+  const b = $("btn_zoom_fit");
+  if (b) b.setAttribute("aria-pressed", "false");
+  view.scale = Math.max(16, Math.floor(view.scale / 1.15));
+});
+
+// Toggle grid
+$("btn_toggle_grid")?.addEventListener("click", () => {
+  view.showGrid = !view.showGrid;
+  const b = $("btn_toggle_grid");
+  if (b) b.setAttribute("aria-pressed", view.showGrid ? "true" : "false");
 });
 
 function screenToTile(x, y) {
@@ -1935,18 +2038,25 @@ function makePieceId() {
 }
 
 function getPlacingPokemonPid() {
+  // Prioridade: estado local do HUD (pokébola selecionada)
+  if (armedPokemonId) return safeStr(armedPokemonId);
+  // Backward compat: state antigo
   if (appState.placing && appState.placing.mode === "pokemon") return safeStr(appState.placing.pid);
   return safeStr(appState.placingPid);
 }
 
+
 function clearPokemonPlacingMode() {
+  armedPokemonId = null;
   if (appState.placing && appState.placing.mode === "pokemon") appState.placing = null;
   appState.placingPid = null;
 }
 
+
 function startPlacePokemon(pid) {
   const monPid = safeStr(pid);
   if (!monPid) return;
+  armedPokemonId = monPid;
   if (!appState.connected || !appState.rid) {
     setStatus("err", "conecte antes de colocar pokémon no mapa");
     return;
@@ -2289,7 +2399,16 @@ document.addEventListener("click", (ev) => {
   hidePieceContextMenu();
 });
 document.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") hidePieceContextMenu();
+  if (ev.key !== "Escape") return;
+  // 1) fecha menu de contexto
+  hidePieceContextMenu();
+
+  // 2) cancela modo posicionamento (pokébola armada)
+  if (getPlacingPokemonPid()) {
+    clearPokemonPlacingMode();
+    updateSidePanels();
+    setStatus("ok", "posicionamento cancelado");
+  }
 });
 function bindArenaInteractionsCanvas() {
   if (!useCanvas) return;
@@ -2492,9 +2611,24 @@ function renderArenaDom() {
     if (!cell) continue;
     cell.classList.remove("hover");
     cell.classList.remove("sel");
+    cell.classList.remove("place-ok");
     // remove token
     const t = cell.querySelector(":scope > .token");
     if (t) t.remove();
+  }
+
+
+  // placing mode highlight (tiles válidos)
+  const placingPid = getPlacingPokemonPid();
+  if (placingPid) {
+    for (let r = 0; r < gs; r++) {
+      for (let c = 0; c < gs; c++) {
+        const cell = domCells[r * gs + c];
+        if (!cell) continue;
+        if (isTileOccupied(r, c)) continue;
+        cell.classList.add("place-ok");
+      }
+    }
   }
 
   // coloca tokens
@@ -2748,6 +2882,21 @@ function draw() {
 
 
 
+
+  // placing mode highlight (tiles válidos)
+  const placingPid = getPlacingPokemonPid();
+  if (placingPid) {
+    ctx.fillStyle = "rgba(163, 230, 53, 0.10)"; // amarelo-esverdeado sutil
+    for (let rr = 0; rr < gs; rr++) {
+      for (let cc = 0; cc < gs; cc++) {
+        if (isTileOccupied(rr, cc)) continue;
+        const xh = ox + cc * tile;
+        const yh = oy + rr * tile;
+        ctx.fillRect(xh + 1, yh + 1, tile - 2, tile - 2);
+      }
+    }
+  }
+
   // hover highlight
   if (appState.hover.row != null) {
     const x = ox + appState.hover.col * tile;
@@ -2759,21 +2908,25 @@ function draw() {
     ctx.strokeRect(x + 1, y + 1, tile - 2, tile - 2);
   }
 
+
   // grid lines
-  ctx.strokeStyle = "rgba(148,163,184,0.22)";
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= gs; i++) {
-    const x = ox + i * tile;
-    const y = oy + i * tile;
-    ctx.beginPath();
-    ctx.moveTo(x, oy);
-    ctx.lineTo(x, oy + gs * tile);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(ox, y);
-    ctx.lineTo(ox + gs * tile, y);
-    ctx.stroke();
+  if (view.showGrid) {
+    ctx.strokeStyle = "rgba(148,163,184,0.22)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= gs; i++) {
+      const x = ox + i * tile;
+      const y = oy + i * tile;
+      ctx.beginPath();
+      ctx.moveTo(x, oy);
+      ctx.lineTo(x, oy + gs * tile);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ox, y);
+      ctx.lineTo(ox + gs * tile, y);
+      ctx.stroke();
+    }
   }
+
 
   // pieces
   const pieces = appState.pieces || [];

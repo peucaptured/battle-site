@@ -792,7 +792,357 @@
   <style>
     @keyframes rollBannerIn { from { transform: translateY(-100%); opacity:0; } to { transform: translateY(0); opacity:1; } }
     body.has-roll-banner .topbar { margin-top: 34px; }
-  </style>
+  
+
+  /* ═══════════════════════════════════════════════════════
+     HUD premium — overrides (dark sci‑fi / neon + glass)
+     ═══════════════════════════════════════════════════════ */
+  :root{
+    --bg0:#050913;
+    --bg1:#070d1f;
+    --glass: rgba(12, 18, 35, .52);
+    --glass2: rgba(10, 16, 32, .38);
+    --stroke: rgba(120, 210, 255, .18);
+    --stroke2: rgba(120, 210, 255, .30);
+    --glow: rgba(56, 189, 248, .55);
+    --glow2: rgba(34, 211, 238, .30);
+    --text:#e8f0ff;
+    --muted: rgba(232,240,255,.72);
+    --radius: 18px;
+    --radius2: 14px;
+    --blur: 16px;
+    --shadow: 0 10px 35px rgba(0,0,0,.45);
+    --inner: inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(0,0,0,.25);
+  }
+  body{
+    background:
+      radial-gradient(1200px 700px at 70% 0%, rgba(56,189,248,.18), transparent 55%),
+      radial-gradient(900px 600px at 20% 30%, rgba(99,102,241,.16), transparent 60%),
+      linear-gradient(180deg, var(--bg1), var(--bg0) 70%);
+  }
+  body::before{
+    content:"";
+    position:fixed; inset:0;
+    background-image:
+      radial-gradient(2px 2px at 20% 30%, rgba(255,255,255,.35) 40%, transparent 42%),
+      radial-gradient(1px 1px at 70% 10%, rgba(255,255,255,.25) 40%, transparent 42%),
+      radial-gradient(1px 1px at 40% 80%, rgba(255,255,255,.22) 40%, transparent 42%),
+      radial-gradient(1px 1px at 85% 65%, rgba(255,255,255,.18) 40%, transparent 42%);
+    opacity:.55;
+    pointer-events:none;
+    mix-blend-mode: screen;
+  }
+  body::after{
+    content:"";
+    position:fixed; inset:-2px;
+    background:
+      radial-gradient(800px 400px at 50% 15%, rgba(56,189,248,.12), transparent 60%),
+      radial-gradient(600px 320px at 30% 85%, rgba(34,211,238,.10), transparent 60%);
+    filter: blur(10px);
+    opacity:.85;
+    pointer-events:none;
+  }
+
+  .topbar{
+    position:fixed; top:0; left:0; right:0;
+    height:56px;
+    padding: 0 14px;
+    background: linear-gradient(180deg, rgba(9,14,29,.88), rgba(9,14,29,.62));
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    backdrop-filter: blur(var(--blur));
+    -webkit-backdrop-filter: blur(var(--blur));
+    z-index: 50;
+  }
+  .brand .title{ letter-spacing:.4px; }
+  .brand .sub{ color: rgba(232,240,255,.68); }
+
+  .top-actions .btn.cta{
+    background: linear-gradient(180deg, rgba(56,189,248,.22), rgba(56,189,248,.10));
+    border-color: rgba(56,189,248,.45);
+    box-shadow: 0 0 0 1px rgba(56,189,248,.16), 0 10px 25px rgba(0,0,0,.35);
+  }
+  .pill{
+    background: rgba(6,10,22,.55);
+    border: 1px solid rgba(120, 210, 255, .14);
+    box-shadow: var(--inner);
+  }
+
+  /* desloca layout por causa da topbar fixa */
+  #scoreboard{ margin-top: 64px; }
+
+  /* Tabs segmentadas */
+  .tabsbar{
+    grid-column: 1 / -1;
+    display:flex;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 999px;
+    background: rgba(7, 12, 26, .45);
+    border: 1px solid rgba(120,210,255,.14);
+    box-shadow: var(--inner);
+    backdrop-filter: blur(var(--blur));
+    -webkit-backdrop-filter: blur(var(--blur));
+    margin: 10px 12px 12px;
+    align-self: start;
+  }
+  .tab{
+    flex: 0 0 auto;
+    padding: 10px 14px;
+    border-radius: 999px;
+    cursor:pointer;
+    user-select:none;
+    font-weight: 950;
+    letter-spacing:.3px;
+    color: rgba(232,240,255,.75);
+    border: 1px solid transparent;
+    background: transparent;
+  }
+  .tab.active{
+    color: var(--text);
+    border-color: rgba(56,189,248,.42);
+    background: linear-gradient(180deg, rgba(56,189,248,.20), rgba(56,189,248,.08));
+    box-shadow: 0 0 0 1px rgba(56,189,248,.10), 0 14px 28px rgba(0,0,0,.35);
+  }
+
+  /* Grid 3 colunas */
+  main.hud{
+    display:grid;
+    grid-template-columns: 300px 1fr 340px;
+    grid-template-rows: auto 1fr;
+    gap: 12px;
+    padding: 0 12px 14px;
+    max-width: 1440px;
+    margin: 0 auto;
+  }
+  @media (max-width: 1420px){
+    main.hud{ max-width: 1200px; }
+  }
+  @media (max-width: 1100px){
+    main.hud{ grid-template-columns: 280px 1fr 320px; }
+  }
+
+  .panel{
+    border-radius: var(--radius);
+    background: var(--glass);
+    border: 1px solid rgba(120,210,255,.14);
+    box-shadow: var(--shadow), var(--inner);
+    backdrop-filter: blur(var(--blur));
+    -webkit-backdrop-filter: blur(var(--blur));
+  }
+  .panel-inner{ padding: 12px; }
+  .panel-title h3{
+    margin:0; font-size: .95rem; letter-spacing:.35px;
+  }
+  .mini-card{
+    background: rgba(2,6,23,.25);
+    border: 1px solid rgba(255,255,255,.06);
+  }
+  .hud-left{ grid-row: 2; grid-column: 1; }
+  .hud-center{ grid-row: 2; grid-column: 2; min-width: 0; }
+  .hud-right{ grid-row: 2; grid-column: 3; }
+
+  /* Stage */
+  .arena-card{
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+  .arena-head{
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    background: var(--glass2);
+    border: 1px solid rgba(120,210,255,.14);
+    box-shadow: var(--inner);
+    margin-bottom: 10px;
+  }
+  .stage-controls{ display:flex; align-items:center; gap:8px; justify-content:flex-end; }
+  .stage-controls .btn{ height: 34px; }
+  .btn.toggle{
+    background: rgba(6,10,22,.35);
+    border: 1px solid rgba(120,210,255,.18);
+  }
+  .btn.toggle[aria-pressed="true"]{
+    border-color: rgba(56,189,248,.45);
+    box-shadow: 0 0 0 1px rgba(56,189,248,.12);
+  }
+  .stage-zoom{ display:flex; gap:6px; padding-left:4px; padding-right:4px; }
+
+  /* Moldura do mapa */
+  #arena_wrap{
+    border-radius: var(--radius);
+    border: 1px solid rgba(120,210,255,.18);
+    box-shadow: var(--shadow), inset 0 0 0 1px rgba(255,255,255,.04);
+    background: rgba(2,6,23,.35);
+  }
+  .arena-canvas{ border-radius: var(--radius); }
+
+  /* DOM fallback highlight */
+  .dom-cell.place-ok{
+    outline: 1px solid rgba(163,230,53,.18);
+    background: rgba(163,230,53,.10);
+  }
+
+  /* Pokébolas (slots) */
+  .party-window{
+    display:grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .party-slot{
+    position:relative;
+    height: 64px;
+    border-radius: 999px;
+    background:
+      radial-gradient(18px 18px at 50% 48%, rgba(255,255,255,.10), transparent 60%),
+      linear-gradient(180deg, rgba(239,68,68,.65) 0 50%, rgba(241,245,249,.75) 50% 100%);
+    border: 1px solid rgba(0,0,0,.25);
+    box-shadow: inset 0 -8px 18px rgba(0,0,0,.25), 0 10px 18px rgba(0,0,0,.25);
+    overflow:hidden;
+    cursor:pointer;
+  }
+  .party-slot::before{
+    content:"";
+    position:absolute; left:0; right:0; top:50%;
+    height: 10px; transform: translateY(-50%);
+    background: rgba(2,6,23,.65);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+  }
+  .party-slot::after{
+    content:"";
+    position:absolute; left:50%; top:50%;
+    width: 16px; height: 16px;
+    transform: translate(-50%,-50%);
+    border-radius: 50%;
+    background: rgba(241,245,249,.85);
+    border: 2px solid rgba(2,6,23,.85);
+    box-shadow: 0 0 0 4px rgba(255,255,255,.08);
+  }
+  .party-slot img{
+    position:absolute;
+    left: 50%;
+    top: 16px;
+    width: 26px; height: 26px;
+    transform: translateX(-50%);
+    filter: drop-shadow(0 6px 10px rgba(0,0,0,.35));
+  }
+  .party-slot .slot-label{
+    position:absolute;
+    left: 8px; top: 7px;
+    font-weight: 950;
+    font-size: .7rem;
+    color: rgba(2,6,23,.85);
+    background: rgba(241,245,249,.85);
+    border-radius: 999px;
+    padding: 2px 7px;
+  }
+  .party-slot .slot-badge{
+    position:absolute;
+    right: 8px; bottom: 7px;
+    font-size: .62rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(2,6,23,.65);
+    border: 1px solid rgba(255,255,255,.10);
+  }
+  .party-slot .slot-badge.ready{
+    background: rgba(56,189,248,.20);
+    border-color: rgba(56,189,248,.35);
+    color: rgba(232,240,255,.95);
+    box-shadow: 0 0 0 1px rgba(56,189,248,.10);
+  }
+  .party-slot.placing{
+    border-color: rgba(56,189,248,.55);
+    box-shadow: 0 0 0 2px rgba(56,189,248,.18), 0 18px 28px rgba(0,0,0,.35);
+  }
+  .party-slot:disabled{
+    opacity:.55;
+    cursor:not-allowed;
+  }
+  .party-slot.empty{
+    background: rgba(2,6,23,.35);
+    border: 1px dashed rgba(255,255,255,.10);
+  }
+
+  /* Inspector */
+  .inspector-title{ font-weight: 950; font-size: .95rem; }
+  .inspector-sub{ font-size: .75rem; opacity: .75; }
+  .inspector-card{
+    margin-top: 12px;
+    border-radius: var(--radius);
+    background: rgba(2,6,23,.28);
+    border: 1px solid rgba(255,255,255,.06);
+    box-shadow: var(--inner);
+    overflow:hidden;
+  }
+  .inspector-media{
+    height: 170px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background: radial-gradient(500px 200px at 50% 0%, rgba(56,189,248,.18), transparent 60%);
+    border-bottom: 1px solid rgba(255,255,255,.06);
+  }
+  .inspector-media img{
+    width: 120px;
+    height: 120px;
+    object-fit: contain;
+    filter: drop-shadow(0 16px 20px rgba(0,0,0,.40));
+  }
+  .inspector-body{ padding: 12px; }
+  .inspector-name{ font-weight: 950; font-size: 1.05rem; }
+  .inspector-chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top: 8px; }
+  .chip{
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: .68rem;
+    border: 1px solid rgba(255,255,255,.10);
+    background: rgba(6,10,22,.45);
+  }
+  .chip.ok{ border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.12); }
+  .chip.warn{ border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.10); }
+
+  .hpbar{ margin-top: 12px; }
+  .hpbar-track{
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.10);
+    overflow:hidden;
+  }
+  .hpbar-fill{
+    height: 100%;
+    background: linear-gradient(90deg, rgba(34,197,94,.95), rgba(56,189,248,.80));
+  }
+  .hpbar-meta{ margin-top: 6px; font-size: .75rem; opacity: .85; }
+
+  .inspector-actions{
+    display:grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .btn.danger{
+    background: rgba(239,68,68,.14);
+    border-color: rgba(239,68,68,.35);
+  }
+
+  .glass-details{
+    border-radius: var(--radius);
+    border: 1px solid rgba(255,255,255,.06);
+    background: rgba(2,6,23,.20);
+    padding: 10px 12px;
+  }
+  .glass-details summary{
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    list-style:none;
+    font-weight: 950;
+  }
+
+</style>
 
   <section id="entry_screen" aria-label="Conexão">
     <div class="panel entry-card">
@@ -829,7 +1179,8 @@
       </div>
     </div>
     <div class="top-actions">
-      <button class="btn secondary" id="top_roll_btn" title="Rolar 1d20">🎲 Rolar dado</button>
+      <button class="btn secondary cta" id="top_roll_btn" title="Rolar 1d20">🎲 Rolar dado</button>
+      <button class="btn ghost" id="disconnect" title="Sair / Desconectar">⎋ Sair</button>
       <div class="pill">🧩 Sala <span id="rid_badge" style="font-weight:950">—</span></div>
       <div class="pill">🏷️ Fase <span id="phase_badge" style="font-weight:950">—</span></div>
       <div class="pill" title="Última rolagem">🎲 <span id="roll_pill_text" style="font-weight:950">—</span></div>
@@ -857,7 +1208,7 @@
           </div>
           <div class="muted">Conectado como <b id="by_card_badge">—</b>.</div>
           <div class="row" style="margin-top:10px">
-            <button class="btn secondary" id="disconnect">Desconectar</button>
+            <button class="btn secondary" id="disconnect_panel">Desconectar</button>
           </div>
         </div>
 
@@ -1022,3 +1373,170 @@
   <script type="module" src="./scoreboard-patch.js"></script>
 </body>
 </html>
+<main class="hud">
+    <div class="tabsbar tabs" role="tablist" aria-label="Abas">
+      <div class="tab active" data-tab="arena" role="tab" aria-selected="true">Arena</div>
+      <div class="tab" data-tab="combat" role="tab" aria-selected="false">Combate</div>
+      <div class="tab" data-tab="initiative" role="tab" aria-selected="false">Iniciativa</div>
+      <div class="tab" data-tab="sheets" role="tab" aria-selected="false">Fichas</div>
+      <div class="tab" data-tab="log" role="tab" aria-selected="false">Log</div>
+    </div>
+    <aside class="panel hud-left" aria-label="Time (posicionamento)">
+      <div class="panel-inner">
+        <div class="panel-title row spread">
+          <div>
+            <h3>Time (posicionamento)</h3>
+            <div class="muted tiny">Clique na pokébola → clique no tile</div>
+          </div>
+          <div class="row" style="gap:8px">
+            <div class="pill mono" id="me_badge">by: —</div>
+          </div>
+        </div>
+
+        <div class="card mini-card">
+          <div class="row spread" style="margin-bottom:8px">
+            <div class="tiny muted">Estado</div>
+            <button class="btn ghost" id="btn_cancel_place" style="display:none">Cancelar</button>
+          </div>
+          <div class="row" style="gap:8px;align-items:center">
+            <div class="avatar" id="avatar_icon">🙂</div>
+            <div style="min-width:0">
+              <div style="font-weight:950" id="trainer_name">—</div>
+              <div class="tiny muted">Armadura: <span class="mono" id="armed_label">—</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="party_window" class="party-window" aria-label="Slots de pokébolas"></div>
+
+        <!-- Mantido por compat/debug (não aparece no layout) -->
+        <div id="team_list" style="display:none"></div>
+      </div>
+    </aside>
+    <section class="hud-center" aria-label="Conteúdo">
+      <!-- Arena -->
+      <section class="arena-card" id="tab_arena" role="tabpanel">
+        <div class="arena-head">
+          <div class="left">
+            <div style="font-size:18px">🗺️</div>
+            <div style="min-width:0">
+              <div class="name">Arena</div>
+              <div class="meta" id="arena_meta">grid — • tema —</div>
+            </div>
+          </div>
+          <div class="stage-controls">
+            <button class="btn toggle" id="btn_zoom_fit" aria-pressed="true" title="Auto-fit">Auto</button>
+            <button class="btn toggle" id="btn_toggle_grid" aria-pressed="true" title="Mostrar grid">Grid</button>
+            <div class="stage-zoom">
+              <button class="btn ghost" id="btn_zoom_out" title="Zoom -">–</button>
+              <button class="btn ghost" id="btn_zoom_in" title="Zoom +">+</button>
+            </div>
+            <button class="btn secondary" id="btn_center" title="Centralizar">Centralizar</button>
+          </div>
+        </div>
+
+        <div class="arena-wrap" id="arena_wrap">
+          <canvas id="arena" width="1200" height="800"></canvas>
+          <div id="arena_dom" class="arena-dom" style="display:none"></div>
+          <div class="floating-status">
+            <div class="pill mono" id="sel_badge">seleção: —</div>
+            <div class="pill mono" id="hover_badge">tile: —</div>
+          </div>
+          <div class="arena-hint">
+            <div class="hint">Clique numa peça para selecionar • Clique num tile para mover • Arraste para mover</div>
+            <div class="hint">Clique com o botão direito no pokémon para ocultar, retirar da arena ou reduzir HP.</div>
+            <div class="hint">Envio sempre por <b>rooms/{rid}/actions</b> (front não mexe no state)</div>
+          </div>
+          <div id="piece_context_menu" class="piece-context-menu" role="menu" aria-label="Ações do pokémon">
+            <button type="button" data-menu-act="toggle">👁️ Ocultar / revelar</button>
+            <button type="button" data-menu-act="remove">❌ Retirar da arena</button>
+            <button type="button" data-menu-act="hp-down">💔 Reduzir 1 HP</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════
+           ⚔️ COMBATE — Aba funcional completa (combat.js + combat-patch.js)
+           ═══════════════════════════════════════════════════════ -->
+      <section class="panel" id="tab_combat" role="tabpanel" style="display:none;flex:1;min-height:0">
+        <div class="panel-inner">
+          <!-- CombatUI renderiza aqui dinamicamente -->
+        </div>
+      </section>
+
+      <!-- Initiative placeholder -->
+      <section class="panel" id="tab_initiative" role="tabpanel" style="display:none;flex:1;min-height:0">
+        <div class="panel-inner">
+          <div class="panel-title"><h3>🧭 Iniciativa</h3></div>
+          <div class="card">
+            <div style="font-weight:950;margin-bottom:6px">Placeholder conectado</div>
+            <div class="muted">Estrutura pronta para consumir dados do battle/initiative e pieces.</div>
+          </div>
+          <pre id="initiative_preview">—</pre>
+        </div>
+      </section>
+
+      <!-- Sheets placeholder -->
+      <section class="panel" id="tab_sheets" role="tabpanel" style="display:none;flex:1;min-height:0">
+        <div class="panel-inner">
+          <div class="panel-title"><h3>📋 Fichas</h3></div>
+          <div class="card">
+            <div style="font-weight:950;margin-bottom:6px">Placeholder conectado</div>
+            <div class="muted">Usa a seleção no grid para decidir qual ficha abrir (próxima etapa).</div>
+          </div>
+          <pre id="sheets_preview">—</pre>
+        </div>
+      </section>
+
+      <!-- Log -->
+      <section class="panel" id="tab_log" role="tabpanel" style="display:none;flex:1;min-height:0">
+        <div class="panel-inner log-wrap">
+          <div class="panel-title">
+            <h3>📜 Log</h3>
+            <div class="pill mono" id="log_count">0</div>
+          </div>
+          <div class="card" style="margin-bottom:0">
+            <div class="log-compose">
+              <input class="input" id="log_text" placeholder="Escreva um log (ADD_LOG)..." />
+              <button class="btn" id="btn_add_log">Enviar</button>
+            </div>
+            <div class="muted" style="margin-top:10px">Mostrando <code>public_state/battle.logs</code> em tempo real.</div>
+          </div>
+          <div class="log-list" id="log_list"></div>
+        </div>
+      </section>
+
+      <!-- Time (posicionamento) -->
+      <details class="dev" id="devtools">
+        <summary>
+          <span>🧢 Time (posicionamento)</span>
+          <span class="pill mono">slots: 8</span>
+        </summary>
+        <div class="dev-body">
+          <div class="card" style="margin-bottom:0">
+            <div class="row spread" style="margin-bottom:10px">
+              <div style="font-weight:950">🎯 Time para posicionar</div>
+            </div>
+            <div class="muted" style="margin-bottom:10px">Clique em uma pokébola para armar o Pokémon e depois clique em um tile da arena.</div>
+            <div id="party_window" class="party-window" aria-label="Slots da party"></div>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    
+    </section>
+    <aside class="panel hud-right" aria-label="Inspector">
+      <div class="panel-inner">
+        <div id="inspector_root"></div>
+
+        <details class="glass-details" style="margin-top:12px">
+          <summary>
+            <span>Oponentes</span>
+            <span class="pill mono" id="opp_count">0</span>
+          </summary>
+          <div id="opp_list" style="margin-top:10px"></div>
+        </details>
+      </div>
+    </aside>
+  </main>
