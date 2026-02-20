@@ -216,12 +216,7 @@ function ensureSheetsRealtime() {
   });
 }
 
-function teardownSheetsRealtime() {
-  if (sheetsUnsub) {
-    sheetsUnsub();
-    sheetsUnsub = null;
-  }
-}
+
 
 function clearLoginCache() {
   try { localStorage.removeItem(LOGIN_CACHE_KEY); } catch {}
