@@ -1794,7 +1794,18 @@ function renderInspectorCard() {
   const isMine = isPieceMine(p);
   const mvBudget = getPieceMovementBudget(p);
   const freeMove = !!appState.movement?.freeByPieceId?.[selId];
-  const moveSummary = `Speed ${mvBudget.speed} • deslocamento ${mvBudget.maxTiles % 1 ? "1/2" : mvBudget.maxTiles} quadrado(s)`;
+  const slug = _pokeApiSlugFromPid(pid);
+  const apiCached = slug ? _pokeApiSpeedCache.get(slug) : undefined;
+  // Determine if the speed actually came from PokeAPI (sheet had no valid speed)
+  const sh2 = getSheetForPiece(p);
+  const psOwner = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
+  const sheetHasSpeed = [
+    readSpeedFromStats(sh2?.stats), readSpeedFromStats(sh2?.pokemon?.stats),
+    readSpeedFromStats(sh2?.poke_stats), Number(sh2?.speed), Number(sh2?.pokemon?.speed),
+    readSpeedFromStats(psOwner?.stats), readSpeedFromStats(p?.stats), Number(p?.speed),
+  ].some(c => Number.isFinite(Number(c)) && Number(c) > 0);
+  const speedSource = apiCached === "pending" ? "buscando…" : (!sheetHasSpeed && apiCached > 0) ? "PokeAPI" : "sheet";
+  const moveSummary = `Speed ${mvBudget.speed} (${speedSource}) • deslocamento ${mvBudget.maxTiles % 1 ? "1/2" : mvBudget.maxTiles} quadrado(s)`;
 
   wrap.innerHTML = `
     <div class="inspector-head">
@@ -1811,24 +1822,23 @@ function renderInspectorCard() {
         <div class="inspector-chips">${chips}</div>
         <div class="muted" style="margin-top:6px">${escapeHtml(moveSummary)}</div>
 
-        <div class="hpbar">
-          <div class="hpbar-track"><div class="hpbar-fill" style="width:${hpPct}%"></div></div>
-          <div class="hpbar-meta mono">${hp}/${hpMax}</div>
-        </div>
-
-        <div class="inspector-hp-controls">
-          <button type="button" class="btn secondary inspector-hp-btn" data-ins-act="hp-down">−</button>
-          <input
-            type="range"
-            class="pvp-hp-slider inspector-hp-slider"
-            min="0"
-            max="${hpMax}"
-            step="1"
-            value="${hp}"
-            data-ins-act="hp-slider"
-            style="--hp-pct:${hpPct}%;--hp-col:${hpCol};"
-          />
-          <button type="button" class="btn secondary inspector-hp-btn" data-ins-act="hp-up">+</button>
+        <div class="ins-hp-section">
+          <div class="ins-hp-label-row">
+            <span class="ins-hp-title">HP</span>
+            <span class="ins-hp-count ${hp <= 0 ? "hp-ko" : hp <= 2 ? "hp-low" : hp <= 4 ? "hp-mid" : "hp-full"}">${hp}/${hpMax}</span>
+          </div>
+          <div class="ins-hp-bars" data-ins-hpbars>
+            ${Array.from({length: hpMax}, (_, i) => {
+              const bar = i + 1;
+              let cls;
+              if (hp <= 0) cls = "seg-ko";
+              else if (bar > hp) cls = "seg-empty";
+              else if (hp <= 2) cls = "seg-low";
+              else if (hp <= 4) cls = "seg-mid";
+              else cls = "seg-full";
+              return `<div class="ins-hp-bar ${cls}" data-ins-act="hp-seg" data-seg="${bar}" title="Definir HP: ${bar}"></div>`;
+            }).join("")}
+          </div>
         </div>
 
         <div class="inspector-actions">
@@ -1874,17 +1884,14 @@ function renderInspectorCard() {
   wrap.querySelector('[data-ins-act="remove"]')?.addEventListener("click", async () => {
     await removePieceFromBoard(selId);
   });
-  wrap.querySelector('[data-ins-act="hp-slider"]')?.addEventListener("input", async (ev) => {
-    const newHp = Number(ev.target.value);
+  // HP segment bars — click sets HP to that segment value
+  wrap.querySelector('[data-ins-hpbars]')?.addEventListener("click", async (ev) => {
+    const seg = ev.target.closest('[data-ins-act="hp-seg"]');
+    if (!seg) return;
+    const newHp = Number(seg.dataset.seg);
     if (!Number.isFinite(newHp)) return;
-    await updatePartyStateHp(owner, pid, newHp);
-  });
-  wrap.querySelector('[data-ins-act="hp-down"]')?.addEventListener("click", async () => {
-    const nextHp = Math.max(0, hp - 1);
-    await updatePartyStateHp(owner, pid, nextHp);
-  });
-  wrap.querySelector('[data-ins-act="hp-up"]')?.addEventListener("click", async () => {
-    const nextHp = Math.min(hpMax, hp + 1);
+    // clicking active segment (= current hp) decrements by 1 (toggle off)
+    const nextHp = newHp === hp ? Math.max(0, hp - 1) : newHp;
     await updatePartyStateHp(owner, pid, nextHp);
   });
 
@@ -2475,6 +2482,47 @@ function readSpeedFromStats(statsObj) {
   return 0;
 }
 
+// ── PokeAPI Speed cache & fetcher ────────────────────────────────
+const _pokeApiSpeedCache = new Map(); // slug → speed value or "pending"
+
+function _pokeApiSlugFromPid(pid) {
+  const k = safeStr(pid);
+  if (!k) return "";
+  let name = "";
+  if (k.startsWith("EXT:")) {
+    name = k.slice(4).trim();
+  } else {
+    name = dexNameFromPid(k) || (!isNaN(Number(k)) ? "" : k);
+  }
+  if (!name) return "";
+  // Convert to PokeAPI slug: lowercase, spaces→hyphens, strip special chars
+  return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+}
+
+async function fetchPokeApiSpeed(pid) {
+  const slug = _pokeApiSlugFromPid(pid);
+  if (!slug) return 0;
+  if (_pokeApiSpeedCache.has(slug)) {
+    const cached = _pokeApiSpeedCache.get(slug);
+    return cached === "pending" ? 0 : cached;
+  }
+  _pokeApiSpeedCache.set(slug, "pending");
+  try {
+    const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${slug}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const speedStat = data?.stats?.find(s => s.stat?.name === "speed");
+    const spd = speedStat ? Number(speedStat.base_stat) : 0;
+    _pokeApiSpeedCache.set(slug, spd > 0 ? spd : 0);
+    // Refresh inspector if a piece is selected so the new speed shows up
+    if (typeof updateSidePanels === "function") updateSidePanels();
+    return spd;
+  } catch {
+    _pokeApiSpeedCache.set(slug, 0);
+    return 0;
+  }
+}
+
 function getPieceSpeed(piece) {
   const sh = getSheetForPiece(piece);
   const pid = safePidValue(piece?.pid);
@@ -2495,7 +2543,16 @@ function getPieceSpeed(piece) {
     const n = Number(c);
     if (Number.isFinite(n) && n > 0) return n;
   }
-  return 80;
+
+  // Try PokeAPI cache (sync read, async fetch if missing)
+  const slug = _pokeApiSlugFromPid(pid);
+  if (slug) {
+    const cached = _pokeApiSpeedCache.get(slug);
+    if (typeof cached === "number" && cached > 0) return cached;
+    if (cached !== "pending") fetchPokeApiSpeed(pid); // fire-and-forget
+  }
+
+  return 80; // default while fetching
 }
 
 function movementBySpeed(speed) {

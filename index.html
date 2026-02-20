@@ -539,39 +539,75 @@
     .chip.ok{ border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.12); }
     .chip.warn{ border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.10); }
 
-    .hpbar{ margin-top: 12px; }
-    .hpbar-track{
-      height: 10px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.08);
-      border: 1px solid rgba(255,255,255,.10);
-      overflow:hidden;
+    /* ── Inspector HP Segment Bars ─────────────────────────────── */
+    .ins-hp-section { margin-top: 12px; }
+    .ins-hp-label-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 6px;
     }
-    .hpbar-fill{
+    .ins-hp-title {
+      font-size: .68rem; font-weight: 800; letter-spacing: .06em;
+      text-transform: uppercase; color: rgba(148,163,184,.6);
+    }
+    .ins-hp-count {
+      font-size: .8rem; font-weight: 900; font-family: monospace;
+      color: rgba(226,232,240,.9);
+    }
+    .ins-hp-count.hp-full { color: rgba(74,222,128,.95); }
+    .ins-hp-count.hp-mid  { color: rgba(250,204,21,.95); }
+    .ins-hp-count.hp-low  { color: rgba(248,113,113,.95); }
+    .ins-hp-count.hp-ko   { color: rgba(100,116,139,.8); }
+
+    .ins-hp-bars {
+      display: flex; gap: 4px; align-items: flex-end;
+      height: 22px;
+    }
+    .ins-hp-bar {
+      flex: 1;
+      border-radius: 4px 4px 3px 3px;
+      border: 1.5px solid rgba(255,255,255,.08);
+      cursor: pointer;
+      transition: transform .12s, filter .12s, opacity .12s;
+      position: relative;
+    }
+    .ins-hp-bar:hover { transform: scaleY(1.12); filter: brightness(1.25); }
+    /* filled states */
+    .ins-hp-bar.seg-full {
+      background: linear-gradient(180deg, rgba(74,222,128,.95) 0%, rgba(34,197,94,.85) 100%);
+      border-color: rgba(74,222,128,.35);
+      box-shadow: 0 0 6px rgba(74,222,128,.25);
       height: 100%;
-      background: linear-gradient(90deg, rgba(34,197,94,.95), rgba(56,189,248,.80));
     }
-    .hpbar-meta{ margin-top: 6px; font-size: .75rem; opacity: .85; }
+    .ins-hp-bar.seg-mid {
+      background: linear-gradient(180deg, rgba(250,204,21,.95) 0%, rgba(234,179,8,.85) 100%);
+      border-color: rgba(250,204,21,.35);
+      box-shadow: 0 0 6px rgba(250,204,21,.2);
+      height: 100%;
+    }
+    .ins-hp-bar.seg-low {
+      background: linear-gradient(180deg, rgba(251,146,60,.95) 0%, rgba(239,68,68,.85) 100%);
+      border-color: rgba(251,146,60,.35);
+      box-shadow: 0 0 6px rgba(239,68,68,.2);
+      height: 100%;
+    }
+    .ins-hp-bar.seg-empty {
+      background: rgba(30,41,59,.6);
+      border-color: rgba(148,163,184,.1);
+      height: 60%;
+      opacity: .45;
+    }
+    .ins-hp-bar.seg-ko {
+      background: rgba(51,65,85,.35);
+      border-color: rgba(100,116,139,.15);
+      height: 60%;
+      opacity: .3;
+    }
 
     .inspector-actions{
       display:grid;
       grid-template-columns: 1fr;
       gap: 10px;
       margin-top: 14px;
-    }
-
-    .inspector-hp-controls{
-      margin-top:10px;
-      display:flex;
-      align-items:center;
-      gap:8px;
-    }
-    .inspector-hp-slider{ min-width:0; }
-    .inspector-hp-btn{
-      width:34px;
-      padding:0;
-      font-weight:900;
-      font-size:1rem;
     }
 
     .glass-details{

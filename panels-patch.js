@@ -233,77 +233,28 @@ function injectPanelStyles() {
   margin-top: 2px;
 }
 
-/* HP Bar / Slider */
+/* HP Segment Bars (shared with inspector via ins-hp-bar / ins-hp-bars) */
 .pp-hp-wrap {
   margin-top: 6px;
   display: flex; align-items: center; gap: 6px;
 }
 .pp-hp-icon {
-  font-size: 11px;
+  font-size: 12px;
   flex: 0 0 auto;
 }
-.pp-hp-range {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 100%;
+.pp-hp-segs {
   flex: 1;
-  height: 7px;
-  border-radius: 4px;
-  border: 1px solid rgba(148,163,184,.2);
-  background: rgba(30,30,40,.4);
+  height: 16px;
 }
-.pp-hp-range::-webkit-slider-runnable-track {
-  height: 7px;
-  border-radius: 4px;
-  background: linear-gradient(90deg, rgba(34,197,94,.8), rgba(251,191,36,.8), rgba(248,113,113,.8));
+.pp-hp-seg-btn {
+  cursor: pointer;
 }
-.pp-hp-range::-moz-range-track {
-  height: 7px;
-  border-radius: 4px;
-  background: linear-gradient(90deg, rgba(34,197,94,.8), rgba(251,191,36,.8), rgba(248,113,113,.8));
-}
-.pp-hp-range::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 13px; height: 13px;
-  border-radius: 50%;
-  border: 1px solid rgba(255,255,255,.5);
-  background: #e2e8f0;
-  margin-top: -3px;
-  box-shadow: 0 0 0 2px rgba(15,23,42,.5);
-}
-.pp-hp-range::-moz-range-thumb {
-  width: 13px; height: 13px;
-  border-radius: 50%;
-  border: 1px solid rgba(255,255,255,.5);
-  background: #e2e8f0;
-  box-shadow: 0 0 0 2px rgba(15,23,42,.5);
-}
-.pp-hp-range:disabled {
-  opacity: .72;
-}
-.pp-hp-range.pp-hp-low::-webkit-slider-runnable-track,
-.pp-hp-range.pp-hp-low::-moz-range-track {
-  background: linear-gradient(90deg, rgba(248,113,113,.9), rgba(251,146,60,.8));
-}
-.pp-hp-range.pp-hp-mid::-webkit-slider-runnable-track,
-.pp-hp-range.pp-hp-mid::-moz-range-track {
-  background: linear-gradient(90deg, rgba(251,191,36,.9), rgba(34,197,94,.8));
-}
-.pp-hp-range.pp-hp-high::-webkit-slider-runnable-track,
-.pp-hp-range.pp-hp-high::-moz-range-track {
-  background: linear-gradient(90deg, rgba(34,197,94,.95), rgba(74,222,128,.85));
-}
-.pp-hp-range.pp-hp-zero::-webkit-slider-runnable-track,
-.pp-hp-range.pp-hp-zero::-moz-range-track {
-  background: rgba(100,116,139,.7);
-}
-
 .pp-hp-label {
   font-size: 10.5px; font-weight: 800;
-  color: rgba(226,232,240,.7);
   flex: 0 0 auto;
   min-width: 28px;
   text-align: right;
+  font-family: monospace;
 }
 
 /* Status conditions */
@@ -613,12 +564,23 @@ function getDisplayName(pid) {
 
 // ─── Build HP bars HTML ─────────────────────────────────────────────
 function renderHpBarsHtml(hp, maxHp = 6, isMine = false) {
-  const hpClass = hp <= 0 ? "pp-hp-zero" : hp >= 5 ? "pp-hp-high" : hp >= 3 ? "pp-hp-mid" : "pp-hp-low";
+  const countCls = hp <= 0 ? "hp-ko" : hp <= 2 ? "hp-low" : hp <= 4 ? "hp-mid" : "hp-full";
+  const bars = Array.from({length: maxHp}, (_, i) => {
+    const bar = i + 1;
+    let cls;
+    if (hp <= 0) cls = "seg-ko";
+    else if (bar > hp) cls = "seg-empty";
+    else if (hp <= 2) cls = "seg-low";
+    else if (hp <= 4) cls = "seg-mid";
+    else cls = "seg-full";
+    const interactive = isMine ? `data-act="hp-seg" data-seg="${bar}" title="HP: ${bar}"` : "";
+    return `<div class="ins-hp-bar ${cls}${isMine ? " pp-hp-seg-btn" : ""}" ${interactive}></div>`;
+  }).join("");
   return `
     <div class="pp-hp-wrap">
       <span class="pp-hp-icon">${hpIcon(hp)}</span>
-      <input type="range" class="pp-hp-range ${hpClass}" min="0" max="${maxHp}" value="${hp}" ${isMine ? 'data-act="hp-slider"' : "disabled"} />
-      <span class="pp-hp-label">${isMine ? `${hp}/${maxHp}` : `HP atual: ${hp}/${maxHp}`}</span>
+      <div class="ins-hp-bars pp-hp-segs">${bars}</div>
+      <span class="pp-hp-label ins-hp-count ${countCls}">${hp}/${maxHp}</span>
     </div>
   `;
 }
@@ -763,17 +725,13 @@ function buildMonCard(pid, ownerName, options = {}) {
     }
   });
 
-  // HP controls
-  const hpSlider = card.querySelector('[data-act="hp-slider"]');
-
+  // HP controls — segment bars
   function updateHpFirestore(newHp) {
     newHp = Math.max(0, Math.min(6, newHp));
     try {
       const db = window._combatDb || window.currentDb;
       const rid = window.currentRid || window.appState?.rid;
       if (!db || !rid) return;
-      
-      // Import needed
       import("https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js").then(({ doc, setDoc }) => {
         const ref = doc(db, "rooms", rid, "public_state", "party_states");
         const key = `${ownerName}.${pid}`;
@@ -787,9 +745,15 @@ function buildMonCard(pid, ownerName, options = {}) {
     }
   }
 
-  hpSlider?.addEventListener("input", (e) => {
+  card.querySelector(".pp-hp-segs")?.addEventListener("click", (e) => {
     e.stopPropagation();
-    updateHpFirestore(Number(e.target.value));
+    const seg = e.target.closest('[data-act="hp-seg"]');
+    if (!seg) return;
+    const clicked = Number(seg.dataset.seg);
+    if (!Number.isFinite(clicked)) return;
+    // clicking current top bar decrements
+    const nextHp = clicked === hp ? Math.max(0, hp - 1) : clicked;
+    updateHpFirestore(nextHp);
   });
 
   return card;
