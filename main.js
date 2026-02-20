@@ -389,6 +389,8 @@ const appState = {
   gridSize: 10,
   theme: "biome_grass",
   pieces: [],
+  traps: [],   // armadilhas por célula (field-zones-patch)
+  zones: [],   // zonas de clima/terreno (field-zones-patch)
   // UI selection
   selectedPieceId: null,
   placing: null, // { mode: "pokemon", trainer, pid }
@@ -1114,6 +1116,8 @@ connectBtn?.addEventListener("click", async () => {
         appState.gridSize = Number(data?.gridSize) || 10;
         appState.theme = safeStr(data?.theme) || "biome_grass";
         appState.pieces = Array.isArray(data?.pieces) ? data.pieces : [];
+        appState.traps  = Array.isArray(data?.traps)  ? data.traps  : [];
+        appState.zones  = Array.isArray(data?.zones)  ? data.zones  : [];
         if (statePre) statePre.textContent = pretty(data);
         updateArenaMeta();
         updateSidePanels();
@@ -4147,8 +4151,8 @@ function drawWeatherOverlay(ctx, ox, oy, gs, tile, w, h) {
 // Substitui os PNGs por shapes desenhados no canvas
 // Chame DEPOIS do drawWeatherOverlay e ANTES das peças
 // =============================================================================
-function drawCellEffects(ctx, ox, oy, tile) {
-  const effects = appState.board?.effects;
+function drawCellEffects(ctx, ox, oy, tile, _override) {
+  const effects = Array.isArray(_override) ? _override : appState.board?.effects;
   if (!Array.isArray(effects) || effects.length === 0) return;
 
   const t = Date.now() / 1000;
@@ -4555,6 +4559,51 @@ function _drawGrassCell(ctx, cx, cy, tile, t) {
 //
 // =============================================================================
 
+// ── drawTraps: armadilhas por célula ────────────────────────────────────────
+// Armadilhas com revealed:false → visíveis só ao owner (pontilhado + alfa baixo)
+// Armadilhas com revealed:true  → desenhadas para todos via drawCellEffects inline
+function drawTraps(ctx, ox, oy, tile) {
+  const traps = appState.traps;
+  if (!Array.isArray(traps) || traps.length === 0) return;
+  const by = safeStr(appState.by);
+  for (const trap of traps) {
+    const row = Number(trap.row);
+    const col = Number(trap.col);
+    if (!Number.isFinite(row) || !Number.isFinite(col)) continue;
+    const x  = ox + col * tile;
+    const y  = oy + row * tile;
+    const cx = x + tile * 0.5;
+    const cy = y + tile * 0.5;
+
+    if (trap.revealed) {
+      // Armadilha revelada: renderiza para todos usando drawCellEffects inline
+      drawCellEffects(ctx, ox, oy, tile, [{ row, col, icon: safeStr(trap.icon || "🪨") }]);
+      continue;
+    }
+
+    // Armadilha oculta: só visível ao owner
+    if (safeStr(trap.owner) !== by) continue;
+    ctx.save();
+    // Fundo levemente tingido + borda pontilhada
+    ctx.globalAlpha = 0.45;
+    ctx.fillStyle = "rgba(251,146,60,0.15)";
+    ctx.fillRect(x + 1, y + 1, tile - 2, tile - 2);
+    ctx.strokeStyle = "rgba(251,146,60,0.7)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+    ctx.strokeRect(x + 2, y + 2, tile - 4, tile - 4);
+    ctx.setLineDash([]);
+    // Ícone central
+    ctx.globalAlpha = 0.7;
+    ctx.font = `${Math.max(10, tile * 0.36)}px system-ui`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(safeStr(trap.icon || "🪨"), cx, cy);
+    ctx.restore();
+  }
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 
 function draw() {
   const rect = canvasWrap.getBoundingClientRect();
@@ -4664,6 +4713,8 @@ function draw() {
 drawWeatherOverlay(ctx, ox, oy, gs, tile, w, h);
 // efeitos por célula (Spikes, Stealth Rock, Sticky Web, etc.)
 drawCellEffects(ctx, ox, oy, tile);
+// armadilhas ocultas: visíveis só para o owner (pontilhado); reveladas usam drawCellEffects via drawTraps
+drawTraps(ctx, ox, oy, tile);
 
 
   // pieces — dynamic borders per owner
@@ -5582,6 +5633,10 @@ window.spriteSlugFromPokemonName = spriteSlugFromPokemonName;
 window._arenaView         = view;
 window.currentDb          = null;
 window.currentRid         = null;
+window.runTransaction     = runTransaction;
+window.serverTimestamp    = serverTimestamp;
+window.getStateDocRef     = getStateDocRef;
+window.getBattleDocRef    = getBattleDocRef;
 // Mantém window.currentRid e window.currentDb sincronizados com appState
 setInterval(() => {
   window.currentRid = appState.rid || null;

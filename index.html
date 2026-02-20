@@ -443,6 +443,84 @@
       box-shadow: 0 0 8px rgba(120,210,255,.35);
       transform: scale(1.08);
     }
+    /* Trap mode: botão ativo tem cor laranja */
+    .fc-btn.fc-trap-active{
+      background: rgba(251,146,60,.22);
+      border-color: rgba(251,146,60,.55);
+      box-shadow: 0 0 8px rgba(251,146,60,.35);
+      transform: scale(1.08);
+    }
+    /* Zone panel */
+    .fc-zone-panel{
+      display:flex; align-items:center; flex-wrap:wrap; gap:8px;
+      padding:6px 10px;
+      margin-bottom:8px;
+      background: var(--glass2);
+      border:1px solid rgba(120,210,255,.18);
+      border-radius: var(--radius);
+      box-shadow: var(--inner);
+      animation: fadeIn .15s ease;
+    }
+    .fzp-left{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .fzp-label{ font-size:12px; color:var(--muted); }
+    .fzp-label strong{ color:#fff; }
+    .fzp-area-group{ display:flex; align-items:center; gap:4px; }
+    .fzp-select{
+      background: rgba(15,23,42,.7); color:#e2e8f0;
+      border: 1px solid rgba(120,210,255,.22); border-radius:6px;
+      font-size:12px; padding:3px 6px; cursor:pointer;
+    }
+    .fzp-btn{ height:28px; font-size:12px; }
+    .fzp-zones-list{
+      display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:auto;
+    }
+    .fzp-zone-chip{
+      display:inline-flex; align-items:center; gap:4px;
+      padding:2px 8px 2px 6px; border-radius:12px;
+      font-size:11px; font-weight:600;
+      background: rgba(56,189,248,.18); border:1px solid rgba(56,189,248,.35);
+      color:#bae6fd;
+    }
+    .fzp-zone-chip button{
+      background:none; border:none; color:#93c5fd; cursor:pointer; font-size:12px; padding:0 0 0 2px; line-height:1;
+    }
+    .fzp-zone-chip button:hover{ color:#f87171; }
+    /* Drawing cursor */
+    .arena-drawing-mode #arena{ cursor:crosshair !important; }
+    .arena-trap-mode #arena{ cursor:crosshair !important; }
+    /* Modal */
+    .modal-backdrop{
+      position:fixed; inset:0; z-index:9000;
+      background: rgba(2,6,23,.7); backdrop-filter:blur(4px);
+      display:flex; align-items:center; justify-content:center;
+    }
+    .modal-box{
+      background: var(--glass2,rgba(15,23,42,.95));
+      border:1px solid rgba(120,210,255,.22); border-radius:14px;
+      box-shadow: 0 8px 40px rgba(0,0,0,.5);
+      min-width:320px; max-width:480px; width:90%;
+      padding:20px;
+    }
+    .modal-header{
+      display:flex; align-items:center; justify-content:space-between;
+      font-weight:700; font-size:15px; margin-bottom:14px;
+    }
+    .modal-close{ width:28px; height:28px; padding:0; font-size:14px; }
+    .modal-hint{ font-size:13px; color:var(--muted); margin-bottom:12px; }
+    .trap-modal-list{ display:flex; flex-direction:column; gap:8px; max-height:280px; overflow-y:auto; }
+    .trap-modal-item{
+      display:flex; align-items:center; gap:10px;
+      padding:8px 10px; border-radius:8px;
+      background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.07);
+      cursor:pointer; user-select:none; transition: background .12s;
+    }
+    .trap-modal-item:hover{ background: rgba(56,189,248,.10); }
+    .trap-modal-item.selected{ background: rgba(56,189,248,.18); border-color:rgba(56,189,248,.4); }
+    .trap-modal-item input[type=checkbox]{ accent-color:#38bdf8; width:16px; height:16px; cursor:pointer; }
+    .trap-modal-item .tmi-icon{ font-size:18px; }
+    .trap-modal-item .tmi-name{ font-size:13px; font-weight:600; }
+    .trap-modal-item .tmi-pos{ font-size:11px; color:var(--muted); margin-left:auto; }
+    .modal-footer{ display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
 
     .arena-wrap{
       position:relative;flex:1;min-height:400px;
@@ -1273,10 +1351,44 @@
             <button class="btn fc-btn" data-fc-type="terrain" data-fc-value="psychic_terrain"  title="Terreno Psíquico">🔮</button>
             <button class="btn fc-btn" data-fc-type="terrain" data-fc-value="misty_terrain"    title="Terreno de Névoa">🌸</button>
           </div>
+          <div class="fc-divider"></div>
+          <div class="fc-group" id="fc_traps_group">
+            <span class="fc-label">Armadilhas</span>
+            <button class="btn fc-btn" data-fc-type="trap" data-fc-value="🪨" title="Stealth Rock — Clique numa célula para colocar">🪨</button>
+            <button class="btn fc-btn" data-fc-type="trap" data-fc-value="🔺" title="Spikes — Clique numa célula para colocar">🔺</button>
+            <button class="btn fc-btn" data-fc-type="trap" data-fc-value="☠️" title="Toxic Spikes — Clique numa célula para colocar">☠️</button>
+            <button class="btn fc-btn" data-fc-type="trap" data-fc-value="🕸️" title="Sticky Web — Clique numa célula para colocar">🕸️</button>
+            <button class="btn fc-btn fc-btn-reveal" id="btn_reveal_traps" title="Revelar armadilhas ocultas" style="font-size:13px;padding:4px 8px;min-width:auto">👁 Revelar</button>
+          </div>
+        </div>
+
+        <!-- Zone Panel: aparece abaixo quando um clima/terreno está selecionado para desenhar -->
+        <div class="fc-zone-panel" id="fc_zone_panel" style="display:none">
+          <div class="fzp-left">
+            <span class="fzp-label">Colocando: <strong id="fzp_type_label">—</strong></span>
+            <div class="fzp-area-group">
+              <span class="fc-label">Área:</span>
+              <select id="fzp_area_select" class="fzp-select">
+                <option value="free">Livre (arraste)</option>
+                <option value="3x3">3×3</option>
+                <option value="5x5">5×5</option>
+                <option value="all">Toda arena</option>
+              </select>
+            </div>
+            <button class="btn secondary fzp-btn" id="fzp_btn_draw" title="Arraste no mapa para definir a área">▶ Desenhar área</button>
+            <button class="btn ghost fzp-btn" id="fzp_btn_cancel">✕ Cancelar</button>
+          </div>
+          <div class="fzp-zones-list" id="fzp_zones_list">
+            <!-- preenchido pelo patch -->
+          </div>
         </div>
 
         <div class="arena-wrap" id="arena_wrap">
           <canvas id="arena" width="1200" height="800"></canvas>
+          <!-- Zone overlay canvas: efeitos zonais animados, pointer-events:none -->
+          <canvas id="zone_canvas" width="1200" height="800" style="position:absolute;top:0;left:0;pointer-events:none;z-index:2"></canvas>
+          <!-- Drawing overlay canvas: preview de retângulo ao arrastar -->
+          <canvas id="zone_draw_canvas" width="1200" height="800" style="position:absolute;top:0;left:0;pointer-events:none;z-index:3"></canvas>
           <div id="arena_dom" class="arena-dom" style="display:none"></div>
           <div class="floating-status">
             <div class="pill mono" id="sel_badge">seleção: —</div>
@@ -1373,6 +1485,46 @@
   </div>
 
   <!-- ═══════════════════════════════════════════════════════
+       MODAL: Revelar Armadilhas
+       ═══════════════════════════════════════════════════════ -->
+  <div class="modal-backdrop" id="trap_modal_backdrop" style="display:none" role="dialog" aria-modal="true" aria-labelledby="trap_modal_title">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span id="trap_modal_title">👁 Revelar Armadilhas</span>
+        <button class="btn ghost modal-close" id="trap_modal_close" title="Fechar">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">Selecione as armadilhas que deseja revelar para todos:</p>
+        <div id="trap_modal_list" class="trap-modal-list">
+          <!-- preenchido pelo patch -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn secondary" id="trap_modal_confirm">Revelar Selecionadas</button>
+        <button class="btn ghost" id="trap_modal_cancel">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       MODAL: Conflito de Zona
+       ═══════════════════════════════════════════════════════ -->
+  <div class="modal-backdrop" id="zone_conflict_backdrop" style="display:none" role="dialog" aria-modal="true" aria-labelledby="zone_conflict_title">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span id="zone_conflict_title">⚠️ Conflito de Zona</span>
+      </div>
+      <div class="modal-body">
+        <p id="zone_conflict_text" class="modal-hint"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn secondary" id="zone_conflict_keep_new">Manter Novo</button>
+        <button class="btn ghost" id="zone_conflict_keep_old">Manter Existente</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
        LEGACY LAYOUT (hidden — kept for compat with main.js DOM queries)
        ═══════════════════════════════════════════════════════ -->
   <main class="app" style="display:none !important">
@@ -1395,5 +1547,6 @@
   <script type="module" src="./scoreboard-patch.js"></script>
   <script type="module" src="./fichas-inspector-patch.js"></script>
   <script type="module" src="./preprep-patch.js"></script>
+  <script type="module" src="./field-zones-patch.js"></script>
 </body>
 </html>
