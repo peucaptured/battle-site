@@ -318,6 +318,16 @@
     details.dev > summary::-webkit-details-marker{display:none}
     .dev-body{padding:12px;border-top:1px solid rgba(255,255,255,.08)}
 
+    /* Esconde painéis legados de debug (não fazem parte do layout final) */
+    .card:has(#btn_move_piece),
+    .card:has(#actions_log){
+      display:none !important;
+    }
+    #btn_move_piece,
+    #actions_log{
+      display:none !important;
+    }
+
     /* ═══ PVP Party Cards (replicando app.py) ═══ */
     .pvp-party-card {
       border-radius: 14px;

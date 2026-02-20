@@ -71,10 +71,28 @@ const disconnectBtn = $("disconnect");
 const entryDisconnectBtn = $("entry_disconnect");
 const addLogBtn = $("btn_add_log");
 const logTextInput = $("log_text");
+// (debug antigo) painel de mover peça manualmente
 const moveBtn = $("btn_move_piece");
 const pieceIdInput = $("pieceId");
 const rowInput = $("row");
 const colInput = $("col");
+
+// ✅ Remover da tela os painéis de debug "Mover peça" e "Últimas actions"
+// (sem quebrar o resto do app, mesmo que o HTML ainda contenha esses blocos)
+function hideLegacyDebugPanels() {
+  const hideClosestBlock = (el) => {
+    if (!el) return;
+    const block = el.closest?.(".card") || el.closest?.("details") || el.closest?.(".panel") || el.parentElement;
+    if (block) block.style.display = "none";
+    else el.style.display = "none";
+  };
+  // "Mover peça (MOVE_PIECE)"
+  hideClosestBlock(moveBtn);
+  // "Últimas actions (para ver rejected/erro)"
+  hideClosestBlock(actionsLogEl);
+}
+
+hideLegacyDebugPanels();
 
 // arena render target
 const canvas = $("arena");
@@ -640,36 +658,9 @@ addLogBtn?.addEventListener("click", async () => {
   logTextInput.value = "";
 });
 
-moveBtn?.addEventListener("click", async () => {
-  const by = safeStr(byInput?.value || "Anon") || "Anon";
-  const pieceId = safeStr(pieceIdInput?.value || "");
-  const row = Number(rowInput?.value);
-  const col = Number(colInput?.value);
-  if (!pieceId) {
-    setStatus("err", "faltou pieceId (use public_state/state.pieces[].id)");
-    return;
-  }
-  if (!Number.isFinite(row) || !Number.isFinite(col)) {
-    setStatus("err", "row/col precisam ser números");
-    return;
-  }
-  if (!canCurrentPlayerMovePiece(pieceId)) {
-    setStatus("err", "você só pode mover peças suas");
-    return;
-  }
-  await sendAction("MOVE_PIECE", by, { pieceId, row, col });
-});
-
 // Expor no console (compatibilidade com debug antigo)
 window.sendAddLog = async (by, text) => sendAction("ADD_LOG", by || "Anon", { text: text || "teste" });
-window.sendMovePiece = async (by, pieceId, row, col) =>
-  canCurrentPlayerMovePiece(pieceId)
-    ? sendAction("MOVE_PIECE", by || "Anon", {
-        pieceId: String(pieceId || ""),
-        row: Number(row),
-        col: Number(col),
-      })
-    : setStatus("err", "você só pode mover peças suas");
+// window.sendMovePiece removido (debug antigo) — mover agora é por clique/arrasto no grid.
 
 topRollBtn?.addEventListener("click", async () => {
   if (!currentDb || !currentRid || !appState.connected) {
@@ -939,36 +930,7 @@ unsub.push(
     )
   );
 
-  // Últimas actions (debug)
-  const actionsCol = collection(db, "rooms", rid, "actions");
-  const actionsQ = query(actionsCol, orderBy("createdAt", "desc"), limit(20));
-  unsub.push(
-    onSnapshot(
-      actionsQ,
-      (qs) => {
-        if (!actionsLogEl) return;
-        const items = [];
-        qs.forEach((d) => {
-          const a = d.data() || {};
-          items.push({
-            id: d.id,
-            type: a.type,
-            status: a.status || "new",
-            by: a.by,
-            payload: a.payload,
-            createdAt: a.createdAt,
-            appliedAt: a.appliedAt,
-            reason: a.reason,
-            error: a.error,
-          });
-        });
-        actionsLogEl.textContent = JSON.stringify(items, null, 2);
-      },
-      (err) => {
-        if (actionsLogEl) actionsLogEl.textContent = JSON.stringify({ error: String(err?.message || err) }, null, 2);
-      }
-    )
-  );
+  // (debug antigo) listener de "Últimas actions" removido.
 
 // ── HUD de Rolagens Globais ────────────────────────────────────────
 const rollsBanner = $("rolls_banner");
