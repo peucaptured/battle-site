@@ -1368,18 +1368,7 @@ function renderPartyCard(it, ownerName) {
         <div class="pvp-card-sub">PID ${escapeHtml(pid)} &bull; ${onMap ? "No campo" : "Mochila"}</div>
         <div class="pvp-hp-row">
           <span class="pvp-hp-icon">${hpIcon}</span>
-          <input
-            type="range"
-            class="pvp-hp-slider"
-            min="0"
-            max="${maxHp}"
-            step="1"
-            value="${hp}"
-            data-act="hp-slider"
-            data-owner="${escapeAttr(ownerName)}"
-            data-pid="${escapeAttr(pid)}"
-            style="--hp-pct:${hpPct}%;--hp-col:${hpCol};"
-          />
+          <div class="pvp-hp-track" style="--hp-pct:${hpPct}%;--hp-col:${hpCol};"></div>
           <span class="pvp-hp-label">${hp}/${maxHp}</span>
         </div>
         <div class="pvp-cond-row">${condHtml}</div>
@@ -1415,13 +1404,6 @@ function renderPartyCard(it, ownerName) {
   card.querySelector('[data-act="remove"]')?.addEventListener("click", async (ev) => {
     ev.stopPropagation();
     if (p?.id) await removePieceFromBoard(String(p.id));
-  });
-
-  card.querySelector('[data-act="hp-slider"]')?.addEventListener("input", async (ev) => {
-    ev.stopPropagation();
-    const newHp = Number(ev.target.value);
-    if (!Number.isFinite(newHp)) return;
-    await updatePartyStateHp(ownerName, pid, newHp);
   });
   return card;
 }
@@ -1597,6 +1579,7 @@ function renderInspectorCard() {
   const hp = Number(getPartyHp(owner, pid) ?? 0);
   const hpMax = 6;
   const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
+  const hpCol = hpPct > 66 ? "#22c55e" : hpPct > 33 ? "#f59e0b" : hp <= 0 ? "#64748b" : "#ef4444";
 
   const chips = [
     `<span class="chip">${escapeHtml(owner)}</span>`,
@@ -1623,6 +1606,21 @@ function renderInspectorCard() {
           <div class="hpbar-meta mono">${hp}/${hpMax}</div>
         </div>
 
+        <div class="inspector-hp-controls">
+          <button type="button" class="btn secondary inspector-hp-btn" data-ins-act="hp-down">−</button>
+          <input
+            type="range"
+            class="pvp-hp-slider inspector-hp-slider"
+            min="0"
+            max="${hpMax}"
+            step="1"
+            value="${hp}"
+            data-ins-act="hp-slider"
+            style="--hp-pct:${hpPct}%;--hp-col:${hpCol};"
+          />
+          <button type="button" class="btn secondary inspector-hp-btn" data-ins-act="hp-up">+</button>
+        </div>
+
         <div class="inspector-actions">
           <button type="button" class="btn primary" data-ins-act="move">Mover</button>
           <button type="button" class="btn secondary" data-ins-act="toggle">Ocultar</button>
@@ -1642,6 +1640,19 @@ function renderInspectorCard() {
   });
   wrap.querySelector('[data-ins-act="remove"]')?.addEventListener("click", async () => {
     await removePieceFromBoard(selId);
+  });
+  wrap.querySelector('[data-ins-act="hp-slider"]')?.addEventListener("input", async (ev) => {
+    const newHp = Number(ev.target.value);
+    if (!Number.isFinite(newHp)) return;
+    await updatePartyStateHp(owner, pid, newHp);
+  });
+  wrap.querySelector('[data-ins-act="hp-down"]')?.addEventListener("click", async () => {
+    const nextHp = Math.max(0, hp - 1);
+    await updatePartyStateHp(owner, pid, nextHp);
+  });
+  wrap.querySelector('[data-ins-act="hp-up"]')?.addEventListener("click", async () => {
+    const nextHp = Math.min(hpMax, hp + 1);
+    await updatePartyStateHp(owner, pid, nextHp);
   });
 
   return wrap;
