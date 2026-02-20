@@ -694,13 +694,17 @@ function buildTurnOrderFromCurrentBoard() {
 
   const order = activePieces.map((p) => {
     const pieceId = safeStr(p?.id);
+    const pieceKind = safeStr(p?.kind || "piece");
     const pid = safeStr(p?.pid);
     const owner = safeStr(p?.owner);
-    const key = `piece:${pieceId}`;
-    const initVal = Number(init?.[key]?.initiative);
+    const legacyKey = `piece:${pieceId}`;
+    const keyedByKind = `${pieceKind}:${pieceId}`;
+    const savedInit = init?.[keyedByKind] ?? init?.[legacyKey] ?? null;
+    const initVal = Number(savedInit?.initiative);
     const display = safeStr((window.dexMap && (window.dexMap[pid] || window.dexMap[String(Number(pid))])) || p?.name || p?.display_name || pid || pieceId);
     return {
       pieceId,
+      pieceKind,
       pid,
       owner,
       display,
