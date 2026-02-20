@@ -36,6 +36,29 @@
       color:var(--text);
       overflow:hidden;
     }
+    body.preconnect {
+      overflow: auto;
+    }
+    body.preconnect .topbar,
+    body.preconnect #scoreboard,
+    body.preconnect .app {
+      display: none;
+    }
+    #entry_screen {
+      display: none;
+      min-height: 100vh;
+      width: 100%;
+      align-items: center;
+      justify-content: center;
+      padding: 22px;
+    }
+    body.preconnect #entry_screen {
+      display: flex;
+    }
+    .entry-card {
+      width: min(360px, 100%);
+      margin: 0;
+    }
 
     /* Top bar */
     .topbar{
@@ -709,7 +732,7 @@
   </style>
 </head>
 
-<body>
+<body class="preconnect">
   <!-- HUD de Rolagens Globais -->
   <div id="rolls_banner" style="
     display:none;
@@ -724,6 +747,32 @@
     @keyframes rollBannerIn { from { transform: translateY(-100%); opacity:0; } to { transform: translateY(0); opacity:1; } }
     body.has-roll-banner .topbar { margin-top: 34px; }
   </style>
+
+  <section id="entry_screen" aria-label="Conexão">
+    <div class="panel entry-card">
+      <div class="panel-inner">
+        <div class="row" style="margin-bottom:10px">
+          <div style="flex:1; min-width:0">
+            <label class="label" for="rid">Código da sala (rid)</label>
+            <input class="input" id="rid" placeholder="ex.: 360" autocomplete="off" />
+          </div>
+        </div>
+        <div class="row" style="margin-bottom:10px">
+          <div style="flex:1; min-width:0">
+            <label class="label" for="by">Seu nome (by)</label>
+            <input class="input" id="by" placeholder="ex.: Logan" autocomplete="off" />
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn" id="connect">Conectar</button>
+          <button class="btn secondary" id="entry_disconnect">Desconectar</button>
+        </div>
+        <div class="muted" style="margin-top:10px">
+          Dica: o <b>by</b> precisa bater com <code>piece.owner</code> para o painel reconhecer "sua equipe".
+        </div>
+      </div>
+    </div>
+  </section>
 
   <header class="topbar">
     <div class="brand">
@@ -756,24 +805,13 @@
         </div>
 
         <div class="card" style="margin-bottom:12px">
-          <div class="row" style="margin-bottom:10px">
-            <div style="flex:1; min-width:0">
-              <label class="label" for="rid">Código da sala (rid)</label>
-              <input class="input" id="rid" placeholder="ex.: 360" autocomplete="off" />
-            </div>
+          <div class="row spread" style="margin-bottom:10px">
+            <div style="font-weight:950">🔌 Sessão</div>
+            <div class="pill mono">rid: <span id="rid_card_badge">—</span></div>
           </div>
-          <div class="row" style="margin-bottom:10px">
-            <div style="flex:1; min-width:0">
-              <label class="label" for="by">Seu nome (by)</label>
-              <input class="input" id="by" placeholder="ex.: Logan" autocomplete="off" />
-            </div>
-          </div>
-          <div class="row">
-            <button class="btn" id="connect">Conectar</button>
+          <div class="muted">Conectado como <b id="by_card_badge">—</b>.</div>
+          <div class="row" style="margin-top:10px">
             <button class="btn secondary" id="disconnect">Desconectar</button>
-          </div>
-          <div class="muted" style="margin-top:10px">
-            Dica: o <b>by</b> precisa bater com <code>piece.owner</code> para o painel reconhecer "sua equipe".
           </div>
         </div>
 

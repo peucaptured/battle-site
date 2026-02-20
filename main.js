@@ -38,6 +38,8 @@ const phaseBadge = $("phase_badge");
 const syncBadge = $("sync_badge");
 const meBadge = $("me_badge");
 const roleBadge = $("role_badge");
+const ridCardBadge = $("rid_card_badge");
+const byCardBadge = $("by_card_badge");
 const trainerNameEl = $("trainer_name");
 const avatarIcon = $("avatar_icon");
 const arenaMeta = $("arena_meta");
@@ -66,6 +68,7 @@ try {
 
 const connectBtn = $("connect");
 const disconnectBtn = $("disconnect");
+const entryDisconnectBtn = $("entry_disconnect");
 const addLogBtn = $("btn_add_log");
 const logTextInput = $("log_text");
 const moveBtn = $("btn_move_piece");
@@ -562,7 +565,9 @@ function inferRoleFromPlayers(players, by) {
 
 function updateTopBadges() {
   if (ridBadge) ridBadge.textContent = appState.rid || "—";
+  if (ridCardBadge) ridCardBadge.textContent = appState.rid || "—";
   if (meBadge) meBadge.textContent = `by: ${safeStr(appState.by) || "—"}`;
+  if (byCardBadge) byCardBadge.textContent = safeStr(appState.by) || "—";
   if (roleBadge) roleBadge.textContent = `role: ${appState.role || "—"}`;
 
   const phase = safeStr(appState.battle?.status) || "idle";
@@ -726,10 +731,13 @@ function cleanup() {
 
   updateSidePanels();
   updateTopBadges();
+  setTab("arena");
+  document.body.classList.add("preconnect");
   setStatus("warn", "desconectado");
 }
 
 disconnectBtn?.addEventListener("click", cleanup);
+entryDisconnectBtn?.addEventListener("click", cleanup);
 
 connectBtn?.addEventListener("click", async () => {
   cleanup();
@@ -769,6 +777,8 @@ connectBtn?.addEventListener("click", async () => {
   window._combatDb = db;
   appState.connected = true;
   appState.rid = rid;
+  setTab("arena");
+  document.body.classList.remove("preconnect");
   setStatus("ok", "conectado");
   updateTopBadges();
 
