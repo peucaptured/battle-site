@@ -1306,6 +1306,36 @@ function slugifyPokemonName(name) {
     .replace(/^-|-$/g, "");
 }
 
+function normalizePokemonFormName(name) {
+  let n = safeStr(name);
+  if (!n) return "";
+
+  // Formatos tipo: "Muk (Alola)" / "Ponyta (Galar)"
+  n = n.replace(/\s*\(\s*galar\s*\)\s*/ig, "-Galar");
+  n = n.replace(/\s*\(\s*alola\s*\)\s*/ig, "-Alola");
+  n = n.replace(/\s*\(\s*hisui\s*\)\s*/ig, "-Hisui");
+  n = n.replace(/\s*\(\s*paldea\s*\)\s*/ig, "-Paldea");
+
+  // Adjetivos tipo: "Alolan Muk" / "Galarian Ponyta"
+  if (/\bgalarian\b/i.test(n)) n = n.replace(/\bgalarian\b/ig, "").trim() + "-Galar";
+  if (/\balolan\b/i.test(n))   n = n.replace(/\balolan\b/ig, "").trim() + "-Alola";
+  if (/\bhisuian\b/i.test(n))  n = n.replace(/\bhisuian\b/ig, "").trim() + "-Hisui";
+  if (/\bpaldean\b/i.test(n))  n = n.replace(/\bpaldean\b/ig, "").trim() + "-Paldea";
+
+  // Atalhos: Muk-A / A-Muk / Mr-Mime-A
+  n = n.replace(/\b([a-zA-Z-]+)\s*-\s*a\b/g, "$1-Alola");
+  n = n.replace(/\b([a-zA-Z-]+)\s*-\s*g\b/g, "$1-Galar");
+  n = n.replace(/\b([a-zA-Z-]+)\s*-\s*h\b/g, "$1-Hisui");
+  n = n.replace(/\b([a-zA-Z-]+)\s*-\s*p\b/g, "$1-Paldea");
+
+  n = n.replace(/\ba\s*-\s*([a-zA-Z-]+)\b/g, "$1-Alola");
+  n = n.replace(/\bg\s*-\s*([a-zA-Z-]+)\b/g, "$1-Galar");
+  n = n.replace(/\bh\s*-\s*([a-zA-Z-]+)\b/g, "$1-Hisui");
+  n = n.replace(/\bp\s*-\s*([a-zA-Z-]+)\b/g, "$1-Paldea");
+
+  return n;
+}
+
 function resolvePokemonNameFromPid(pid) {
   const pidStr = safeStr(pid);
   if (!pidStr) return "";
@@ -1317,31 +1347,8 @@ function resolvePokemonNameFromPid(pid) {
 }
 
 function spriteSlugFromPokemonName(name) {
-  let n = safeStr(name);
+  let n = normalizePokemonFormName(name);
   if (!n) return "";
-
-  // Formatos tipo: "Muk (Alola)" / "Ponyta (Galar)"
-  n = n.replace(/\s*\(\s*galar\s*\)\s*/ig, "-galar");
-  n = n.replace(/\s*\(\s*alola\s*\)\s*/ig, "-alola");
-  n = n.replace(/\s*\(\s*hisui\s*\)\s*/ig, "-hisui");
-  n = n.replace(/\s*\(\s*paldea\s*\)\s*/ig, "-paldea");
-
-  // Adjetivos tipo: "Alolan Muk" / "Galarian Ponyta"
-  if (/\bgalarian\b/i.test(n)) n = n.replace(/\bgalarian\b/ig, "").trim() + "-galar";
-  if (/\balolan\b/i.test(n))   n = n.replace(/\balolan\b/ig, "").trim() + "-alola";
-  if (/\bhisuian\b/i.test(n))  n = n.replace(/\bhisuian\b/ig, "").trim() + "-hisui";
-  if (/\bpaldean\b/i.test(n))  n = n.replace(/\bpaldean\b/ig, "").trim() + "-paldea";
-
-  // Atalhos do seu padrão: Muk-A / A-Muk / Mr-Mime-A etc (aceita hífen no nome)
-  n = n.replace(/\b([a-zA-Z-]+)\s*-\s*a\b/g, "$1-alola");
-  n = n.replace(/\b([a-zA-Z-]+)\s*-\s*g\b/g, "$1-galar");
-  n = n.replace(/\b([a-zA-Z-]+)\s*-\s*h\b/g, "$1-hisui");
-  n = n.replace(/\b([a-zA-Z-]+)\s*-\s*p\b/g, "$1-paldea");
-
-  n = n.replace(/\ba\s*-\s*([a-zA-Z-]+)\b/g, "$1-alola");
-  n = n.replace(/\bg\s*-\s*([a-zA-Z-]+)\b/g, "$1-galar");
-  n = n.replace(/\bh\s*-\s*([a-zA-Z-]+)\b/g, "$1-hisui");
-  n = n.replace(/\bp\s*-\s*([a-zA-Z-]+)\b/g, "$1-paldea");
 
   // Gera o slug base usando a sua slugify
   let slug = slugifyPokemonName(n);
@@ -1391,12 +1398,6 @@ function spriteSlugFromPokemonName(name) {
   if (["bloodmoon-ursaluna", "blood-moon-ursaluna", "ursaluna-blood-moon"].includes(slug)) {
     slug = "ursaluna-bloodmoon";
   }
-
-  // PokemonDB usa sufixos diferentes para regionais
-  if (slug.endsWith("-alola"))  slug = slug.slice(0, -6) + "-alolan";
-  if (slug.endsWith("-galar"))  slug = slug.slice(0, -6) + "-galarian";
-  if (slug.endsWith("-hisui"))  slug = slug.slice(0, -6) + "-hisuian";
-  if (slug.endsWith("-paldea")) slug = slug.slice(0, -7) + "-paldean";
 
   return slug;
 }
@@ -1502,6 +1503,9 @@ function normalizePartyPid(x) {
 
   // número (já é o ID regional do seu app)
   if (/^\d+$/.test(v)) return String(Number(v));
+
+  // normaliza atalhos/formas (ex.: Muk-A -> Muk-Alola)
+  v = normalizePokemonFormName(v);
 
   // tenta mapear nome/slug -> id regional
   const slug = slugifyPokemonName(v);
