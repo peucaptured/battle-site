@@ -25,6 +25,20 @@ const FIREBASE_CONFIG = {
   appId: "1:676094077702:web:dc834e5b4b5811a3b0e164",
 };
 
+// ── Firebase Storage (public URL helper) ──
+const TRAINER_PHOTO_FILENAME = "profile.png"; // <- seus arquivos estão assim
+function storageMediaUrl(path) {
+  const bucket = (FIREBASE_CONFIG && FIREBASE_CONFIG.storageBucket) || "";
+  return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media`;
+}
+function trainerFolderCandidates(trainerName) {
+  const tn = safeStr(trainerName);
+  const s = safeDocId(tn);
+  // tenta 1) nome como veio, 2) versão "safe"
+  return Array.from(new Set([tn, s].filter(Boolean)));
+}
+
+
 function getDb() {
   const apps = getApps();
   const app = apps.length ? apps[0] : initializeApp(FIREBASE_CONFIG);
@@ -202,23 +216,35 @@ function getSpriteUrl(pid) {
 }
 
 // ── Get trainer photo ──
-function getTrainerPhoto(player) {
+function getTrainerPhotoUrls(player) {
   const tn = safeStr(player.trainer_name);
-  // 1) player.avatar.photo_thumb_b64
+
+  // 1) player.avatar.photo_thumb_b64 (mais rápido, não depende de regras do Storage)
   if (player.avatar?.photo_thumb_b64) {
-    return `data:image/png;base64,${player.avatar.photo_thumb_b64}`;
+    return { primary: `data:image/png;base64,${player.avatar.photo_thumb_b64}`, fallback: null };
   }
-  // 2) userProfiles
+
+  // 2) userProfiles (se main.js estiver populando isso)
   const as = window.appState;
   if (as?.userProfiles) {
     const uid = safeStr(player.uid) || safeDocId(tn);
     const entry = as.userProfiles.get(uid);
     const profile = entry?.profile;
     if (profile?.avatar?.photo_thumb_b64) {
-      return `data:image/png;base64,${profile.avatar.photo_thumb_b64}`;
+      return { primary: `data:image/png;base64,${profile.avatar.photo_thumb_b64}`, fallback: null };
     }
   }
-  return null;
+
+  // 3) Firebase Storage: trainer_photos/<TrainerName>/profile.png
+  // Observação: <img> não aceita gs://, tem que ser URL HTTP.
+  if (tn) {
+    const cands = trainerFolderCandidates(tn);
+    const primary = storageMediaUrl(`trainer_photos/${cands[0]}/${TRAINER_PHOTO_FILENAME}`);
+    const fallback = cands[1] ? storageMediaUrl(`trainer_photos/${cands[1]}/${TRAINER_PHOTO_FILENAME}`) : null;
+    return { primary, fallback };
+  }
+
+  return { primary: null, fallback: null };
 }
 
 function safeDocId(name) {
@@ -305,7 +331,7 @@ function render() {
   for (const player of players) {
     const tn = safeStr(player.trainer_name);
     const isMe = tn === by;
-    const photo = getTrainerPhoto(player);
+    const { primary: photo, fallback: photo2 } = getTrainerPhotoUrls(player);
     const slots = buildSlots(player);
     const maxStages = getMaxStages(player);
 
@@ -316,10 +342,12 @@ function render() {
     const activeSlotCount = slots.filter(s => !s.empty).length;
     const positions = ringPositions(8, ringR);
 
-    // Photo HTML
+    // Photo HTML (com fallback pro Storage e placeholder)
+    const initial = tn.charAt(0).toUpperCase();
     const photoHtml = photo
-      ? `<img class="sb-photo" src="${escapeAttr(photo)}" alt="${escapeAttr(tn)}" />`
-      : `<div class="sb-photo-placeholder">${escapeHtml(tn.charAt(0).toUpperCase())}</div>`;
+      ? `<img class="sb-photo" src="${escapeAttr(photo)}" alt="${escapeAttr(tn)}" loading="lazy"
+          onerror="if(this.dataset.fallback!=='1' && '${escapeAttr(photo2 || "")}'){this.dataset.fallback='1';this.src='${escapeAttr(photo2 || "")}';}else{this.style.display='none';this.insertAdjacentHTML('afterend','<div class=&quot;sb-photo-placeholder&quot;>${escapeHtml(initial)}</div>');}" />`
+      : `<div class="sb-photo-placeholder">${escapeHtml(initial)}</div>`;
 
     // Slots HTML
     let slotsHtml = "";

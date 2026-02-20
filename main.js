@@ -124,6 +124,16 @@ const DEFAULT_FIREBASE_CONFIG = {
   measurementId: "G-1Q0TB1YPFG",
 };
 
+// -------------------------
+// Firebase Storage (public URL helper)
+// -------------------------
+function storageMediaUrl(path) {
+  const bucket = (DEFAULT_FIREBASE_CONFIG && DEFAULT_FIREBASE_CONFIG.storageBucket) || "";
+  // gs:// URLs não funcionam no <img>. Use o endpoint HTTP do Storage.
+  return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media`;
+}
+
+
 
 // -------------------------
 // Login (mesma lógica do Streamlit, mas sem expor Service Account no browser)
@@ -597,7 +607,20 @@ function updateTopBadges() {
   const phase = safeStr(appState.battle?.status) || "idle";
   if (phaseBadge) phaseBadge.textContent = phase;
   if (trainerNameEl) trainerNameEl.textContent = safeStr(appState.by) || "—";
-  if (avatarIcon) avatarIcon.textContent = safeStr(appState.by)?.slice(0, 1)?.toUpperCase() || "🙂";
+  if (avatarIcon) {
+    const tn = safeStr(appState.by);
+    if (!tn) {
+      avatarIcon.textContent = "🙂";
+    } else {
+      const url1 = storageMediaUrl(`trainer_photos/${tn}/profile.png`);
+      const url2 = storageMediaUrl(`trainer_photos/${safeDocId(tn)}/profile.png`);
+      const letter = tn.slice(0, 1).toUpperCase();
+      // Render foto do treinador (Storage). Fallback: tenta pasta "safe" e depois cai na letra.
+      avatarIcon.innerHTML = `<img src="${escapeAttr(url1)}" alt="${escapeAttr(tn)}"
+        style="width:26px;height:26px;border-radius:999px;object-fit:cover;display:block"
+        onerror="if(this.dataset.fallback!=='1'){this.dataset.fallback='1';this.src='${escapeAttr(url2)}';}else{this.remove();this.parentElement.textContent='${letter}';}">`;
+    }
+  }
 
   const synced = appState.connected ? "Sincronizado ✓" : "—";
   if (syncBadge) syncBadge.textContent = synced;
