@@ -869,6 +869,26 @@ connectBtn?.addEventListener("click", async () => {
       }
     )
   );
+  // public_state/players  ✅ (parties prontas por treinador)
+const playersDoc = doc(db, "rooms", rid, "public_state", "players");
+unsub.push(
+  onSnapshot(
+    playersDoc,
+    (snap) => {
+      appState.publicPlayers = snap.exists() ? snap.data() : null;
+      const pp = $("players_preview");
+      if (pp) pp.textContent = pretty(appState.publicPlayers);
+
+      // re-render UI que usa party (scoreboard/painéis)
+      updateSidePanels?.();
+      updateArenaMeta?.();
+      if (!useCanvas) renderArenaDom?.();
+    },
+    (err) => {
+      console.warn("public_state/players error:", err?.message || err);
+    }
+  )
+);
 
   // public_state/battle
   const battleDoc = doc(db, "rooms", rid, "public_state", "battle");
@@ -1221,6 +1241,30 @@ function getPartyForTrainer(trainerName) {
       // se já montou snapshot com fichas, melhor
       if (Array.isArray(appState.selfPartySnapshot) && appState.selfPartySnapshot.length) return appState.selfPartySnapshot;
       return partyRaw.map(x => ({ pid: normalizePartyPid(x) })).filter(it => it.pid);
+    }
+  }
+    // 0.5) ✅ public_state/players (arrays de pid por treinador)
+  const ps = appState.publicPlayers;
+  if (ps) {
+    // tenta por nome exato e por variações (por causa de maiúsculas/minúsculas)
+    const direct =
+      ps[tn] ||
+      ps[safeStr(tn)] ||
+      ps[safeStr(tn).trim()] ||
+      ps[safeStr(tn).toLowerCase()] ||
+      ps[safeDocId(tn)];
+
+    if (Array.isArray(direct) && direct.length) {
+      return direct.map(x => ({ pid: normalizePartyPid(x) })).filter(it => it.pid);
+    }
+
+    // (opcional) se no futuro você guardar party dentro de byId
+    const byId = ps.byId || {};
+    const entry = byId[safeDocId(tn)] || byId[tn];
+    const party2 = Array.isArray(entry?.party) ? entry.party : (Array.isArray(entry?.party_snapshot) ? entry.party_snapshot : []);
+    if (party2.length) {
+      // party2 pode vir como strings ou objetos, normaliza:
+      return party2.map(x => ({ pid: normalizePartyPid(x?.pid ?? x) })).filter(it => it.pid);
     }
   }
 
