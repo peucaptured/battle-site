@@ -352,6 +352,7 @@ const appState = {
   pieces: [],
   // UI selection
   selectedPieceId: null,
+  placing: null, // { mode: "pokemon", trainer, pid }
   placingPid: null,
   placingTrainer: null, // trainer name when placing trainer avatar
   hover: { row: null, col: null },
@@ -608,7 +609,7 @@ qsa(".tab").forEach((t) => {
 async function sendAction(type, by, payload) {
   if (!currentDb || !currentRid) {
     setStatus("err", "conecte antes de enviar ações");
-    return;
+    return false;
   }
   try {
     const ref = await addDoc(collection(currentDb, "rooms", currentRid, "actions"), {
@@ -620,8 +621,10 @@ async function sendAction(type, by, payload) {
     });
     if (lastActionEl) lastActionEl.textContent = ref?.id ? `id: ${ref.id}` : "—";
     setStatus("ok", `ação enviada: ${type}`);
+    return true;
   } catch (e) {
     setStatus("err", `erro ao enviar ação: ${e?.message || e}`);
+    return false;
   }
 }
 
@@ -720,6 +723,8 @@ function cleanup() {
   appState.selfPartySnapshot = null;
   appState.selfAuthStatus = null;
   appState.renderedLogKeys = new Set();
+  appState.placing = null;
+  appState.placingPid = null;
 
   if (playersPre) playersPre.textContent = "—";
   if (statePre) statePre.textContent = "—";
@@ -1351,7 +1356,7 @@ function renderPartyCard(it, ownerName) {
   const extBadge = isExt ? `<span class="pvp-ext-badge">EXT</span>` : "";
   const actionsHtml = mine ? `
     <div class="pvp-actions">
-      <button class="pvp-btn" data-act="${onMap ? "select" : "place"}">${onMap ? "🎯 Selecionar" : (appState.placingPid === pid ? "📍 Clique no mapa" : "➕ Colocar")}</button>
+      <button class="pvp-btn" data-act="${onMap ? "select" : "place"}">${onMap ? "🎯 Selecionar" : (getPlacingPokemonPid() === pid ? "📍 Clique no mapa" : "➕ Colocar")}</button>
       <button class="pvp-btn pvp-btn-icon" data-act="toggle"${onMap ? "" : " disabled"}>👁️</button>
       <button class="pvp-btn pvp-btn-icon pvp-btn-danger" data-act="remove"${onMap ? "" : " disabled"}>❌</button>
     </div>` : "";
@@ -1434,6 +1439,43 @@ async function updatePartyStateHp(ownerName, pid, hp) {
   await setDoc(ref, patch, { merge: true });
 }
 
+
+function renderPartyWindow() {
+  const root = $("party_window");
+  if (!root) return;
+  const by = safeStr(appState.by);
+  const party = by ? getPartyForTrainer(by) : [];
+  const placingPid = getPlacingPokemonPid();
+
+  const slots = [];
+  for (let i = 0; i < 8; i++) slots.push(party[i] || null);
+  root.innerHTML = slots.map((entry, idx) => {
+    const pid = safeStr(entry?.pid || entry || "");
+    if (!pid) return `<button type="button" class="party-slot empty" data-slot="${idx}" disabled><span class="slot-badge">vazio</span></button>`;
+    const sprite = getSpriteUrlFromPid(pid);
+    const hp = getPartyHp(by, pid);
+    const ko = hp <= 0;
+    const onBoard = isPokemonAlreadyOnBoard(by, pid);
+    const placing = placingPid && placingPid === pid;
+    const disabled = ko || onBoard;
+    const badges = `${onBoard ? '<span class="slot-badge">em campo</span>' : ''}${ko ? '<span class="slot-badge">KO</span>' : ''}`;
+    return `<button type="button" class="party-slot ${ko ? 'ko' : ''} ${placing ? 'placing' : ''}" data-slot="${idx}" data-pid="${escapeAttr(pid)}" ${disabled ? 'disabled' : ''}>
+      ${sprite ? `<img src="${escapeAttr(sprite)}" alt="${escapeAttr(pid)}" loading="lazy" onerror="this.style.display='none'"/>` : ''}
+      <span class="slot-label">${idx + 1}</span>
+      ${badges}
+    </button>`;
+  }).join('');
+
+  if (root.dataset.bound === "1") return;
+  root.dataset.bound = "1";
+  root.addEventListener("click", (ev) => {
+    const btn = ev.target?.closest?.(".party-slot[data-pid]");
+    if (!btn) return;
+    const pid = safeStr(btn.dataset.pid);
+    if (!pid) return;
+    startPlacePokemon(pid);
+  });
+}
 
 function renderSelectedControlsCard() {
   const card = document.createElement("div");
@@ -1520,6 +1562,7 @@ function updateSidePanels() {
 
   const myParty = by ? getPartyForTrainer(by) : [];
   const myPieces = by ? pieces.filter((p) => safeStr(p?.owner) === by && safeStr(p?.status || "active") !== "deleted") : [];
+  renderPartyWindow();
   const oppPiecesRaw = by ? pieces.filter((p) => safeStr(p?.owner) && safeStr(p?.owner) !== by && safeStr(p?.status || "active") !== "deleted") : pieces;
   const oppPieces = (oppPiecesRaw || []).filter((p) => isPieceVisibleToMe(p));
 
@@ -1534,10 +1577,11 @@ function updateSidePanels() {
     c.className = "card";
     c.innerHTML = `<div class="muted">Conecte numa sala para ver suas peças.</div>`;
     teamRoot.appendChild(c);
-  } else if (myParty && myParty.length) {
-    for (const it of myParty) teamRoot.appendChild(renderPartyCard(it, by));
-  } else if (!myPieces.length) {
-    teamRoot.innerHTML = `<div class="card"><div style="font-weight:950;margin-bottom:6px">Equipe não encontrada</div><div class="muted">Ainda não achei <code>party_snapshot</code>/<code>users_raw</code> e você não tem peças no tabuleiro. Opções: (1) preencha <code>by</code> e faça login (planilha) no conectar, ou (2) entre na sala 1x pelo Streamlit (ele espelha seu perfil para o Firestore).</div></div>`;
+  } else if (!myParty.length && !myPieces.length) {
+    const c = document.createElement("div");
+    c.className = "card";
+    c.innerHTML = `<div style="font-weight:950;margin-bottom:6px">Equipe não encontrada</div><div class="muted">Ainda não achei <code>party_snapshot</code>/<code>users_raw</code> e você não tem peças no tabuleiro. Opções: (1) preencha <code>by</code> e faça login (planilha) no conectar, ou (2) entre na sala 1x pelo Streamlit (ele espelha seu perfil para o Firestore).</div>`;
+    teamRoot.appendChild(c);
   } else {
     for (const p of myPieces) teamRoot.appendChild(renderPieceCard(p, true));
   }
@@ -1900,6 +1944,16 @@ function makePieceId() {
   return `pc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function getPlacingPokemonPid() {
+  if (appState.placing && appState.placing.mode === "pokemon") return safeStr(appState.placing.pid);
+  return safeStr(appState.placingPid);
+}
+
+function clearPokemonPlacingMode() {
+  if (appState.placing && appState.placing.mode === "pokemon") appState.placing = null;
+  appState.placingPid = null;
+}
+
 function startPlacePokemon(pid) {
   const monPid = safeStr(pid);
   if (!monPid) return;
@@ -1911,6 +1965,15 @@ function startPlacePokemon(pid) {
     setStatus("err", "preencha o campo by para colocar pokémon");
     return;
   }
+  if (isPokemonKo(appState.by, monPid)) {
+    setStatus("err", "pokémon com HP 0 não pode ser posicionado");
+    return;
+  }
+  if (isPokemonAlreadyOnBoard(appState.by, monPid)) {
+    setStatus("warn", "esse pokémon já está no campo");
+    return;
+  }
+  appState.placing = { mode: "pokemon", trainer: safeStr(appState.by), pid: monPid };
   appState.placingPid = monPid;
   setStatus("ok", `modo de posicionar ativo: ${monPid}. Clique em um tile vazio no mapa.`);
   updateSidePanels();
@@ -1919,60 +1982,74 @@ function startPlacePokemon(pid) {
 async function placePokemonOnBoardAt(pid, row, col) {
   const monPid = safeStr(pid);
   const by = safeStr(appState.by);
-  const ref = getStateDocRef();
-  if (!monPid || !by || !ref) return;
+  if (!monPid || !by) return;
 
   const r = Number(row);
   const c = Number(col);
-  if (!Number.isFinite(r) || !Number.isFinite(c)) {
+  if (!isTileWithinGrid(r, c)) {
     setStatus("err", "tile inválido para posicionar pokémon");
+    return;
+  }
+  if (isPokemonKo(by, monPid)) {
+    setStatus("err", "pokémon com HP 0 não pode ser posicionado");
+    clearPokemonPlacingMode();
+    updateSidePanels();
+    return;
+  }
+  if (isPokemonAlreadyOnBoard(by, monPid)) {
+    setStatus("warn", "esse pokémon já está no campo");
+    clearPokemonPlacingMode();
+    updateSidePanels();
+    return;
+  }
+  if (isTileOccupied(r, c)) {
+    setStatus("err", "tile ocupado");
     return;
   }
 
   try {
-    let createdId = null;
-    await runTransaction(currentDb, async (tx) => {
-      const snap = await tx.get(ref);
-      const data = snap.exists() ? snap.data() : {};
-      const pieces = Array.isArray(data?.pieces) ? data.pieces : [];
-      const seen = Array.isArray(data?.seen) ? data.seen : [];
-
-      const occupied = pieces.some((p) =>
-        safeStr(p?.status || "active") === "active" && Number(p?.row) === r && Number(p?.col) === c
-      );
-      if (occupied) throw new Error("tile ocupado");
-
-      const alreadyOnBoard = pieces.some((p) =>
-        safeStr(p?.owner) === by && safeStr(p?.pid) === monPid && safeStr(p?.status || "active") === "active"
-      );
-      if (alreadyOnBoard) throw new Error("esse pokémon já está no campo");
-
-      createdId = makePieceId();
-      const newPiece = {
-        id: createdId,
-        owner: by,
-        kind: "pokemon",
-        pid: monPid,
-        row: r,
-        col: c,
-        revealed: true,
-        status: "active",
-      };
-
-      const nextSeen = seen.includes(monPid) ? seen : [...seen, monPid];
-      tx.set(
-        ref,
-        { pieces: [...pieces, newPiece], seen: nextSeen, updatedAt: serverTimestamp() },
-        { merge: true }
-      );
+    const ok = await sendAction("ADD_PIECE", by, {
+      owner: by,
+      pid: monPid,
+      row: r,
+      col: c,
+      revealed: true,
     });
-
-    appState.placingPid = null;
-    if (createdId) selectPiece(createdId);
-    setStatus("ok", "pokémon colocado no mapa");
+    if (!ok) return;
+    clearPokemonPlacingMode();
+    updateSidePanels();
+    setStatus("ok", "pokémon enviado para posicionamento");
   } catch (e) {
     setStatus("err", `falha ao colocar pokémon: ${e?.message || e}`);
   }
+}
+
+function isTileWithinGrid(row, col) {
+  const gs = Number(appState.gridSize) || 0;
+  return Number.isFinite(row) && Number.isFinite(col) && row >= 0 && col >= 0 && row < gs && col < gs;
+}
+
+function isTileOccupied(row, col) {
+  return (appState.pieces || []).some((p) =>
+    safeStr(p?.status || "active") === "active" && Number(p?.row) === row && Number(p?.col) === col
+  );
+}
+
+function getPartyHp(ownerName, pid) {
+  const ps = ((_partyStates && _partyStates[ownerName]) ? _partyStates[ownerName] : {})[pid] || {};
+  return ps.hp != null ? Number(ps.hp) : 6;
+}
+
+function isPokemonKo(ownerName, pid) {
+  return getPartyHp(ownerName, pid) <= 0;
+}
+
+function isPokemonAlreadyOnBoard(ownerName, pid) {
+  return (appState.pieces || []).some((p) =>
+    safeStr(p?.owner) === safeStr(ownerName) &&
+    safeStr(p?.pid) === safeStr(pid) &&
+    safeStr(p?.status || "active") === "active"
+  );
 }
 
 // Interações Arena
@@ -2197,7 +2274,7 @@ function bindArenaInteractionsCanvas() {
   });
 
   canvas.addEventListener("mousedown", (ev) => {
-    if (appState.placingPid) return;
+    if (getPlacingPokemonPid()) return;
     if (appState.placingTrainer) return;
     if (ev.button !== 0) return;
     const rect = canvas.getBoundingClientRect();
@@ -2245,8 +2322,9 @@ function bindArenaInteractionsCanvas() {
     if (!tile) return;
 
     if (appState.placingTrainer) return; // handled by scoreboard-patch.js capture
-    if (appState.placingPid) {
-      placePokemonOnBoardAt(appState.placingPid, tile.row, tile.col);
+    const placingPid = getPlacingPokemonPid();
+    if (placingPid) {
+      placePokemonOnBoardAt(placingPid, tile.row, tile.col);
       return;
     }
 
@@ -2301,8 +2379,9 @@ function bindArenaInteractionsDom() {
     const col = Number(cell.dataset.col);
 
     if (appState.placingTrainer) return; // handled by scoreboard-patch.js capture
-    if (appState.placingPid) {
-      placePokemonOnBoardAt(appState.placingPid, row, col);
+    const placingPid = getPlacingPokemonPid();
+    if (placingPid) {
+      placePokemonOnBoardAt(placingPid, row, col);
       return;
     }
 
