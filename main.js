@@ -400,6 +400,11 @@ const appState = {
   },
   // logs
   renderedLogKeys: new Set(),
+  movement: {
+    dashByPieceId: {},
+    halfStepIntentByPieceId: {},
+    turnKey: "",
+  },
 };
 
 
@@ -1738,6 +1743,7 @@ function renderSelectedControlsCard() {
 
 
 function renderInspectorCard() {
+  updateMovementTurnState();
   const wrap = document.createElement("div");
   wrap.className = "inspector";
 
@@ -1784,6 +1790,10 @@ function renderInspectorCard() {
     `<span class="chip ${revealed ? "ok" : "warn"}">${revealed ? "revelado" : "oculto"}</span>`,
   ].join("");
 
+  const isMine = isPieceMine(p);
+  const mvBudget = getPieceMovementBudget(p);
+  const moveSummary = `Speed ${mvBudget.speed} • deslocamento ${mvBudget.maxTiles % 1 ? "1/2" : mvBudget.maxTiles} quadrado(s)`;
+
   wrap.innerHTML = `
     <div class="inspector-head">
       <div class="inspector-title">Inspector</div>
@@ -1797,6 +1807,7 @@ function renderInspectorCard() {
       <div class="inspector-body">
         <div class="inspector-name">${escapeHtml(name)}</div>
         <div class="inspector-chips">${chips}</div>
+        <div class="muted" style="margin-top:6px">${escapeHtml(moveSummary)}</div>
 
         <div class="hpbar">
           <div class="hpbar-track"><div class="hpbar-fill" style="width:${hpPct}%"></div></div>
@@ -1820,6 +1831,7 @@ function renderInspectorCard() {
 
         <div class="inspector-actions">
           <button type="button" class="btn primary" data-ins-act="move">Mover</button>
+          <button type="button" class="btn ${mvBudget.dash ? "primary" : "secondary"}" data-ins-act="dash" ${isMine ? "" : "disabled"}>${mvBudget.dash ? "⚡ Standard gasta (x2)" : "⚡ Abrir mão da Standard (x2)"}</button>
           <button type="button" class="btn secondary" data-ins-act="toggle">Ocultar</button>
           <button type="button" class="btn danger" data-ins-act="remove">Retirar da arena</button>
         </div>
@@ -1831,6 +1843,14 @@ function renderInspectorCard() {
   wrap.querySelector('[data-ins-act="move"]')?.addEventListener("click", () => {
     setStatus("ok", "Mover: clique no tile de destino na arena");
     // nada além disso: o click no tile já move a seleção atual
+  });
+  wrap.querySelector('[data-ins-act="dash"]')?.addEventListener("click", () => {
+    if (!isMine) return;
+    const cur = !!appState.movement.dashByPieceId[selId];
+    appState.movement.dashByPieceId[selId] = !cur;
+    if (!cur) setStatus("ok", "Standard aberta mão: deslocamento dobrado neste turno");
+    else setStatus("ok", "deslocamento voltou ao valor base");
+    updateSidePanels();
   });
   wrap.querySelector('[data-ins-act="toggle"]')?.addEventListener("click", async () => {
     await togglePieceRevealed(selId);
@@ -2401,6 +2421,106 @@ function getPieceAt(row, col) {
   return null;
 }
 
+function getTurnKey() {
+  const ts = appState?.battle?.turn_state || {};
+  const round = Number(ts?.round || 0);
+  const index = Number(ts?.index || 0);
+  return `${round}:${index}`;
+}
+
+function normalizeDirection(delta) {
+  const n = Number(delta);
+  if (!Number.isFinite(n) || n === 0) return 0;
+  return n > 0 ? 1 : -1;
+}
+
+function clampDirection(dr, dc) {
+  return { dr: normalizeDirection(dr), dc: normalizeDirection(dc) };
+}
+
+function getSheetForPiece(piece) {
+  const pid = safePidValue(piece?.pid);
+  if (!pid) return null;
+  for (const sh of (_allSheetsLatest || [])) {
+    const sid = safePidValue(sh?.pokemon?.id);
+    if (sid && sid === pid) return sh;
+  }
+  return null;
+}
+
+function getPieceSpeed(piece) {
+  const sh = getSheetForPiece(piece);
+  const st = sh?.stats || {};
+  const candidates = [st.speed, st.spd, st.spe, sh?.speed, sh?.pokemon?.speed, piece?.speed];
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 80;
+}
+
+function movementBySpeed(speed) {
+  const spd = Number(speed) || 0;
+  if (spd <= 40) return 0.5;
+  if (spd <= 80) return 1;
+  if (spd <= 100) return 2;
+  if (spd <= 120) return 4;
+  return 5;
+}
+
+function getPieceMovementBudget(piece) {
+  const pieceId = safeStr(piece?.id);
+  const speed = getPieceSpeed(piece);
+  const baseTiles = movementBySpeed(speed);
+  const dash = !!appState.movement?.dashByPieceId?.[pieceId];
+  const maxTiles = dash ? baseTiles * 2 : baseTiles;
+  return { speed, baseTiles, dash, maxTiles };
+}
+
+function updateMovementTurnState() {
+  const next = getTurnKey();
+  if (appState.movement.turnKey === next) return;
+  appState.movement.turnKey = next;
+  appState.movement.dashByPieceId = {};
+}
+
+function getReachableTileMap(piece) {
+  const out = new Map();
+  if (!piece) return out;
+  const row = Number(piece.row);
+  const col = Number(piece.col);
+  if (!Number.isFinite(row) || !Number.isFinite(col)) return out;
+
+  const { maxTiles } = getPieceMovementBudget(piece);
+  const gs = Number(appState.gridSize) || 0;
+  if (gs <= 0) return out;
+
+  if (maxTiles < 1) {
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const nr = row + dr;
+        const nc = col + dc;
+        if (!isTileWithinGrid(nr, nc)) continue;
+        if (isTileOccupied(nr, nc)) continue;
+        out.set(`${nr}:${nc}`, { row: nr, col: nc, dr, dc, halfStep: true });
+      }
+    }
+    return out;
+  }
+
+  const limit = Math.floor(maxTiles);
+  for (let r = 0; r < gs; r++) {
+    for (let c = 0; c < gs; c++) {
+      const cheb = Math.max(Math.abs(r - row), Math.abs(c - col));
+      if (cheb <= 0 || cheb > limit) continue;
+      if (isTileOccupied(r, c)) continue;
+      out.set(`${r}:${c}`, { row: r, col: c, halfStep: false });
+    }
+  }
+  return out;
+}
+
 function selectPiece(pieceId) {
   const id = safeStr(pieceId);
   appState.selectedPieceId = id || null;
@@ -2418,6 +2538,7 @@ function selectPiece(pieceId) {
 }
 
 function sendMoveSelected(toRow, toCol) {
+  updateMovementTurnState();
   const pieceId = safeStr(appState.selectedPieceId);
   if (!pieceId) return;
   if (!canCurrentPlayerMovePiece(pieceId)) {
@@ -2425,6 +2546,58 @@ function sendMoveSelected(toRow, toCol) {
     else setStatus("err", "você só pode mover peças suas");
     return;
   }
+
+  const piece = (appState.pieces || []).find((p) => safeStr(p?.id) === pieceId) || null;
+  if (!piece) return;
+
+  const tileKey = `${Number(toRow)}:${Number(toCol)}`;
+  const reach = getReachableTileMap(piece);
+  const canReach = reach.get(tileKey);
+  if (!canReach) {
+    setStatus("err", "tile fora do deslocamento máximo permitido");
+    return;
+  }
+
+  const { maxTiles } = getPieceMovementBudget(piece);
+  if (maxTiles < 1) {
+    const fromRow = Number(piece.row);
+    const fromCol = Number(piece.col);
+    const first = clampDirection(Number(toRow) - fromRow, Number(toCol) - fromCol);
+    if (first.dr === 0 && first.dc === 0) {
+      setStatus("warn", "escolha uma direção adjacente para preparar o meio deslocamento");
+      return;
+    }
+
+    const pending = appState.movement.halfStepIntentByPieceId[pieceId] || null;
+    if (!pending) {
+      appState.movement.halfStepIntentByPieceId[pieceId] = { ...first, turnKey: appState.movement.turnKey };
+      setStatus("ok", "meio deslocamento preparado. No próximo turno, clique outra direção para completar o movimento.");
+      return;
+    }
+    if (safeStr(pending.turnKey) === safeStr(appState.movement.turnKey)) {
+      setStatus("warn", "meio deslocamento: aguarde o próximo turno para completar o vetor");
+      return;
+    }
+
+    const vec = clampDirection((pending.dr || 0) + first.dr, (pending.dc || 0) + first.dc);
+    const targetRow = fromRow + vec.dr;
+    const targetCol = fromCol + vec.dc;
+    if (!isTileWithinGrid(targetRow, targetCol)) {
+      setStatus("err", "vetor final de meio deslocamento saiu da arena");
+      appState.movement.halfStepIntentByPieceId[pieceId] = { ...first, turnKey: appState.movement.turnKey };
+      return;
+    }
+    if (isTileOccupied(targetRow, targetCol)) {
+      setStatus("err", "tile final ocupado para meio deslocamento");
+      appState.movement.halfStepIntentByPieceId[pieceId] = { ...first, turnKey: appState.movement.turnKey };
+      return;
+    }
+
+    delete appState.movement.halfStepIntentByPieceId[pieceId];
+    toRow = targetRow;
+    toCol = targetCol;
+  }
+
   const by = safeStr(byInput?.value || "Anon") || "Anon";
   sendAction("MOVE_PIECE", by, { pieceId, row: toRow, col: toCol });
 }
@@ -3010,6 +3183,8 @@ function renderArenaDom() {
     cell.classList.remove("hover");
     cell.classList.remove("sel");
     cell.classList.remove("place-ok");
+    cell.classList.remove("move-ok");
+    cell.classList.remove("move-no");
     // remove token
     const t = cell.querySelector(":scope > .token");
     if (t) t.remove();
@@ -3025,6 +3200,21 @@ function renderArenaDom() {
         if (!cell) continue;
         if (isTileOccupied(r, c)) continue;
         cell.classList.add("place-ok");
+      }
+    }
+  }
+
+  updateMovementTurnState();
+  const selPiece = (appState.pieces || []).find((p) => safeStr(p?.id) === safeStr(appState.selectedPieceId)) || null;
+  if (!placingPid && selPiece && canCurrentPlayerMovePiece(selPiece.id)) {
+    const reach = getReachableTileMap(selPiece);
+    for (let r = 0; r < gs; r++) {
+      for (let c = 0; c < gs; c++) {
+        if (r === Number(selPiece.row) && c === Number(selPiece.col)) continue;
+        const cell = domCells[r * gs + c];
+        if (!cell) continue;
+        if (reach.has(`${r}:${c}`)) cell.classList.add("move-ok");
+        else cell.classList.add("move-no");
       }
     }
   }
@@ -3306,6 +3496,21 @@ function draw() {
     ctx.strokeRect(x + 1, y + 1, tile - 2, tile - 2);
   }
 
+  updateMovementTurnState();
+  const selPiece = (appState.pieces || []).find((p) => safeStr(p?.id) === safeStr(appState.selectedPieceId)) || null;
+  if (!placingPid && selPiece && canCurrentPlayerMovePiece(selPiece.id)) {
+    const reach = getReachableTileMap(selPiece);
+    for (let r = 0; r < gs; r++) {
+      for (let c = 0; c < gs; c++) {
+        if (r === Number(selPiece.row) && c === Number(selPiece.col)) continue;
+        const xh = ox + c * tile;
+        const yh = oy + r * tile;
+        if (reach.has(`${r}:${c}`)) ctx.fillStyle = "rgba(244,114,182,0.22)";
+        else ctx.fillStyle = "rgba(239,68,68,0.18)";
+        ctx.fillRect(xh + 1, yh + 1, tile - 2, tile - 2);
+      }
+    }
+  }
 
   // grid lines
   if (view.showGrid) {
