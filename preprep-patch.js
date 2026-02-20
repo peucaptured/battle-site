@@ -291,9 +291,9 @@ function getDisplayName(pid) {
 
 // ── modal logic ───────────────────────────────────────────────────────────
 let _modal = null;
-let _modalStep = null;    // "ask" | "waiting" | "select" | "text"
+let _modalStep = null;    // "ask" | "waiting" | "select" | "text" | "reveal-pick"
 let _selectedPieceIds = new Set();
-let _prepText = "";
+let _prepTexts = new Map(); // pieceId → text (one per selected pokemon)
 
 function closeModal() {
   if (_modal) { _modal.remove(); _modal = null; }
@@ -307,10 +307,11 @@ function openModal(step) {
   _modal.id = "preprep-modal";
   document.body.appendChild(_modal);
 
-  if (step === "ask")      renderModalAsk();
-  if (step === "waiting")  renderModalWaiting();
-  if (step === "select")   renderModalSelect();
-  if (step === "text")     renderModalText();
+  if (step === "ask")          renderModalAsk();
+  if (step === "waiting")      renderModalWaiting();
+  if (step === "select")       renderModalSelect();
+  if (step === "text")         renderModalText();
+  if (step === "reveal-pick")  renderModalRevealPick();
 }
 
 // Step 1 — Pergunta inicial
@@ -330,6 +331,7 @@ function renderModalAsk() {
   `;
   _modal.querySelector("#pp-yes").onclick = () => {
     _selectedPieceIds = new Set();
+    _prepTexts = new Map();
     openModal("select");
   };
   _modal.querySelector("#pp-no").onclick = () => answerPreprep("no");
@@ -405,31 +407,60 @@ function renderModalSelect() {
   };
 }
 
-// Step — Digitar texto da preprep
+// Step — Digitar texto da preprep (um campo por pokémon selecionado)
 function renderModalText() {
   if (!_modal) return;
+  const myPieces = getMyPieces();
+  const selected = myPieces.filter(p => _selectedPieceIds.has(p.id));
+
+  const fields = selected.map(p => {
+    const name = getDisplayName(p.pid);
+    const sprite = getSpriteUrl(p.pid);
+    const saved = escHtml(_prepTexts.get(p.id) || "");
+    return `
+      <div class="pp-text-wrap" style="margin-bottom:4px;">
+        <label style="display:flex;align-items:center;gap:6px;">
+          ${sprite ? `<img src="${escHtml(sprite)}" style="width:20px;height:20px;image-rendering:pixelated;object-fit:contain;" onerror="this.style.display='none'"/>` : ""}
+          ${escHtml(name)}
+        </label>
+        <textarea
+          class="pp-text-field"
+          data-piece-id="${escHtml(p.id)}"
+          placeholder="Ex: Se o oponente atacar, uso Protect…"
+        >${saved}</textarea>
+      </div>
+    `;
+  }).join("");
+
   _modal.innerHTML = `
     <div class="pp-card">
       <h2>📋 Descrever Preprep</h2>
-      <p class="pp-subtitle">Escreva a ação preemptiva. Ela ficará secreta até você revelar.</p>
-      <div class="pp-text-wrap">
-        <label>Ação preprep</label>
-        <textarea id="pp-text-input" placeholder="Ex: Se o oponente atacar, uso Protect…">${escHtml(_prepText)}</textarea>
-      </div>
+      <p class="pp-subtitle">Escreva a ação de cada pokémon. Cada uma fica secreta e pode ser revelada individualmente.</p>
+      ${fields}
       <div class="pp-action-row">
         <button class="pp-btn-cancel" id="pp-text-back">Voltar</button>
         <button class="pp-btn-confirm" id="pp-text-confirm">✔ Confirmar preprep</button>
       </div>
     </div>
   `;
-  const ta = _modal.querySelector("#pp-text-input");
-  ta.oninput = () => { _prepText = ta.value; };
-  ta.focus();
+
+  _modal.querySelectorAll(".pp-text-field").forEach(ta => {
+    ta.oninput = () => { _prepTexts.set(safeStr(ta.dataset.pieceId), ta.value); };
+  });
+
+  // Focus first textarea
+  _modal.querySelector(".pp-text-field")?.focus();
 
   _modal.querySelector("#pp-text-back").onclick = () => openModal("select");
   _modal.querySelector("#pp-text-confirm").onclick = async () => {
-    _prepText = ta.value.trim();
-    if (!_prepText) { ta.style.borderColor = "rgba(239,68,68,.7)"; return; }
+    // Collect all values and validate
+    let allFilled = true;
+    _modal.querySelectorAll(".pp-text-field").forEach(ta => {
+      const val = ta.value.trim();
+      _prepTexts.set(safeStr(ta.dataset.pieceId), val);
+      if (!val) { ta.style.borderColor = "rgba(239,68,68,.7)"; allFilled = false; }
+    });
+    if (!allFilled) return;
     await submitPreprep();
   };
 }
@@ -455,17 +486,25 @@ async function answerPreprep(answer /* "yes" | "no" */) {
 async function submitPreprep() {
   const ref = getBattleRef();
   if (!ref || !_by) return;
-  const pids = [..._selectedPieceIds];
+  const myPieces = getMyPieces();
+
+  // Build one entry per selected pokemon
+  const entries = myPieces
+    .filter(p => _selectedPieceIds.has(p.id))
+    .map(p => ({
+      pieceId: p.id,
+      pid:     p.pid,
+      name:    getDisplayName(p.pid),
+      text:    _prepTexts.get(p.id) || "",
+      revealed: false,
+    }));
+
   try {
     await setDoc(ref, {
       preprep: {
         responses: { [_by]: "yes" },
         data: {
-          [_by]: {
-            text: _prepText,
-            pids,
-            revealed: false,
-          },
+          [_by]: { entries },
         },
       },
     }, { merge: true });
@@ -477,22 +516,77 @@ async function submitPreprep() {
   updateRevealButton();
 }
 
-async function revealMyPreprep() {
+async function revealEntry(pieceId) {
   const ref = getBattleRef();
   if (!ref || !_by) return;
   const myData = _preprepData?.data?.[_by];
-  if (!myData || myData.revealed) return;
+  if (!myData?.entries) return;
+
+  // Mark the chosen entry as revealed
+  const updatedEntries = myData.entries.map(e =>
+    e.pieceId === pieceId
+      ? { ...e, revealed: true, revealedAt: Date.now() }
+      : e
+  );
+
   try {
     await setDoc(ref, {
-      preprep: {
-        data: {
-          [_by]: { revealed: true, revealedAt: Date.now() },
-        },
-      },
+      preprep: { data: { [_by]: { entries: updatedEntries } } },
     }, { merge: true });
   } catch (e) {
-    console.error("[preprep] revealMyPreprep error", e);
+    console.error("[preprep] revealEntry error", e);
   }
+}
+
+function revealMyPreprep() {
+  const myData = _preprepData?.data?.[_by];
+  const entries = myData?.entries || [];
+  const unrevealed = entries.filter(e => !e.revealed);
+
+  if (!unrevealed.length) return;
+
+  // Only one left → reveal directly, no picker needed
+  if (unrevealed.length === 1) {
+    revealEntry(unrevealed[0].pieceId);
+    return;
+  }
+
+  // Multiple → show picker modal
+  openModal("reveal-pick");
+}
+
+function renderModalRevealPick() {
+  if (!_modal) return;
+  const myData = _preprepData?.data?.[_by];
+  const unrevealed = (myData?.entries || []).filter(e => !e.revealed);
+
+  const chips = unrevealed.map(e => {
+    const sprite = getSpriteUrl(e.pid);
+    return `<div class="pp-poke-chip" data-piece-id="${escHtml(e.pieceId)}" style="cursor:pointer;">
+      ${sprite ? `<img src="${escHtml(sprite)}" onerror="this.style.display='none'" style="width:26px;height:26px;image-rendering:pixelated;"/>` : ""}
+      ${escHtml(e.name || e.pid)}
+    </div>`;
+  }).join("");
+
+  _modal.innerHTML = `
+    <div class="pp-card">
+      <h2>📋 Revelar Preprep</h2>
+      <p class="pp-subtitle">Escolha qual pokémon terá sua preprep revelada agora.</p>
+      <div class="pp-poke-grid">${chips}</div>
+      <div class="pp-action-row">
+        <button class="pp-btn-cancel" id="pp-rp-cancel">Cancelar</button>
+      </div>
+    </div>
+  `;
+
+  _modal.querySelectorAll(".pp-poke-chip").forEach(chip => {
+    chip.onclick = async () => {
+      const id = safeStr(chip.dataset.pieceId);
+      closeModal();
+      await revealEntry(id);
+    };
+  });
+  _modal.querySelector("#pp-rp-cancel").onclick = () => closeModal();
 }
 
 // Advance phase to "active" once all players responded
@@ -515,7 +609,10 @@ async function tryAdvanceToActive() {
     // Check if all who said yes already submitted their data
     const data = _preprepData?.data || {};
     const yesPlayers = allPlayers.filter(p => responses[safeStr(p.trainer_name)] === "yes");
-    const allSubmitted = yesPlayers.every(p => data[safeStr(p.trainer_name)]?.text);
+    const allSubmitted = yesPlayers.every(p => {
+      const entries = data[safeStr(p.trainer_name)]?.entries;
+      return Array.isArray(entries) && entries.length > 0;
+    });
     if (!allSubmitted) return;
   }
 
@@ -533,22 +630,28 @@ async function tryAdvanceToActive() {
 // ── Reveal button ─────────────────────────────────────────────────────────
 function updateRevealButton() {
   const myData = _preprepData?.data?.[_by];
-  if (!myData) {
+  const entries = myData?.entries || [];
+  if (!entries.length) {
     revealBtn.classList.remove("pp-reveal-active", "pp-reveal-done");
     revealBtn.style.display = "none";
     return;
   }
-  if (myData.revealed) {
+  const unrevealed = entries.filter(e => !e.revealed);
+  if (!unrevealed.length) {
+    // All revealed
     revealBtn.classList.remove("pp-reveal-active");
     revealBtn.classList.add("pp-reveal-done");
     revealBtn.style.display = "";
-    revealBtn.textContent = "📋 Preprep revelada";
+    revealBtn.textContent = "📋 Tudo revelado";
     revealBtn.disabled = true;
   } else {
     revealBtn.classList.add("pp-reveal-active");
     revealBtn.classList.remove("pp-reveal-done");
     revealBtn.style.display = "";
-    revealBtn.textContent = "📋 Revelar Preprep";
+    const label = unrevealed.length === 1
+      ? `📋 Revelar Preprep (${unrevealed[0].name || unrevealed[0].pid})`
+      : `📋 Revelar Preprep (${unrevealed.length} restantes)`;
+    revealBtn.textContent = label;
     revealBtn.disabled = false;
   }
 }
@@ -560,20 +663,25 @@ const _seenReveals = new Set();
 
 function checkNewReveals(pp) {
   const data = pp?.data || {};
-  for (const [trainer, entry] of Object.entries(data)) {
-    if (!entry?.revealed) continue;
-    const key = `${trainer}:${entry.revealedAt || "x"}`;
-    if (_seenReveals.has(key)) continue;
-    _seenReveals.add(key);
-    showRevealToast(trainer, safeStr(entry.text));
+  for (const [trainer, trainerData] of Object.entries(data)) {
+    const entries = trainerData?.entries || [];
+    for (const entry of entries) {
+      if (!entry?.revealed) continue;
+      const key = `${trainer}:${entry.pieceId}:${entry.revealedAt || "x"}`;
+      if (_seenReveals.has(key)) continue;
+      _seenReveals.add(key);
+      showRevealToast(trainer, entry.name || entry.pid, safeStr(entry.text));
+    }
   }
 }
 
-function showRevealToast(trainer, text) {
+function showRevealToast(trainer, pokeName, text) {
   const item = document.createElement("div");
   item.className = "pp-toast-item";
-  item.innerHTML = `<div class="pp-toast-name">📋 Preprep de ${escHtml(trainer)}</div>
-                    <div class="pp-toast-text">${escHtml(text)}</div>`;
+  item.innerHTML = `
+    <div class="pp-toast-name">📋 Preprep de ${escHtml(trainer)} — ${escHtml(pokeName)}</div>
+    <div class="pp-toast-text">${escHtml(text)}</div>
+  `;
   toastRoot.appendChild(item);
   setTimeout(() => item.remove(), 6000);
 }
@@ -590,42 +698,41 @@ function patchScoreboardPreprep() {
     const pp = _preprepData;
     if (!pp?.data) return;
 
-    // Build set of pieceIds that have preprep
+    // Build set of pieceIds that have preprep (via new entries[] structure)
     const prepPieceIds = new Set();
-    for (const entry of Object.values(pp.data)) {
-      if (!entry?.pids) continue;
-      for (const id of entry.pids) prepPieceIds.add(safeStr(id));
+    for (const trainerData of Object.values(pp.data)) {
+      for (const entry of (trainerData?.entries || [])) {
+        prepPieceIds.add(safeStr(entry.pieceId));
+      }
     }
     if (!prepPieceIds.size) return;
 
-    // Map pieceId → pid so we can match scoreboard slots
+    // Map pieceId → pid so we can match scoreboard slots (title attr holds pid)
     const pieces = window.appState?.pieces || [];
     const prepPids = new Set();
     for (const p of pieces) {
       if (prepPieceIds.has(safeStr(p.id))) prepPids.add(safeStr(p.pid));
     }
 
-    // Find scoreboard pokemon slots and add class
+    // Find scoreboard pokemon slots and toggle class
     const sb = document.getElementById("scoreboard");
     if (!sb) return;
     sb.querySelectorAll(".sb-poke").forEach(el => {
-      const pidAttr = safeStr(el.title);  // title attr holds pid
-      if (prepPids.has(pidAttr)) {
-        el.classList.add("sb-poke-preprep");
-      } else {
-        el.classList.remove("sb-poke-preprep");
-      }
+      const pidAttr = safeStr(el.title);
+      if (prepPids.has(pidAttr)) el.classList.add("sb-poke-preprep");
+      else el.classList.remove("sb-poke-preprep");
     });
   });
 }
 
 // ── Block attack for preprep pokémons ────────────────────────────────────
-// Expose a helper other systems can call
 window.isPreprepPiece = function(pieceId) {
   const pp = _preprepData;
   if (!pp?.data) return false;
-  for (const entry of Object.values(pp.data)) {
-    if (entry?.pids?.includes(safeStr(pieceId))) return true;
+  for (const trainerData of Object.values(pp.data)) {
+    for (const entry of (trainerData?.entries || [])) {
+      if (entry.pieceId === safeStr(pieceId)) return true;
+    }
   }
   return false;
 };
