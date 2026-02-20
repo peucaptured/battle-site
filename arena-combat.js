@@ -501,6 +501,39 @@ const CSS_TEXT = `
   border-color: rgba(56,189,248,.55);
   transform: translateY(-2px);
 }
+
+
+/* ── Sidebar ficha preview (Arena context menu) ── */
+#arena_sheet_preview {
+  margin: 10px 0 12px;
+}
+.arena-sheet-card {
+  border-radius: 12px;
+  border: 1px solid rgba(120,210,255,.2);
+  background: linear-gradient(160deg, rgba(30,46,86,.92), rgba(20,35,70,.86));
+  padding: 10px;
+  color: #e8f6ff;
+  box-shadow: 0 8px 20px rgba(2,6,23,.25);
+}
+.arena-sheet-card .sheet-name { font-weight: 900; font-size: 14px; line-height: 1.1; }
+.arena-sheet-card .sheet-sub { font-size: 11px; opacity: .82; margin-top: 2px; }
+.arena-sheet-card .sheet-top { display: flex; gap: 10px; align-items: flex-start; }
+.arena-sheet-card .sheet-art { width: 76px; height: 76px; object-fit: contain; border-radius: 10px; background: rgba(0,0,0,.22); border: 1px solid rgba(255,255,255,.14); padding: 4px; }
+.arena-sheet-card .chip-row { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+.arena-sheet-card .chip { font-size: 10px; font-weight: 800; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; padding: 2px 7px; background: rgba(0,0,0,.2); }
+.arena-sheet-card .hp-row { display:flex; justify-content:space-between; font-size: 11px; font-weight: 800; margin: 8px 0 4px; }
+.arena-sheet-card .hp-track { height: 6px; border-radius: 999px; background: rgba(2,6,23,.55); overflow: hidden; }
+.arena-sheet-card .hp-fill { height: 100%; border-radius: inherit; }
+.arena-sheet-card .stat-grid { display:grid; grid-template-columns: repeat(4,1fr); gap: 4px; margin: 8px 0; }
+.arena-sheet-card .stat-box { border-radius: 8px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); padding: 4px 2px; text-align:center; }
+.arena-sheet-card .stat-label { font-size: 9px; opacity: .75; text-transform: uppercase; font-weight: 800; }
+.arena-sheet-card .stat-val { font-size: 14px; font-weight: 900; line-height: 1; }
+.arena-sheet-card .section-title { font-size: 11px; font-weight: 900; margin: 8px 0 4px; }
+.arena-sheet-card .move-row { border: 1px solid rgba(255,255,255,.14); border-radius: 9px; padding: 6px; margin-bottom: 5px; background: rgba(0,0,0,.14); }
+.arena-sheet-card .move-head { display:flex; align-items:center; gap:4px; }
+.arena-sheet-card .move-name { font-size: 11px; font-weight: 900; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.arena-sheet-card .mv-pill { font-size: 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,.18); padding: 1px 4px; }
+.arena-sheet-card .muted { opacity: .75; font-size: 10px; }
 `;
 
 // localStorage keys
@@ -1429,15 +1462,93 @@ export class ArenaCombatUI {
     }
   }
 
-  // ─── View sheet (switch to sheets tab) ─────────────────────────
-  _viewSheet(piece) {
-    // Switch to sheets tab and select this piece
+  _sheetMoveMeta(move) {
+    const rk = safeInt(move?.rank ?? move?.damage ?? move?.power ?? move?.lvl ?? 0, 0);
+    const acc = safeInt(move?.accuracy ?? move?.acc ?? move?.acerto ?? 0, 0);
+    const area = !!(move?.is_area || move?.area || safeStr(move?.target).toLowerCase().includes("area"));
+    return { rk, acc, area };
+  }
+
+  _renderSidebarSheet(piece, sheet) {
+    const root = document.getElementById("arena_sheet_preview");
+    if (!root) return;
+    if (!piece || !sheet) {
+      root.innerHTML = `<div class="arena-sheet-card"><div class="muted">Ficha não encontrada para esta peça.</div></div>`;
+      return;
+    }
+
+    const by = this.getBy();
+    const pid = safeStr(piece.pid);
+    const pkm = sheet.pokemon || {};
+    const name = safeStr(pkm.name) || displayName(pid);
+    const np = safeInt(sheet.np || pkm.np || 0, 0);
+    const types = Array.isArray(pkm.types) ? pkm.types : [];
+    const abilities = Array.isArray(pkm.abilities) ? pkm.abilities : [];
+    const st = sheet.stats || this._getPokeStats(by, pid) || {};
+    const stgr = safeInt(st.stgr), intel = safeInt(st.int), thg = safeInt(st.thg), dodge = safeInt(st.dodge);
+    const parry = safeInt(st.parry), fort = safeInt(st.fortitude), will = safeInt(st.will);
+
+    const tData = this._partyStates[by] || {};
+    const pData = tData[pid] || {};
+    const hp = safeInt(pData.hp, 6);
+    const hpMax = 6;
+    const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
+    const hpCol = hpPct > 50 ? "rgba(34,197,94,1)" : hpPct > 25 ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
+
+    const movesRaw = Array.isArray(sheet.moves) ? sheet.moves : (sheet.moves ? Object.values(sheet.moves) : []);
+    const moves = movesRaw.filter((m) => m && typeof m === "object").slice(0, 3);
+    const movesHtml = moves.length
+      ? moves.map((mv) => {
+          const mName = safeStr(mv.name || mv.nome || mv.Nome || "Golpe");
+          const { rk, acc, area } = this._sheetMoveMeta(mv);
+          return `<div class="move-row"><div class="move-head"><span class="move-name">${escHtml(mName)}</span><span class="mv-pill">A+${acc}</span><span class="mv-pill">R${rk}</span><span class="mv-pill">${area ? "Área" : "Alvo"}</span></div></div>`;
+        }).join("")
+      : `<div class="muted">Sem golpes nesta ficha.</div>`;
+
+    const typeHtml = types.map((t) => `<span class="chip">${escHtml(safeStr(t))}</span>`).join("");
+    const abHtml = abilities.slice(0, 3).map((a) => `<span class="chip">${escHtml(safeStr(a))}</span>`).join("");
+    const art = spriteUrl(pid);
+
+    root.innerHTML = `
+      <div class="arena-sheet-card">
+        <div class="sheet-top">
+          <img class="sheet-art" src="${escHtml(art)}" alt="${escHtml(name)}" />
+          <div style="flex:1;min-width:0;">
+            <div class="sheet-name">${escHtml(name)}</div>
+            <div class="sheet-sub">#${escHtml(pid)} • NP ${np}</div>
+            <div class="chip-row">${typeHtml || `<span class="muted">Sem tipo</span>`}</div>
+          </div>
+        </div>
+        ${abHtml ? `<div class="chip-row">${abHtml}</div>` : ""}
+        <div class="hp-row"><span>HP</span><span>${hp}/${hpMax}</span></div>
+        <div class="hp-track"><div class="hp-fill" style="width:${hpPct}%;background:${hpCol};"></div></div>
+        <div class="stat-grid">
+          <div class="stat-box"><div class="stat-label">Stgr</div><div class="stat-val">${stgr}</div></div>
+          <div class="stat-box"><div class="stat-label">Int</div><div class="stat-val">${intel}</div></div>
+          <div class="stat-box"><div class="stat-label">Thg</div><div class="stat-val">${thg}</div></div>
+          <div class="stat-box"><div class="stat-label">Dodge</div><div class="stat-val">${dodge}</div></div>
+          <div class="stat-box"><div class="stat-label">Parry</div><div class="stat-val">${parry}</div></div>
+          <div class="stat-box"><div class="stat-label">Fort</div><div class="stat-val">${fort}</div></div>
+          <div class="stat-box"><div class="stat-label">Will</div><div class="stat-val">${will}</div></div>
+          <div class="stat-box"><div class="stat-label">Cap</div><div class="stat-val">${np * 2}</div></div>
+        </div>
+        <div class="section-title">Golpes</div>
+        ${movesHtml}
+      </div>
+    `;
+  }
+
+  // ─── View sheet (context menu preview) ─────────────────────────
+  async _viewSheet(piece) {
+    if (!piece) return;
     if (piece?.id && typeof window.selectPiece === "function") {
       window.selectPiece(piece.id);
     }
-    // Try to activate sheets tab
-    const sheetsTab = document.querySelector('[data-tab="sheets"]');
-    sheetsTab?.click();
+    const by = this.getBy();
+    await this._loadSheets(by);
+    const pid = safeStr(piece.pid);
+    const sheet = this._getSheet(by, pid);
+    this._renderSidebarSheet(piece, sheet);
   }
 
   // ═══════════════════════════════════════════════════════════════
