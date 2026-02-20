@@ -1162,6 +1162,7 @@ unsub.push(
         const sp = $("sheets_preview");
         if (sp) sp.textContent = pretty({ selectedPieceId: appState.selectedPieceId });
         updateTopBadges();
+        updateFieldConditionsUI?.();
         renderLogsIncremental();
       },
       (err) => {
@@ -1233,6 +1234,7 @@ byInput?.addEventListener("input", () => {
   appState.role = inferRoleFromPlayers(appState.players, appState.by);
   updateTopBadges();
   updateSidePanels();
+  updateFieldConditionsUI?.();
 });
 
 function updateArenaMeta() {
@@ -1240,6 +1242,57 @@ function updateArenaMeta() {
   const gs = appState.gridSize || 10;
   arenaMeta.textContent = `grid ${gs}×${gs} • tema ${appState.theme || "—"}`;
 }
+
+// ── Field Conditions UI ──────────────────────────────────────────────────────
+const fieldConditionsEl = $("field_conditions");
+
+function updateFieldConditionsUI() {
+  if (!fieldConditionsEl) return;
+  const role = safeStr(appState.role);
+  const isSpectator = role === "spectator";
+  fieldConditionsEl.classList.toggle("fc-hidden", isSpectator);
+
+  const weather = safeStr(appState.battle?.weather || appState.board?.weather || "").toLowerCase();
+  const terrain = safeStr(appState.battle?.terrain || appState.board?.terrain || "").toLowerCase();
+
+  fieldConditionsEl.querySelectorAll(".fc-btn").forEach(btn => {
+    const type  = btn.dataset.fcType;
+    const value = btn.dataset.fcValue;
+    const active = (type === "weather" && weather === value) ||
+                   (type === "terrain" && terrain === value);
+    btn.classList.toggle("fc-active", active);
+    btn.setAttribute("aria-pressed", String(active));
+  });
+}
+
+if (fieldConditionsEl) {
+  fieldConditionsEl.addEventListener("click", async e => {
+    const btn = e.target.closest(".fc-btn");
+    if (!btn) return;
+    const role = safeStr(appState.role);
+    if (role === "spectator") return;
+
+    const type  = btn.dataset.fcType;   // "weather" | "terrain"
+    const value = btn.dataset.fcValue;
+
+    // Toggle: if already active → clear, otherwise set
+    const current = safeStr(
+      type === "weather"
+        ? (appState.battle?.weather || appState.board?.weather || "")
+        : (appState.battle?.terrain || appState.board?.terrain || "")
+    ).toLowerCase();
+    const newValue = current === value ? null : value;
+
+    const battleRef = getBattleDocRef();
+    if (!battleRef) return;
+    try {
+      await setDoc(battleRef, { [type]: newValue }, { merge: true });
+    } catch (err) {
+      console.error("field-conditions write error:", err);
+    }
+  });
+}
+// ────────────────────────────────────────────────────────────────────────────
 
 // -------------------------
 // Side panels (DOM incremental)
@@ -4829,6 +4882,7 @@ function escapeAttr(s) {
 // Initial UI
 setTab("arena");
 updateArenaMeta();
+updateFieldConditionsUI();
 updateTopBadges();
 updateSidePanels();
 setStatus("warn", "desconectado");

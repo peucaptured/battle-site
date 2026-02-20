@@ -414,6 +414,36 @@
     .stage-controls .btn{ height:34px; }
     .stage-zoom{ display:flex; gap:6px; padding-left:4px; padding-right:4px; }
 
+    /* Field Conditions bar */
+    .field-conditions{
+      display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+      padding:6px 10px;
+      margin-bottom:8px;
+      background: var(--glass2);
+      border: 1px solid rgba(120,210,255,.14);
+      border-radius: var(--radius);
+      box-shadow: var(--inner);
+    }
+    .field-conditions.fc-hidden{ display:none; }
+    .fc-group{ display:flex; align-items:center; gap:4px; }
+    .fc-label{ font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em; margin-right:2px; }
+    .fc-divider{ width:1px; height:22px; background:rgba(120,210,255,.18); margin:0 4px; }
+    .fc-btn{
+      font-size:16px; line-height:1;
+      padding:4px 7px; height:30px; min-width:34px;
+      border-radius:8px;
+      background: transparent;
+      border: 1px solid transparent;
+      cursor:pointer; transition: background .15s, border-color .15s, transform .1s;
+    }
+    .fc-btn:hover{ background: rgba(120,210,255,.12); border-color: rgba(120,210,255,.25); }
+    .fc-btn.fc-active{
+      background: rgba(120,210,255,.22);
+      border-color: rgba(120,210,255,.55);
+      box-shadow: 0 0 8px rgba(120,210,255,.35);
+      transform: scale(1.08);
+    }
+
     .arena-wrap{
       position:relative;flex:1;min-height:400px;
       background:rgba(2,6,23,.35);
@@ -1222,6 +1252,26 @@
               <button class="btn ghost" id="btn_zoom_in" title="Zoom +">+</button>
             </div>
             <button class="btn secondary" id="btn_center" title="Centralizar">Centralizar</button>
+          </div>
+        </div>
+
+        <!-- Field Conditions bar (hidden for spectators via JS) -->
+        <div class="field-conditions" id="field_conditions">
+          <div class="fc-group">
+            <span class="fc-label">Clima</span>
+            <button class="btn fc-btn" data-fc-type="weather" data-fc-value="sun"        title="Sol Forte">☀️</button>
+            <button class="btn fc-btn" data-fc-type="weather" data-fc-value="rain"       title="Chuva">🌧️</button>
+            <button class="btn fc-btn" data-fc-type="weather" data-fc-value="sandstorm"  title="Tempestade de Areia">🌪️</button>
+            <button class="btn fc-btn" data-fc-type="weather" data-fc-value="hail"       title="Granizo">🌨️</button>
+            <button class="btn fc-btn" data-fc-type="weather" data-fc-value="snow"       title="Neve">❄️</button>
+          </div>
+          <div class="fc-divider"></div>
+          <div class="fc-group">
+            <span class="fc-label">Terreno</span>
+            <button class="btn fc-btn" data-fc-type="terrain" data-fc-value="electric_terrain" title="Terreno Elétrico">⚡</button>
+            <button class="btn fc-btn" data-fc-type="terrain" data-fc-value="grassy_terrain"   title="Terreno Herboso">🌿</button>
+            <button class="btn fc-btn" data-fc-type="terrain" data-fc-value="psychic_terrain"  title="Terreno Psíquico">🔮</button>
+            <button class="btn fc-btn" data-fc-type="terrain" data-fc-value="misty_terrain"    title="Terreno de Névoa">🌸</button>
           </div>
         </div>
 
