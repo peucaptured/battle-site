@@ -212,6 +212,19 @@ const sbRoot = document.getElementById("scoreboard");
   max-width: 100px;
 }
 .sb-row-me .sb-trainer-name { color: rgba(34,197,94,.95); }
+.sb-row-turn .sb-trainer-name {
+  animation: sbTurnNameBlink 1.1s ease-in-out infinite;
+}
+@keyframes sbTurnNameBlink {
+  0%, 100% {
+    opacity: 1;
+    text-shadow: 0 0 6px rgba(56,189,248,.28);
+  }
+  50% {
+    opacity: .45;
+    text-shadow: 0 0 14px rgba(251,191,36,.9);
+  }
+}
 
 /* Pokémon lineup (horizontal scroll if needed) */
 .sb-lineup {
@@ -253,6 +266,24 @@ const sbRoot = document.getElementById("scoreboard");
 }
 .sb-poke-img.sb-unrevealed {
   opacity: .65;
+}
+.sb-poke.sb-poke-turn .sb-poke-img {
+  border-color: rgba(251,191,36,.95);
+  box-shadow:
+    0 0 0 2px rgba(251,191,36,.35),
+    0 0 14px rgba(251,191,36,.85),
+    0 0 28px rgba(56,189,248,.45);
+  animation: sbTurnHalo 1.4s ease-in-out infinite;
+}
+@keyframes sbTurnHalo {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 rgba(251,191,36,.0));
+  }
+  50% {
+    transform: scale(1.06);
+    filter: drop-shadow(0 0 8px rgba(251,191,36,.85));
+  }
 }
 /* HP bar below sprite */
 .sb-poke-hp {
@@ -506,6 +537,15 @@ function getPartyCount(player) {
   return party.length;
 }
 
+function getCurrentTurnActor() {
+  const turnState = window.appState?.battle?.turn_state;
+  if (!turnState || safeStr(turnState.phase) !== "active") return null;
+  const order = Array.isArray(turnState.order) ? turnState.order : [];
+  if (!order.length) return null;
+  const idx = Math.max(0, Number(turnState.index) || 0);
+  return order[idx] || null;
+}
+
 // ── Change detection ──
 function computeHash() {
   const as = window.appState;
@@ -517,6 +557,7 @@ function computeHash() {
     JSON.stringify((as.pieces || []).map(p => `${p?.owner}:${p?.pid}:${p?.revealed}:${p?.status}`)),
     JSON.stringify(_partyStates),
     safeStr(as.placingTrainer ? "pt" : ""),
+    JSON.stringify(as.battle?.turn_state || null),
   ];
   return parts.join("##");
 }
@@ -539,6 +580,9 @@ function render() {
 
   const as = window.appState;
   const by = safeStr(as?.by);
+  const turnActor = getCurrentTurnActor();
+  const turnOwner = safeStr(turnActor?.owner);
+  const turnPid = normalizePartyPid(turnActor?.pid || "");
   const useGrid = players.length >= 2;
 
   let html = `<div class="sb-bar${useGrid ? " sb-bar-grid" : ""}">`;
@@ -547,6 +591,7 @@ function render() {
     const player = players[pi];
     const tn = safeStr(player.trainer_name);
     const isMe = tn === by;
+    const isTurnOwner = !!turnOwner && tn === turnOwner;
     const photo = getTrainerPhoto(player);
     const slots = buildSlots(player);
     const maxStages = getMaxStages(player);
@@ -564,6 +609,8 @@ function render() {
         continue;
       }
 
+      const isTurnPokemon = isTurnOwner && turnPid && normalizePartyPid(s.pid) === turnPid;
+
       let imgSrc, imgClass;
       if (s.ko) {
         imgSrc = s.revealed ? s.spriteUrl : POKE_BALL_URL;
@@ -580,7 +627,7 @@ function render() {
       const hpPct = maxStages > 0 ? Math.max(0, Math.min(100, (hpVal / maxStages) * 100)) : 100;
       const hpCol = s.ko ? "#64748b" : hpPct > 66 ? "#22c55e" : hpPct > 33 ? "#f59e0b" : "#ef4444";
 
-      lineupHtml += `<div class="sb-poke" title="${escapeAttr(s.pid)}">
+      lineupHtml += `<div class="sb-poke${isTurnPokemon ? " sb-poke-turn" : ""}" title="${escapeAttr(s.pid)}">
         <img class="${imgClass}" src="${escapeAttr(imgSrc)}" loading="lazy" onerror="this.src='${POKE_BALL_URL}'" />
         <div class="sb-poke-hp"><div class="sb-poke-hp-fill" style="width:${hpPct.toFixed(0)}%;background:${hpCol}"></div></div>
       </div>`;
@@ -592,7 +639,7 @@ function render() {
       ? `<button class="sb-place-btn${isPlacing ? " sb-placing" : ""}" data-action="place-trainer" data-trainer="${escapeAttr(tn)}">${isPlacing ? "Clique no mapa..." : "Posicionar"}</button>`
       : "";
 
-    html += `<div class="sb-row${isMe ? " sb-row-me" : ""}" data-trainer="${escapeAttr(tn)}">
+    html += `<div class="sb-row${isMe ? " sb-row-me" : ""}${isTurnOwner ? " sb-row-turn" : ""}" data-trainer="${escapeAttr(tn)}">
       <div class="sb-identity">
         ${avatarHtml}
         <span class="sb-trainer-name" title="${escapeAttr(tn)}">${escapeHtml(tn)}</span>
