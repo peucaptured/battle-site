@@ -115,6 +115,13 @@ try {
   useCanvas = false;
 }
 
+// ── Sprite overlay layer (renders GIFs as HTML <img> over canvas) ──
+const _spriteOverlay = document.createElement("div");
+_spriteOverlay.id = "sprite_overlay";
+_spriteOverlay.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:2;";
+if (canvasWrap) canvasWrap.appendChild(_spriteOverlay);
+const _spritePool = new Map(); // pieceId -> {el, url}
+
 // -------------------------
 // Firebase config (fixo)
 // -------------------------
@@ -1414,6 +1421,20 @@ function spriteUrlFromPokemonName(name) {
 const LOCAL_POKEMON_BASE = "pokemon";
 
 /**
+ * Convert a PokemonDB-style slug to local folder name.
+ * PokemonDB uses -alolan/-galarian/-hisuian/-paldean, but local folders use
+ * the PokeAPI convention: -alola/-galar/-hisui/-paldea.
+ */
+function _toLocalSlug(slug) {
+  if (!slug) return "";
+  return slug
+    .replace(/-alolan$/,  "-alola")
+    .replace(/-galarian$/, "-galar")
+    .replace(/-hisuian$/,  "-hisui")
+    .replace(/-paldean$/,  "-paldea");
+}
+
+/**
  * Returns a local sprite URL for the given slug.
  * @param {string} slug   - pokemondb-style slug (e.g. "charizard", "muk-alolan")
  * @param {"battle"|"art"} type
@@ -1423,10 +1444,11 @@ const LOCAL_POKEMON_BASE = "pokemon";
  */
 function localSpriteUrl(slug, type, shiny) {
   if (!slug) return "";
+  const folder = _toLocalSlug(slug);
   const file = type === "battle"
     ? (shiny ? "showdown_male_shiny_animated_preview.gif" : "showdown_male_animated_preview.gif")
     : (shiny ? "official_artwork_male_shiny.png" : "official_artwork_male.png");
-  return `${LOCAL_POKEMON_BASE}/${slug}/${file}`;
+  return `${LOCAL_POKEMON_BASE}/${folder}/${file}`;
 }
 
 /**
@@ -3749,6 +3771,9 @@ function draw() {
     _oppColorMap[oppOwners[i]] = _oppColors[i % _oppColors.length];
   }
 
+  // Track which sprite overlay elements are used this frame
+  const _usedSpriteIds = new Set();
+
   for (const p of pieces) {
     if (safeStr(p?.status || "active") !== "active") continue;
     if (!isPieceVisibleToMe(p)) continue;
@@ -3778,15 +3803,62 @@ function draw() {
     ctx.fillStyle = colorScheme.fill;
     ctx.fillRect(x + 2, y + 2, tile - 4, tile - 4);
 
-    // sprite
+    // sprite — rendered as HTML <img> overlay for GIF animation support
     const _psPiece = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[safeStr(p?.pid)] || {};
-    const spriteUrl = getSpriteUrlForPiece(p, { type: "battle", shiny: !!_psPiece.shiny });
-    const spr = spriteUrl ? loadSprite(spriteUrl) : null;
+    const sprUrl = getSpriteUrlForPiece(p, { type: "battle", shiny: !!_psPiece.shiny });
     const pad = Math.max(6, Math.floor(tile * 0.12));
-    if (spr?.ready && !spr?.failed) {
-      ctx.drawImage(spr.img, x + pad, y + pad, tile - pad * 2, tile - pad * 2);
+
+    if (sprUrl && id) {
+      _usedSpriteIds.add(id);
+      let entry = _spritePool.get(id);
+      if (!entry) {
+        const el = document.createElement("img");
+        el.className = "spr-overlay-img";
+        el.draggable = false;
+        el.loading = "eager";
+        el.decoding = "async";
+        el.alt = "";
+        // Fallback chain: local GIF → remote PokemonDB PNG → hide
+        el.onerror = function () {
+          const cur = this.getAttribute("src") || "";
+          const fb = this.dataset.fallback || "";
+          if (fb && cur !== fb) {
+            this.src = fb;
+          } else {
+            this.style.display = "none";
+          }
+        };
+        _spriteOverlay.appendChild(el);
+        entry = { el, url: "", fallback: "" };
+        _spritePool.set(id, entry);
+      }
+      // Compute remote fallback URL (PokemonDB sprite)
+      const _name = resolvePokemonNameFromPid(p?.pid);
+      const _fbSlug = _name ? spriteSlugFromPokemonName(_name) : "";
+      const remoteFb = _fbSlug
+        ? `https://img.pokemondb.net/sprites/home/normal/${_fbSlug}.png`
+        : "";
+      // Update src only when URL changes
+      if (entry.url !== sprUrl) {
+        entry.el.dataset.fallback = remoteFb;
+        entry.el.src = sprUrl;
+        entry.el.style.display = "";
+        entry.url = sprUrl;
+        entry.fallback = remoteFb;
+      } else if (entry.fallback !== remoteFb) {
+        entry.el.dataset.fallback = remoteFb;
+        entry.fallback = remoteFb;
+      }
+      // Position the <img> over the tile
+      // ctx coordinates are already in CSS pixels (DPR transform applied),
+      // and the overlay div matches the canvas CSS size via inset:0
+      const st = entry.el.style;
+      st.left = (x + pad) + "px";
+      st.top = (y + pad) + "px";
+      st.width = (tile - pad * 2) + "px";
+      st.height = (tile - pad * 2) + "px";
     } else {
-      // fallback glyph
+      // fallback glyph (no sprite URL)
       ctx.fillStyle = "rgba(226,232,240,0.85)";
       ctx.font = `900 ${Math.max(10, Math.floor(tile * 0.22))}px system-ui`;
       ctx.textAlign = "center";
@@ -3809,6 +3881,14 @@ function draw() {
       ctx.lineWidth = 2;
       ctx.strokeRect(x + 1, y + 1, tile - 2, tile - 2);
       ctx.restore();
+    }
+  }
+
+  // Remove stale overlay sprites (pieces no longer visible)
+  for (const [pid, entry] of _spritePool) {
+    if (!_usedSpriteIds.has(pid)) {
+      entry.el.remove();
+      _spritePool.delete(pid);
     }
   }
 
