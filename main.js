@@ -49,6 +49,7 @@ const oppCount = $("opp_count");
 const playersCount = $("players_count");
 const lastActionEl = $("last_action");
 const actionsLogEl = $("actions_log");
+const topRollBtn = $("top_roll_btn");
 
 const playersPre = $("players");
 const statePre = $("state");
@@ -632,6 +633,37 @@ window.sendMovePiece = async (by, pieceId, row, col) =>
     col: Number(col),
   });
 
+topRollBtn?.addEventListener("click", async () => {
+  if (!currentDb || !currentRid || !appState.connected) {
+    setStatus("err", "conecte antes de rolar dado");
+    return;
+  }
+
+  const by = safeStr(appState.by || byInput?.value || "Anon") || "Anon";
+  const value = Math.floor(Math.random() * 20) + 1;
+
+  const prevDisabled = topRollBtn.disabled;
+  const prevLabel = topRollBtn.textContent;
+  topRollBtn.disabled = true;
+  topRollBtn.textContent = "⏳ Rolando...";
+
+  try {
+    await addDoc(collection(currentDb, "rooms", currentRid, "rolls"), {
+      by,
+      trainer: by,
+      value,
+      label: "d20",
+      createdAt: serverTimestamp(),
+    });
+    setStatus("ok", `dado rolado: ${value}`);
+  } catch (e) {
+    setStatus("err", `erro ao rolar dado: ${e?.message || e}`);
+  } finally {
+    topRollBtn.disabled = prevDisabled;
+    topRollBtn.textContent = prevLabel || "🎲 Rolar dado";
+  }
+});
+
 // -------------------------
 // Connect / disconnect
 // -------------------------
@@ -873,34 +905,60 @@ connectBtn?.addEventListener("click", async () => {
     )
   );
 
-  // ── HUD de Rolagens Globais ────────────────────────────────────────
-  const rollsBanner = $("rolls_banner");
-  if (rollsBanner) {
-    try {
-      const rollsCol = collection(db, "rooms", rid, "rolls");
-      const rollsQ = query(rollsCol, orderBy("createdAt", "desc"), limit(1));
-      let rollBannerTimer = null;
-      unsub.push(
-        onSnapshot(rollsQ, (qs) => {
-          if (qs.empty) return;
+// ── HUD de Rolagens Globais ────────────────────────────────────────
+const rollsBanner = $("rolls_banner");
+const rollPillText = $("roll_pill_text"); // (vamos criar no HTML já já)
+
+if (rollsBanner) {
+  try {
+    const rollsCol = collection(db, "rooms", rid, "rolls");
+    const rollsQ = query(rollsCol, orderBy("createdAt", "desc"), limit(1));
+    let rollBannerTimer = null;
+
+    unsub.push(
+      onSnapshot(
+        rollsQ,
+        (qs) => {
+          if (qs.empty) {
+            // se quiser, deixa o pill mostrando "—"
+            if (rollPillText) rollPillText.textContent = "—";
+            return;
+          }
+
           const latestRoll = qs.docs[0].data();
           const trainer = safeStr(latestRoll.trainer || latestRoll.by) || "???";
           const value = latestRoll.value != null ? latestRoll.value : "?";
           const label = safeStr(latestRoll.label);
+
+          const msg = `${trainer} ${value}${label ? " (" + label + ")" : ""}`;
+
+          // atualiza pill fixo
+          if (rollPillText) rollPillText.textContent = msg;
+
+          // mantém banner (opcional)
           rollsBanner.textContent = `🎲 ${trainer} rolou ${value}${label ? " (" + label + ")" : ""}`;
           rollsBanner.style.display = "block";
           document.body.classList.add("has-roll-banner");
-          // auto-hide after 8s
+
           if (rollBannerTimer) clearTimeout(rollBannerTimer);
           rollBannerTimer = setTimeout(() => {
             rollsBanner.style.display = "none";
             document.body.classList.remove("has-roll-banner");
           }, 8000);
-        }, () => {})
-      );
-    } catch (e) { console.warn("rolls listener error:", e); }
+        },
+        (err) => {
+          console.warn("rolls onSnapshot error:", err);
+          // Mostra no topo que deu erro (pra ficar óbvio)
+          if (rollPillText) rollPillText.textContent = "erro (veja console)";
+        }
+      )
+    );
+  } catch (e) {
+    console.warn("rolls listener error:", e);
+    if (rollPillText) rollPillText.textContent = "erro (try/catch)";
   }
-});
+} // <- fecha o if (rollsBanner)
+}); 
 
 // Keep badges updated when user edits inputs
 byInput?.addEventListener("input", () => {

@@ -113,3 +113,40 @@
   background: rgba(248, 113, 113, .5);
   border-color: rgba(248, 113, 113, .3);
 }
+
+/* Final combat result block */
+.cb-result-card {
+  border-radius: 14px;
+  border: 1px solid rgba(56, 189, 248, .35);
+  background: radial-gradient(900px 280px at 20% 0%, rgba(14, 116, 196, .22), transparent 65%), rgba(3, 8, 29, .68);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.cb-result-title {
+  font-weight: 900;
+  font-size: 28px;
+  letter-spacing: .3px;
+  margin-bottom: 10px;
+}
+.cb-result-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.cb-result-log-line {
+  font-size: 15px;
+  line-height: 1.45;
+}
+.cb-result-actions {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.cb-result-actions .btn {
+  min-width: 220px;
+}
+.cb-secondary-btn {
+  background: linear-gradient(180deg, rgba(56,189,248,.62) 0%, rgba(14,165,233,.42) 100%);
+}
