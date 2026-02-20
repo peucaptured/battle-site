@@ -1611,15 +1611,7 @@ export class ArenaCombatUI {
             resMsg = `FALHA por ${diff} — ${barsLost} barra(s) perdida(s)`;
           }
 
-          // Injury check
-          const maxHp = 6;
-          const injuryStages = barsLost > 0 ? Math.floor(barsLost / (maxHp / 2)) : 0;
-          const targetName = displayName(tPid);
-
           let finalMsg = `🛡️ ${roll}+${statVal}=${checkTotal} (${defType.toUpperCase()}) vs CD ${dc}. ${resMsg}`;
-          if (injuryStages > 0) {
-            finalMsg += ` | 💥 ${targetName} −${injuryStages} estágio(s)!`;
-          }
 
           // Show floats
           if (targetPiece) {
@@ -1627,9 +1619,6 @@ export class ArenaCombatUI {
             if (barsLost > 0) {
               setTimeout(() => {
                 if (targetPiece) this._showFloat(targetPiece, `−${barsLost} barra(s)`, "stage");
-                if (injuryStages > 0 && targetPiece) {
-                  setTimeout(() => this._showFloat(targetPiece, `💥 −${injuryStages} estágio(s)`, "stage"), 500);
-                }
               }, 600);
             }
           }
