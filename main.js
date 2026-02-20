@@ -349,6 +349,7 @@ const appState = {
   // UI selection
   selectedPieceId: null,
   placingPid: null,
+  placingTrainer: null, // trainer name when placing trainer avatar
   hover: { row: null, col: null },
   // drag
   drag: {
@@ -2035,6 +2036,7 @@ function bindArenaInteractionsCanvas() {
 
   canvas.addEventListener("mousedown", (ev) => {
     if (appState.placingPid) return;
+    if (appState.placingTrainer) return;
     if (ev.button !== 0) return;
     const rect = canvas.getBoundingClientRect();
     const x = ev.clientX - rect.left;
@@ -2079,6 +2081,7 @@ function bindArenaInteractionsCanvas() {
     const tile = screenToTile(x, y);
     if (!tile) return;
 
+    if (appState.placingTrainer) return; // handled by scoreboard-patch.js capture
     if (appState.placingPid) {
       placePokemonOnBoardAt(appState.placingPid, tile.row, tile.col);
       return;
@@ -2121,6 +2124,7 @@ function bindArenaInteractionsDom() {
     const row = Number(cell.dataset.row);
     const col = Number(cell.dataset.col);
 
+    if (appState.placingTrainer) return; // handled by scoreboard-patch.js capture
     if (appState.placingPid) {
       placePokemonOnBoardAt(appState.placingPid, row, col);
       return;
@@ -3181,6 +3185,7 @@ window.startPlacePokemon  = startPlacePokemon;
 window.screenToTile       = screenToTile;
 window.getPieceAt         = getPieceAt;
 window.isPieceVisibleToMe = isPieceVisibleToMe;
+window.getSpriteUrlFromPid = getSpriteUrlFromPid;
 window._arenaView         = view;
 window.currentDb          = null;
 window.currentRid         = null;
