@@ -40,6 +40,60 @@ function getDb() {
 const safeStr = (x) => (x == null ? "" : String(x).trim());
 const POKE_BALL_URL = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
 
+function slugifyPokemonName(name) {
+  return safeStr(name)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+function normalizePartyPid(pidLike) {
+  let v = safeStr(pidLike?.pid ?? pidLike?.id ?? pidLike?.pokemon?.id ?? pidLike?.pokemon ?? pidLike);
+  if (!v) return "";
+  v = v.replace(/^pid\s*[:#-]?\s*/i, "").trim();
+  if (!v) return "";
+
+  if (/^ext\s*:/i.test(v)) {
+    const nm = v.split(":").slice(1).join(":").trim();
+    return nm ? `EXT:${nm}` : "";
+  }
+  if (/^\d+$/.test(v)) return String(Number(v));
+
+  const slug = slugifyPokemonName(v);
+  const slugMap = window.dexSlugToId;
+  if (slug && slugMap && slugMap[slug]) return String(Number(slugMap[slug]));
+  return v;
+}
+
+function getPartyStateEntry(partyStates, pidLike) {
+  if (!partyStates || typeof partyStates !== "object") return {};
+  const rawPid = safeStr(pidLike);
+  const normalizedPid = normalizePartyPid(pidLike);
+
+  if (rawPid && partyStates[rawPid]) return partyStates[rawPid] || {};
+  if (normalizedPid && partyStates[normalizedPid]) return partyStates[normalizedPid] || {};
+
+  const rawPidLc = rawPid.toLowerCase();
+  const normalizedPidLc = normalizedPid.toLowerCase();
+  for (const [k, state] of Object.entries(partyStates)) {
+    const key = safeStr(k);
+    if (!key) continue;
+    const keyNormalized = normalizePartyPid(key);
+    if (
+      key === rawPid ||
+      key === normalizedPid ||
+      key.toLowerCase() === rawPidLc ||
+      key.toLowerCase() === normalizedPidLc ||
+      (keyNormalized && (keyNormalized === normalizedPid || keyNormalized === rawPid))
+    ) {
+      return state || {};
+    }
+  }
+  return {};
+}
+
 function escapeHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -383,7 +437,7 @@ function buildSlots(player) {
   for (let i = 0; i < 8; i++) {
     if (i < count) {
       const pid = pids[i];
-      const ps = partyStates[pid] || {};
+      const ps = getPartyStateEntry(partyStates, pid);
       const piece = pieces.find(p =>
         safeStr(p?.owner) === tn && safeStr(p?.pid) === pid && safeStr(p?.status || "active") === "active"
       );
