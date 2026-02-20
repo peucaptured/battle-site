@@ -618,7 +618,7 @@ function updateTopBadges() {
       // Render foto do treinador (Storage). Fallback: tenta pasta "safe" e depois cai na letra.
       avatarIcon.innerHTML = `<img src="${escapeAttr(url1)}" alt="${escapeAttr(tn)}"
         style="width:26px;height:26px;border-radius:999px;object-fit:cover;display:block"
-        onerror="if(this.dataset.fallback!=='1'){this.dataset.fallback='1';this.src='${escapeAttr(url2)}';}else{this.remove();this.parentElement.textContent='${letter}';}">`;
+        onerror="if(this.dataset.fallback!=='1'){this.dataset.fallback='1';this.src='${escapeAttr(url2)}';}else{var p=this.parentElement;this.remove();if(p)p.textContent='${letter}';}">`;
     }
   }
 
