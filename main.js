@@ -1791,16 +1791,15 @@ function renderSheetsInspectorCard(wrap) {
       <div class="inspector-title">Ficha completa</div>
       <div class="inspector-sub mono">#${escapeHtml(pid)} • NP ${np}</div>
     </div>
-    <div class="inspector-card" style="display:block;">
+    <div class="inspector-card ficha-v2" style="display:block;">
       <div class="sheet-header">
-        <img class="sheet-art" src="${escapeAttr(art)}" alt="art" onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid))}'"/>
+        <div class="sheet-art-frame"><img class="sheet-art" src="${escapeAttr(art)}" alt="art" onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid))}'"/></div>
         <div style="flex:1; min-width:0;">
           <div class="sheet-name">${escapeHtml(pname)}</div>
           <div class="pill-row" style="margin-top:6px;">${tp}</div>
-          ${abH}
-          ${condH}
+          <div class="pill-row" style="margin-top:8px;">${abilities.map((a) => `<span class="chip ability-pill">${escapeHtml(a)}</span>`).join("")}</div>${condH}
           <div style="margin-top:10px;">
-            <div style="display:flex;justify-content:space-between;font-size:.75rem;font-weight:700;margin-bottom:3px;"><span>HP</span><span>${hp} / ${hpMax}</span></div>
+            <div class="hp-row"><span>HP</span><span>${hp} / ${hpMax}</span></div>
             <div class="hp-track"><div class="hp-fill" style="width:${hpPct}%;background:${hpCol};"></div></div>
           </div>
         </div>
@@ -1813,10 +1812,12 @@ function renderSheetsInspectorCard(wrap) {
         <div class="stat-box"><div class="stat-label">Parry</div><div class="stat-val">${parry}</div></div>
         <div class="stat-box"><div class="stat-label">Fort</div><div class="stat-val">${fort}</div></div>
         <div class="stat-box"><div class="stat-label">Will</div><div class="stat-val">${will}</div></div>
-        <div class="stat-box"><div class="stat-label">Cap</div><div class="stat-val">${cap}</div></div>
+        <div class="stat-box cap"><div class="stat-label">Cap</div><div class="stat-val">${cap}</div></div>
       </div>
+      <div class="sheet-divider"></div>
       <div class="section-title">Skills</div>${skH}
       <div class="section-title">Advantages</div>${advH}
+      <div class="sheet-divider"></div>
       <div class="section-title">Golpes</div>${mvH}
     </div>
   `;
@@ -3360,6 +3361,73 @@ function _injectSheetsStyleOnce() {
   st.id = "sheets_tab_style";
   st.textContent = "\n/* ─── FICHAS TAB (injetado pelo main.js) ─── */\n#tab_sheets .sheets-status-bar{\n  display:flex;align-items:center;gap:8px;flex-wrap:wrap;\n  padding:10px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.12);\n  background:rgba(15,23,42,.55);margin-bottom:16px;\n}\n#tab_sheets .fichas-layout{display:flex;flex-direction:column;gap:12px;}\n#tab_sheets .cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;}\n#tab_sheets .poke-card{border-radius:14px;padding:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);\n  cursor:pointer;transition:all .2s;position:relative;overflow:hidden;}\n#tab_sheets .poke-card::before{content:'';position:absolute;inset:0;background:var(--card-bg,transparent);opacity:.12;pointer-events:none;border-radius:inherit;}\n#tab_sheets .poke-card:hover{border-color:rgba(255,255,255,.2);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3);}\n#tab_sheets .poke-card.selected{border-color:rgba(59,130,246,.5);box-shadow:0 0 0 2px rgba(59,130,246,.3) inset,0 10px 30px rgba(0,0,0,.3);}\n#tab_sheets .card-head{display:flex;gap:10px;align-items:center;position:relative;z-index:1;}\n#tab_sheets .card-head img{width:64px;height:64px;object-fit:contain;border-radius:12px;border:1px solid rgba(255,255,255,.12);\n  background:rgba(0,0,0,.15);padding:4px;image-rendering:pixelated;}\n#tab_sheets .card-info{flex:1;min-width:0;}\n#tab_sheets .card-name{font-weight:900;font-size:.95rem;line-height:1.15;}\n#tab_sheets .card-sub{font-size:.78rem;opacity:.75;margin-top:2px;}\n#tab_sheets .pill-row,.inspector .pill-row,#inspector_root .pill-row{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;}\n#tab_sheets .type-pill,.inspector .type-pill,#inspector_root .type-pill{padding:2px 8px;border-radius:999px;font-size:.68rem;font-weight:900;text-transform:uppercase;\n  border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.2);}\n#tab_sheets .card-divider{height:1px;background:rgba(255,255,255,.12);margin:8px 0;position:relative;z-index:1;}\n#tab_sheets .card-moves-label{font-weight:900;font-size:.78rem;opacity:.8;margin-bottom:4px;position:relative;z-index:1;}\n#tab_sheets .card-move-row{display:flex;align-items:center;gap:6px;padding:3px 0;position:relative;z-index:1;}\n#tab_sheets .card-move-name{font-weight:700;font-size:.82rem;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}\n#tab_sheets .mv-pill,.inspector .mv-pill,#inspector_root .mv-pill{padding:1px 6px;border-radius:999px;font-size:.66rem;font-weight:900;font-family:monospace;border:1px solid rgba(255,255,255,.12);}\n#tab_sheets .mv-pill.acc,.inspector .mv-pill.acc,#inspector_root .mv-pill.acc{background:rgba(56,189,248,.12);border-color:rgba(56,189,248,.3);color:#38bdf8;}\n#tab_sheets .mv-pill.rk,.inspector .mv-pill.rk,#inspector_root .mv-pill.rk{background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.3);color:#eab308;}\n#tab_sheets .mv-pill.area,.inspector .mv-pill.area,#inspector_root .mv-pill.area{background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.3);color:#a855f7;}\n#tab_sheets .card-open{display:block;text-align:right;font-weight:900;font-size:.78rem;color:#38bdf8;margin-top:6px;position:relative;z-index:1;cursor:pointer;}\n#tab_sheets .sheet-panel,.inspector .sheet-panel,#inspector_root .sheet-panel{border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(17,24,39,.9);padding:18px;position:sticky;top:16px;}\n#tab_sheets .sheet-header,.inspector .sheet-header,#inspector_root .sheet-header{display:flex;gap:16px;align-items:flex-start;margin-bottom:14px;}\n#tab_sheets .sheet-art,.inspector .sheet-art,#inspector_root .sheet-art{width:130px;height:130px;object-fit:contain;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.2);padding:8px;}\n#inspector_root .sheet-art{width:100px;height:100px;}\n#inspector_root .inspector-card{border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(17,24,39,.9);padding:14px;}\n#tab_sheets .sheet-name,.inspector .sheet-name,#inspector_root .sheet-name{font-weight:900;font-size:1.2rem;}\n#tab_sheets .sheet-sub,.inspector .sheet-sub,#inspector_root .sheet-sub{font-size:.85rem;opacity:.75;margin-top:2px;}\n#tab_sheets .stat-grid,.inspector .stat-grid,#inspector_root .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:12px 0;}\n#tab_sheets .stat-box,.inspector .stat-box,#inspector_root .stat-box{text-align:center;padding:8px 4px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);}\n#tab_sheets .stat-label,.inspector .stat-label,#inspector_root .stat-label{font-size:.68rem;font-weight:700;opacity:.75;text-transform:uppercase;}\n#tab_sheets .stat-val,.inspector .stat-val,#inspector_root .stat-val{font-size:1.1rem;font-weight:900;margin-top:2px;}\n#tab_sheets .section-title,.inspector .section-title,#inspector_root .section-title{font-weight:900;font-size:.88rem;margin:14px 0 6px;}\n#tab_sheets .chip-row,.inspector .chip-row,#inspector_root .chip-row{display:flex;flex-wrap:wrap;gap:5px;}\n#tab_sheets .chip,.inspector .chip,#inspector_root .chip{padding:3px 10px;border-radius:999px;font-size:.75rem;font-weight:700;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);}\n#tab_sheets .sheet-divider,.inspector .sheet-divider,#inspector_root .sheet-divider{height:1px;background:rgba(255,255,255,.12);margin:12px 0;}\n#tab_sheets .move-expander,.inspector .move-expander,#inspector_root .move-expander{border:1px solid rgba(255,255,255,.12);border-radius:10px;margin-bottom:6px;overflow:hidden;}\n#tab_sheets .move-header,.inspector .move-header,#inspector_root .move-header{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;background:rgba(255,255,255,.04);transition:background .15s;}\n#tab_sheets .move-header:hover,.inspector .move-header:hover,#inspector_root .move-header:hover{background:rgba(255,255,255,.08);}\n#tab_sheets .move-header .arrow,.inspector .move-header .arrow,#inspector_root .move-header .arrow{font-size:.7rem;transition:transform .2s;opacity:.75;}\n#tab_sheets .move-expander.open .arrow,.inspector .move-expander.open .arrow,#inspector_root .move-expander.open .arrow{transform:rotate(90deg);}\n#tab_sheets .move-h-name,.inspector .move-h-name,#inspector_root .move-h-name{font-weight:900;font-size:.85rem;flex:1;}\n#tab_sheets .move-body,.inspector .move-body,#inspector_root .move-body{padding:10px 12px;border-top:1px solid rgba(255,255,255,.12);display:none;font-size:.82rem;opacity:.85;}\n#tab_sheets .move-expander.open .move-body,.inspector .move-expander.open .move-body,#inspector_root .move-expander.open .move-body{display:block;}\n#tab_sheets .notes-input,.inspector .notes-input,#inspector_root .notes-input{width:100%;padding:6px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.25);color:inherit;font-size:.82rem;margin-top:8px;}\n#tab_sheets .hp-track,.inspector .hp-track,#inspector_root .hp-track{height:8px;border-radius:4px;background:rgba(0,0,0,.25);overflow:hidden;}\n#tab_sheets .hp-fill,.inspector .hp-fill,#inspector_root .hp-fill{height:100%;border-radius:4px;transition:width .3s;}\n#tab_sheets .sheets-empty{ text-align:center; padding:40px 20px; opacity:.75;}\n#tab_sheets .spinner{width:24px;height:24px;border:3px solid rgba(255,255,255,.12);border-top-color:#38bdf8;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto;}\n@keyframes spin{to{transform:rotate(360deg);}}\n";
   document.head.appendChild(st);
+
+  const stFicha = document.createElement("style");
+  stFicha.id = "sheets_tab_style_ficha_v2";
+  stFicha.textContent = `
+  #tab_sheets .sheet-panel.ficha-v2,
+  #inspector_root .inspector-card.ficha-v2 {
+    background: #223355;
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 24px;
+    padding: 18px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  #inspector_root .inspector-title {
+    font-size: 48px;
+    line-height: 1;
+    font-weight: 900;
+    margin-bottom: 10px;
+  }
+  .ficha-v2 .sheet-header { gap: 18px; margin-bottom: 12px; }
+  .ficha-v2 .sheet-art-frame {
+    border-radius: 22px;
+    padding: 10px;
+    border: 1px solid rgba(255,255,255,.2);
+    background: rgba(20,31,56,.72);
+  }
+  .ficha-v2 .sheet-art { width: 160px; height: 160px; background: #f3f4f6; border-radius: 14px; }
+  #inspector_root .ficha-v2 .sheet-art { width: 150px; height: 150px; }
+  .ficha-v2 .sheet-name { font-size: 54px; line-height: .95; }
+  .ficha-v2 .sheet-sub { font-size: 38px; font-weight: 800; opacity: .9; }
+  .ficha-v2 .pill-row { gap: 8px; margin-top: 8px; }
+  .ficha-v2 .type-pill,.ficha-v2 .chip {
+    padding: 4px 14px;
+    border-radius: 999px;
+    font-size: 30px;
+    font-weight: 900;
+    background: rgba(20,31,56,.8);
+    border: 2px solid rgba(255,255,255,.16);
+    text-transform: uppercase;
+  }
+  .ficha-v2 .ability-pill { color: #57e5ff; border-color: rgba(87,229,255,.75); }
+  .ficha-v2 .hp-row { display:flex; justify-content:space-between; font-size: 40px; font-weight: 900; margin: 12px 0 6px; }
+  .ficha-v2 .hp-track { height: 16px; border-radius: 999px; background: rgba(9,14,30,.55); }
+  .ficha-v2 .stat-grid { gap: 10px; margin: 16px 0 14px; }
+  .ficha-v2 .stat-box { border-radius: 16px; background: rgba(56,74,108,.72); padding: 12px 6px; border-color: rgba(255,255,255,.2); }
+  .ficha-v2 .stat-label { font-size: 28px; opacity: .95; font-weight: 900; }
+  .ficha-v2 .stat-val { font-size: 52px; line-height: .95; }
+  .ficha-v2 .stat-box.cap { border-color: rgba(87,229,255,.9); }
+  .ficha-v2 .stat-box.cap .stat-label, .ficha-v2 .stat-box.cap .stat-val { color: #57e5ff; }
+  .ficha-v2 .section-title { font-size: 50px; margin: 14px 0 8px; }
+  .ficha-v2 .chip-row { gap: 8px; }
+  .ficha-v2 .move-expander { border-radius: 16px; background: rgba(52,69,102,.8); border-color: rgba(255,255,255,.18); margin-bottom: 10px; }
+  .ficha-v2 .move-header { background: transparent; padding: 12px 14px; }
+  .ficha-v2 .move-h-name { font-size: 44px; }
+  .ficha-v2 .mv-pill { font-size: 30px; padding: 3px 12px; border-width: 2px; }
+  .ficha-v2 .sheet-divider { margin: 12px 0; }
+
+  @media (max-width: 900px) {
+    #inspector_root .inspector-title, .ficha-v2 .section-title { font-size: 28px; }
+    .ficha-v2 .sheet-name { font-size: 34px; }
+    .ficha-v2 .sheet-sub, .ficha-v2 .hp-row { font-size: 24px; }
+    .ficha-v2 .type-pill, .ficha-v2 .chip, .ficha-v2 .mv-pill, .ficha-v2 .stat-label { font-size: 16px; }
+    .ficha-v2 .stat-val { font-size: 28px; }
+    .ficha-v2 .move-h-name { font-size: 24px; }
+    .ficha-v2 .sheet-art { width: 118px; height: 118px; }
+  }
+  `;
+  document.head.appendChild(stFicha);
 }
 
 function ensureSheetsUI() {
@@ -3842,17 +3910,17 @@ function renderSheetsTab() {
   const art = _artUrlFromPidForSheets(pid) || _spriteUrlFromPidForSheets(pid) || "";
 
   detailEl.innerHTML = `
-    <div class="sheet-panel">
+    <div class="sheet-panel ficha-v2">
       <div class="sheet-header">
-        <img class="sheet-art" src="${escapeAttr(art)}" alt="art"
-          onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid))}'"/>
+        <div class="sheet-art-frame"><img class="sheet-art" src="${escapeAttr(art)}" alt="art"
+          onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid))}'"/></div>
         <div style="flex:1; min-width:0;">
           <div class="sheet-name">${escapeHtml(pname)}</div>
           <div class="sheet-sub">#${escapeHtml(pid)} • NP ${np}</div>
           <div class="pill-row" style="margin-top:6px;">${tp}</div>
-          ${abH}${condH}
+          <div class="pill-row" style="margin-top:8px;">${abilities.map((a) => `<span class="chip ability-pill">${escapeHtml(a)}</span>`).join("")}</div>${condH}
           <div style="margin-top:10px;">
-            <div style="display:flex;justify-content:space-between;font-size:.75rem;font-weight:700;margin-bottom:3px;">
+            <div class="hp-row">
               <span>HP</span><span>${hp} / ${hpMax}</span>
             </div>
             <div class="hp-track"><div class="hp-fill" style="width:${hpPct}%;background:${hpCol};"></div></div>
@@ -3868,7 +3936,7 @@ function renderSheetsTab() {
         <div class="stat-box"><div class="stat-label">Parry</div><div class="stat-val">${parry}</div></div>
         <div class="stat-box"><div class="stat-label">Fort</div><div class="stat-val">${fort}</div></div>
         <div class="stat-box"><div class="stat-label">Will</div><div class="stat-val">${will}</div></div>
-        <div class="stat-box" style="border-color:rgba(56,189,248,.3);"><div class="stat-label" style="color:#38bdf8;">Cap</div><div class="stat-val" style="color:#38bdf8;">${cap}</div></div>
+        <div class="stat-box cap"><div class="stat-label">Cap</div><div class="stat-val">${cap}</div></div>
       </div>
 
       <div class="sheet-divider"></div>
