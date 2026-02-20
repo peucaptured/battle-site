@@ -363,6 +363,7 @@ async function ensureLoggedInIfNeeded(db, auth, typedName) {
 // -------------------------
 const appState = {
   connected: false,
+  activeTab: "arena",
   rid: null,
   by: "",
   // login (Google Sheet)
@@ -648,6 +649,13 @@ function setTab(tabName) {
     t.classList.toggle("active", isActive);
     t.setAttribute("aria-selected", isActive ? "true" : "false");
   });
+
+  appState.activeTab = tabName;
+  const inspectorRoot = $("inspector_root");
+  if (inspectorRoot) {
+    inspectorRoot.innerHTML = "";
+    inspectorRoot.appendChild(renderInspectorCard());
+  }
 }
 
 qsa(".tab").forEach((t) => {
@@ -1553,6 +1561,10 @@ function renderInspectorCard() {
   const wrap = document.createElement("div");
   wrap.className = "inspector";
 
+  if (safeStr(appState.activeTab) === "sheets") {
+    return renderSheetsInspectorCard(wrap);
+  }
+
   const selId = safeStr(appState.selectedPieceId);
   if (!selId) {
     wrap.innerHTML = `
@@ -1658,6 +1670,162 @@ function renderInspectorCard() {
   wrap.querySelector('[data-ins-act="hp-up"]')?.addEventListener("click", async () => {
     const nextHp = Math.min(hpMax, hp + 1);
     await updatePartyStateHp(owner, pid, nextHp);
+  });
+
+  return wrap;
+}
+
+function renderSheetsInspectorCard(wrap) {
+  const by = safeStr(appState.by);
+  const party = getPartyForTrainer(by) || [];
+  const partyPids = party.map((it) => safePidValue(it?.pid ?? it?.pokemon?.id ?? it)).filter(Boolean);
+
+  const byPid = {};
+  for (const sh of (_allSheetsLatest || [])) {
+    const pid = safePidValue(sh?.pokemon?.id);
+    if (pid && !byPid[pid]) byPid[pid] = sh;
+    const lp = safePidValue(sh?.linked_pid);
+    if (lp && !byPid[lp]) byPid[lp] = sh;
+  }
+
+  const seen = new Set();
+  const sheets = [];
+  for (const rawPid of partyPids) {
+    const pid = safePidValue(rawPid);
+    if (!pid || seen.has(pid)) continue;
+    seen.add(pid);
+    const sh = byPid[pid] || byPid[(safeStr(pid).replace(/^0+/, "") || "0")];
+    if (sh) sheets.push(sh);
+  }
+
+  if (!_sheetsSelectedPid || !sheets.some((x) => safePidValue((x.pokemon || {}).id) === _sheetsSelectedPid)) {
+    _sheetsSelectedPid = safePidValue((sheets[0]?.pokemon || {}).id);
+  }
+
+  const sh = sheets.find((x) => safePidValue((x.pokemon || {}).id) === _sheetsSelectedPid) || sheets[0] || null;
+  if (!sh) {
+    wrap.innerHTML = `
+      <div class="inspector-empty">
+        <div class="inspector-title">Inspector</div>
+        <div class="muted">Selecione um card em Fichas para ver os detalhes completos.</div>
+      </div>
+    `;
+    return wrap;
+  }
+
+  const pkm = sh.pokemon || {};
+  const pid = safePidValue(pkm.id);
+  const pname = safeStr(pkm.name) || "Pokémon";
+  const types = Array.isArray(pkm.types) ? pkm.types : [];
+  const abilities = Array.isArray(pkm.abilities) ? pkm.abilities : [];
+  const np = parseInt(sh.np || pkm.np || 0) || 0;
+  const st = sh.stats || {};
+
+  const movesRaw = Array.isArray(sh.moves) ? sh.moves : (sh.moves ? Object.values(sh.moves) : []);
+  const moves = (movesRaw || []).filter((m) => m && typeof m === "object");
+  const advantages = Array.isArray(sh.advantages) ? sh.advantages : [];
+  const skills = Array.isArray(sh.skills) ? sh.skills : [];
+
+  const stgr = parseInt(st.stgr || 0) || 0;
+  const intel = parseInt(st["int"] || 0) || 0;
+  let dodge = parseInt(st.dodge || 0) || 0;
+  const parry = parseInt(st.parry || 0) || 0;
+  const fort = parseInt(st.fortitude || 0) || 0;
+  const will = parseInt(st.will || 0) || 0;
+  let thg = parseInt(st.thg || 0) || 0;
+  const cap = 2 * np;
+  if (thg <= 0 && cap > 0) thg = Math.round(cap / 2);
+  if (dodge <= 0 && cap > 0 && thg > 0) dodge = Math.max(0, cap - thg);
+
+  const ps = ((_partyStates && _partyStates[by]) ? _partyStates[by] : {})[pid] || {};
+  const hp = (ps.hp ?? 6);
+  const cond = Array.isArray(ps.cond) ? ps.cond : [];
+  const hpMax = 6;
+  const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
+  const hpCol = (hpPct > 50) ? "rgba(34,197,94,1)" : (hpPct > 25) ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
+
+  const tp = (types || []).map((t) => `<span class="chip">${escapeHtml(t)}</span>`).join("");
+  const abH = abilities.length ? `<div class="chip-row">${abilities.map((a) => `<span class="chip">${escapeHtml(a)}</span>`).join("")}</div>` : `<span class="muted">Sem abilities.</span>`;
+  const condH = cond.length ? `<div class="chip-row">${cond.map((c) => `<span class="chip">${escapeHtml(c)}</span>`).join("")}</div>` : "";
+
+  let skH = `<span class="muted">Sem skills.</span>`;
+  if (skills.length) {
+    const chips = skills
+      .filter((x) => x && typeof x === "object" && safeStr(x.name) && parseInt(x.ranks || 0))
+      .map((x) => `<span class="chip">${escapeHtml(x.name)} R${parseInt(x.ranks || 0)}</span>`);
+    if (chips.length) skH = `<div class="chip-row">${chips.join("")}</div>`;
+  }
+
+  const advChips = advantages.filter((a) => safeStr(a)).map((a) => `<span class="chip">${escapeHtml(a)}</span>`);
+  const advH = advChips.length ? `<div class="chip-row">${advChips.join("")}</div>` : `<span class="muted">Sem advantages.</span>`;
+
+  let mvH = "";
+  if (!moves.length) {
+    mvH = `<span class="muted">Sem golpes nesta ficha.</span>`;
+  } else {
+    for (const mv of moves) {
+      const n = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
+      const { rk, acc, area } = _mvSum(mv, st);
+      const desc = safeStr(mv.description || mv.desc || mv.build || "Descrição não disponível.");
+      mvH += `
+        <div class="move-expander open">
+          <div class="move-header">
+            <span class="arrow">▶</span>
+            <span class="move-h-name">${escapeHtml(n)}</span>
+            <span class="mv-pill acc">A+${acc}</span>
+            <span class="mv-pill rk">R${rk}</span>
+            <span class="mv-pill area">${area ? "Área" : "Alvo"}</span>
+          </div>
+          <div class="move-body" style="display:block;">
+            <div>${escapeHtml(desc)}</div>
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  const art = _artUrlFromPidForSheets(pid) || _spriteUrlFromPidForSheets(pid) || "";
+
+  wrap.innerHTML = `
+    <div class="inspector-head">
+      <div class="inspector-title">Ficha completa</div>
+      <div class="inspector-sub mono">#${escapeHtml(pid)} • NP ${np}</div>
+    </div>
+    <div class="inspector-card" style="display:block;">
+      <div class="sheet-header">
+        <img class="sheet-art" src="${escapeAttr(art)}" alt="art" onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid))}'"/>
+        <div style="flex:1; min-width:0;">
+          <div class="sheet-name">${escapeHtml(pname)}</div>
+          <div class="pill-row" style="margin-top:6px;">${tp}</div>
+          ${abH}
+          ${condH}
+          <div style="margin-top:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:.75rem;font-weight:700;margin-bottom:3px;"><span>HP</span><span>${hp} / ${hpMax}</span></div>
+            <div class="hp-track"><div class="hp-fill" style="width:${hpPct}%;background:${hpCol};"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-label">Stgr</div><div class="stat-val">${stgr}</div></div>
+        <div class="stat-box"><div class="stat-label">Int</div><div class="stat-val">${intel}</div></div>
+        <div class="stat-box"><div class="stat-label">Thg</div><div class="stat-val">${thg}</div></div>
+        <div class="stat-box"><div class="stat-label">Dodge</div><div class="stat-val">${dodge}</div></div>
+        <div class="stat-box"><div class="stat-label">Parry</div><div class="stat-val">${parry}</div></div>
+        <div class="stat-box"><div class="stat-label">Fort</div><div class="stat-val">${fort}</div></div>
+        <div class="stat-box"><div class="stat-label">Will</div><div class="stat-val">${will}</div></div>
+        <div class="stat-box"><div class="stat-label">Cap</div><div class="stat-val">${cap}</div></div>
+      </div>
+      <div class="section-title">Skills</div>${skH}
+      <div class="section-title">Advantages</div>${advH}
+      <div class="section-title">Golpes</div>${mvH}
+    </div>
+  `;
+
+  wrap.querySelectorAll(".move-header").forEach((h) => {
+    h.addEventListener("click", () => {
+      const parent = h.parentElement;
+      if (parent) parent.classList.toggle("open");
+    });
   });
 
   return wrap;
@@ -3495,6 +3663,7 @@ function renderSheetsTab() {
     card.addEventListener("click", () => {
       _sheetsSelectedPid = pid;
       renderSheetsTab();
+      updateSidePanels();
     });
 
     card.innerHTML = `
@@ -3671,6 +3840,14 @@ function renderSheetsTab() {
       if (parent) parent.classList.toggle("open");
     });
   });
+
+  if (safeStr(appState.activeTab) === "sheets") {
+    const inspectorRoot = $("inspector_root");
+    if (inspectorRoot) {
+      inspectorRoot.innerHTML = "";
+      inspectorRoot.appendChild(renderInspectorCard());
+    }
+  }
 }
 
 // Primeiro render (caso usuário abra direto na aba)
