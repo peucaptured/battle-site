@@ -865,14 +865,6 @@
           </div>
         </div>
 
-        <div class="card" style="margin-bottom:12px">
-          <div class="row spread" style="margin-bottom:10px">
-            <div style="font-weight:950">🎯 Time para posicionar</div>
-            <div class="pill mono">slots: 8</div>
-          </div>
-          <div id="party_window" class="party-window" aria-label="Slots da party"></div>
-        </div>
-
         <div id="team_list" aria-label="Peças do jogador"></div>
       </div>
     </section>
@@ -974,95 +966,19 @@
         </div>
       </section>
 
-      <!-- Dev tools (colapsável) -->
-      <details class="dev" id="devtools" open>
+      <!-- Time (posicionamento) -->
+      <details class="dev" id="devtools">
         <summary>
           <span>🧢 Time (posicionamento)</span>
-          <span class="pill mono" id="last_action">—</span>
+          <span class="pill mono">slots: 8</span>
         </summary>
         <div class="dev-body">
-          <div class="card" style="margin-bottom:12px">
+          <div class="card" style="margin-bottom:0">
             <div class="row spread" style="margin-bottom:10px">
               <div style="font-weight:950">🎯 Time para posicionar</div>
-              <div class="pill mono">slots: 8</div>
             </div>
             <div class="muted" style="margin-bottom:10px">Clique em uma pokébola para armar o Pokémon e depois clique em um tile da arena.</div>
             <div id="party_window" class="party-window" aria-label="Slots da party"></div>
-          </div>
-
-          <div class="grid2">
-            <div class="card" style="margin-bottom:0">
-              <div style="font-weight:950;margin-bottom:10px">Mover peça (MOVE_PIECE)</div>
-              <label class="label" for="pieceId">pieceId (id interno)</label>
-              <input class="input mono" id="pieceId" placeholder="ex.: 3db901a3" />
-              <div style="height:10px"></div>
-              <div class="row">
-                <div style="flex:1">
-                  <label class="label" for="row">row</label>
-                  <input class="input mono" id="row" type="number" placeholder="ex.: 4" />
-                </div>
-                <div style="flex:1">
-                  <label class="label" for="col">col</label>
-                  <input class="input mono" id="col" type="number" placeholder="ex.: 6" />
-                </div>
-              </div>
-              <div style="height:10px"></div>
-              <button class="btn" id="btn_move_piece">Enviar MOVE_PIECE</button>
-              <div class="muted" style="margin-top:10px">Dica: <b>pieceId</b> vem de <code>public_state/state.pieces[].id</code>.</div>
-            </div>
-
-            <div class="card" style="margin-bottom:0">
-              <div style="font-weight:950;margin-bottom:10px">Últimas actions (para ver rejected/erro)</div>
-              <pre id="actions_log">—</pre>
-            </div>
-          </div>
-
-          <div style="height:10px"></div>
-          <div class="grid2">
-            <div class="card" style="margin-bottom:0">
-              <div style="font-weight:950;margin-bottom:10px">Dex / Sprites (opcional)</div>
-              <div class="muted" style="margin-bottom:10px">
-                Se seus <code>pid</code> são IDs custom, carregue um JSON <code>{"218":"Bronzong"}</code>.
-              </div>
-              <label class="label" for="dex_json_file">Carregar mapeamento (pokedex.json)</label>
-              <input class="input" id="dex_json_file" type="file" accept="application/json" />
-              <div style="height:10px"></div>
-              <button class="btn secondary" id="dex_clear">Limpar mapeamento</button>
-              <div class="muted" style="margin-top:10px">Salvo no <code>localStorage</code>.</div>
-            </div>
-
-            <div class="card" style="margin-bottom:0">
-              <div style="font-weight:950;margin-bottom:10px">Mapa (opcional)</div>
-              <div class="muted" style="margin-bottom:10px">
-                URL de um PNG para usar como fundo do mapa.
-              </div>
-              <label class="label" for="map_url_override">Override de URL (PNG)</label>
-              <input class="input mono" id="map_url_override" placeholder="https://.../map.png" />
-              <div style="height:10px"></div>
-              <button class="btn secondary" id="map_url_apply">Aplicar</button>
-              <button class="btn ghost" id="map_url_clear" style="margin-left:8px">Limpar</button>
-            </div>
-          </div>
-
-          <div style="height:10px"></div>
-          <div class="grid2">
-            <div class="card" style="margin-bottom:0">
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
-                <div style="font-weight:950">Players</div>
-                <div class="pill mono" id="players_count">0</div>
-              </div>
-              <pre id="players">—</pre>
-            </div>
-            <div class="card" style="margin-bottom:0">
-              <div style="font-weight:950;margin-bottom:10px">public_state/state</div>
-              <pre id="state">—</pre>
-            </div>
-          </div>
-
-          <div style="height:10px"></div>
-          <div class="card" style="margin-bottom:0">
-            <div style="font-weight:950;margin-bottom:10px">public_state/battle</div>
-            <pre id="battle">—</pre>
           </div>
         </div>
       </details>
