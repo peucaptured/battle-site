@@ -679,6 +679,18 @@ sbRoot.addEventListener("click", (ev) => {
   render();
 });
 
+// ── ESC cancela modo de posicionamento de treinador ──
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape") return;
+
+  const as = window.appState;
+  if (!as?.placingTrainer) return;
+
+  as.placingTrainer = null;
+  _prevHash = "";
+  render();
+});
+
 // ── Handle placing trainer on canvas click ──
 function installCanvasInterceptor() {
   const canvas = document.getElementById("arena");
