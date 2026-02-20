@@ -87,6 +87,11 @@ const sbRoot = document.getElementById("scoreboard");
   max-width: 1440px;
   margin: 0 auto;
 }
+.sb-bar.sb-bar-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 8px;
+}
 
 /* Single player row */
 .sb-row {
@@ -265,6 +270,7 @@ const sbRoot = document.getElementById("scoreboard");
 /* Responsive */
 @media (max-width: 700px) {
   #scoreboard { padding: 4px 8px; }
+  .sb-bar.sb-bar-grid { grid-template-columns: 1fr; }
   .sb-row { padding: 3px 6px; gap: 6px; }
   .sb-identity { min-width: 70px; max-width: 100px; }
   .sb-avatar, .sb-avatar-placeholder { width: 24px; height: 24px; flex: 0 0 24px; font-size: 11px; }
@@ -479,8 +485,9 @@ function render() {
 
   const as = window.appState;
   const by = safeStr(as?.by);
+  const useGrid = players.length >= 2;
 
-  let html = `<div class="sb-bar">`;
+  let html = `<div class="sb-bar${useGrid ? " sb-bar-grid" : ""}">`;
 
   for (let pi = 0; pi < players.length; pi++) {
     const player = players[pi];
@@ -540,10 +547,6 @@ function render() {
       ${placeBtnHtml}
     </div>`;
 
-    // VS divider between first two players (if exactly 2)
-    if (players.length === 2 && pi === 0) {
-      html += `<div class="sb-vs-divider"><span class="sb-vs-text">VS</span></div>`;
-    }
   }
 
   html += `</div>`;
