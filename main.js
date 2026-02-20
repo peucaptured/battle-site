@@ -2459,15 +2459,38 @@ function getSheetForPiece(piece) {
   if (!pid) return null;
   for (const sh of (_allSheetsLatest || [])) {
     const sid = safePidValue(sh?.pokemon?.id);
-    if (sid && sid === pid) return sh;
+    const linked = safePidValue(sh?.linked_pid);
+    if ((sid && sid === pid) || (linked && linked === pid)) return sh;
   }
   return null;
 }
 
+function readSpeedFromStats(statsObj) {
+  if (!statsObj || typeof statsObj !== "object") return 0;
+  const keys = ["speed", "spe", "spd", "Speed", "velocidade", "vel"];
+  for (const k of keys) {
+    const n = Number(statsObj?.[k]);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+}
+
 function getPieceSpeed(piece) {
   const sh = getSheetForPiece(piece);
-  const st = sh?.stats || {};
-  const candidates = [st.speed, st.spd, st.spe, sh?.speed, sh?.pokemon?.speed, piece?.speed];
+  const pid = safePidValue(piece?.pid);
+  const owner = safeStr(piece?.owner);
+  const ps = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
+
+  const candidates = [
+    readSpeedFromStats(sh?.stats),
+    readSpeedFromStats(sh?.pokemon?.stats),
+    readSpeedFromStats(sh?.poke_stats),
+    Number(sh?.speed),
+    Number(sh?.pokemon?.speed),
+    readSpeedFromStats(ps?.stats),
+    readSpeedFromStats(piece?.stats),
+    Number(piece?.speed),
+  ];
   for (const c of candidates) {
     const n = Number(c);
     if (Number.isFinite(n) && n > 0) return n;
