@@ -77,6 +77,7 @@ const colInput = $("col");
 const canvas = $("arena");
 const canvasWrap = $("arena_wrap");
 const arenaDom = $("arena_dom");
+const pieceContextMenu = $("piece_context_menu");
 
 // Canvas pode falhar por CSP, webview, permissões, etc.
 let ctx = null;
@@ -375,6 +376,10 @@ const STORAGE_KEYS = {
 
 let dexMap = null; // { pidStr: name }
 let mapUrlOverride = '';
+
+const pieceMenuState = {
+  pieceId: null,
+};
 
 function loadDexMapFromStorage() {
   try {
@@ -2077,6 +2082,84 @@ async function removePieceFromBoard(pieceId) {
     setStatus("err", `falha ao remover peça: ${e?.message || e}`);
   }
 }
+
+function hidePieceContextMenu() {
+  if (!pieceContextMenu) return;
+  pieceContextMenu.style.display = "none";
+  pieceMenuState.pieceId = null;
+}
+
+function openPieceContextMenu(piece, x, y) {
+  if (!pieceContextMenu || !piece || !canvasWrap) return;
+  const id = safeStr(piece?.id);
+  if (!id) return;
+  pieceMenuState.pieceId = id;
+  selectPiece(id);
+
+  const wrapRect = canvasWrap.getBoundingClientRect();
+  const localX = Math.max(0, Math.min(wrapRect.width - 8, x - wrapRect.left));
+  const localY = Math.max(0, Math.min(wrapRect.height - 8, y - wrapRect.top));
+
+  pieceContextMenu.style.display = "flex";
+  pieceContextMenu.style.left = `${localX}px`;
+  pieceContextMenu.style.top = `${localY}px`;
+
+  const menuRect = pieceContextMenu.getBoundingClientRect();
+  const overflowX = menuRect.right - wrapRect.right;
+  const overflowY = menuRect.bottom - wrapRect.bottom;
+  if (overflowX > 0) pieceContextMenu.style.left = `${Math.max(8, localX - overflowX - 8)}px`;
+  if (overflowY > 0) pieceContextMenu.style.top = `${Math.max(8, localY - overflowY - 8)}px`;
+}
+
+async function handlePieceMenuAction(action, pieceId) {
+  const id = safeStr(pieceId);
+  if (!id) return;
+  const piece = (appState.pieces || []).find((p) => safeStr(p?.id) === id) || null;
+  if (!piece) {
+    setStatus("warn", "peça não encontrada");
+    return;
+  }
+  if (action === "toggle") {
+    await togglePieceRevealed(id);
+    return;
+  }
+  if (action === "remove") {
+    await removePieceFromBoard(id);
+    return;
+  }
+  if (action === "hp-down") {
+    const owner = safeStr(piece?.owner);
+    const pid = safeStr(piece?.pid);
+    if (!owner || !pid) {
+      setStatus("warn", "não foi possível reduzir o HP desse pokémon");
+      return;
+    }
+    const ps = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
+    const currentHp = Number.isFinite(Number(ps?.hp)) ? Number(ps.hp) : 6;
+    await updatePartyStateHp(owner, pid, Math.max(0, currentHp - 1));
+    setStatus("ok", `${pid}: HP reduzido para ${Math.max(0, currentHp - 1)}`);
+  }
+}
+
+pieceContextMenu?.addEventListener("click", async (ev) => {
+  const btn = ev.target?.closest?.("[data-menu-act]");
+  if (!btn) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  const act = safeStr(btn.dataset.menuAct);
+  const pieceId = pieceMenuState.pieceId;
+  hidePieceContextMenu();
+  await handlePieceMenuAction(act, pieceId);
+});
+
+document.addEventListener("click", (ev) => {
+  if (!pieceContextMenu || pieceContextMenu.style.display !== "flex") return;
+  if (ev.target?.closest?.("#piece_context_menu")) return;
+  hidePieceContextMenu();
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") hidePieceContextMenu();
+});
 function bindArenaInteractionsCanvas() {
   if (!useCanvas) return;
 
@@ -2139,6 +2222,7 @@ function bindArenaInteractionsCanvas() {
   });
 
   canvas.addEventListener("click", (ev) => {
+    hidePieceContextMenu();
     // Se acabou de soltar um drag, ignore o click que vem logo depois
     if (appState.drag.justDropped) {
       appState.drag.justDropped = false;
@@ -2164,6 +2248,18 @@ function bindArenaInteractionsCanvas() {
     // tile vazio: tenta mover seleção atual
     if (appState.selectedPieceId) sendMoveSelected(tile.row, tile.col);
   });
+
+  canvas.addEventListener("contextmenu", (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    const tile = screenToTile(x, y);
+    if (!tile) return;
+    const p = getPieceAt(tile.row, tile.col);
+    if (!p) return;
+    ev.preventDefault();
+    openPieceContextMenu(p, ev.clientX, ev.clientY);
+  });
 }
 
 function bindArenaInteractionsDom() {
@@ -2188,6 +2284,7 @@ function bindArenaInteractionsDom() {
   });
 
   arenaDom.addEventListener("click", (ev) => {
+    hidePieceContextMenu();
     const cell = ev.target?.closest?.(".cell");
     if (!cell) return;
     const row = Number(cell.dataset.row);
@@ -2208,6 +2305,17 @@ function bindArenaInteractionsDom() {
     if (appState.selectedPieceId) {
       sendMoveSelected(row, col);
     }
+  });
+
+  arenaDom.addEventListener("contextmenu", (ev) => {
+    const cell = ev.target?.closest?.(".cell");
+    if (!cell) return;
+    const row = Number(cell.dataset.row);
+    const col = Number(cell.dataset.col);
+    const p = getPieceAt(row, col);
+    if (!p) return;
+    ev.preventDefault();
+    openPieceContextMenu(p, ev.clientX, ev.clientY);
   });
 }
 
