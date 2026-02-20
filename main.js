@@ -3099,6 +3099,10 @@ window.selectPiece        = selectPiece;
 window.togglePieceRevealed = togglePieceRevealed;
 window.removePieceFromBoard = removePieceFromBoard;
 window.startPlacePokemon  = startPlacePokemon;
+window.screenToTile       = screenToTile;
+window.getPieceAt         = getPieceAt;
+window.isPieceVisibleToMe = isPieceVisibleToMe;
+window._arenaView         = view;
 window.currentDb          = null;
 window.currentRid         = null;
 // Mantém window.currentRid e window.currentDb sincronizados com appState
