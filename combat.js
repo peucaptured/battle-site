@@ -917,15 +917,7 @@ export class CombatUI {
             resMsg = `FALHA por ${diff}`;
           }
 
-          // ── Lesão por dano massivo ──────────────────────────────
-          const maxHp = 6; // sistema de 6 barras
-          const injuryStages = barsLost > 0 ? Math.floor(barsLost / (maxHp / 2)) : 0;
-          const targetName = this._getDisplayName(tPid);
-
           let finalMsg = `🛡️ Defensor rolou ${roll} + ${statVal} = ${checkTotal} (${defType.toUpperCase()}). ${resMsg}. Barras perdidas: ${barsLost}`;
-          if (injuryStages > 0) {
-            finalMsg += ` | 💥 ${targetName} recebeu um golpe massivo e caiu ${injuryStages} estágio(s)!`;
-          }
 
           const ref = this._battleRef(); if (!ref) return;
           await updateDoc(ref, {
