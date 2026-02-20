@@ -596,7 +596,13 @@
       top: 12px;
       width: 22px; height: 22px;
       transform: translateX(-50%);
-      filter: drop-shadow(0 6px 10px rgba(0,0,0,.35));
+      z-index: 1;
+      filter:
+        brightness(1.22)
+        contrast(1.22)
+        saturate(1.12)
+        drop-shadow(0 0 3px rgba(255,255,255,.32))
+        drop-shadow(0 6px 10px rgba(0,0,0,.42));
     }
     .party-slot .slot-label{
       position:absolute;
@@ -630,6 +636,15 @@
     .party-slot:disabled{
       opacity:.55;
       cursor:not-allowed;
+    }
+    .party-slot:disabled img{
+      opacity: .95;
+      filter:
+        brightness(1.28)
+        contrast(1.28)
+        saturate(1.12)
+        drop-shadow(0 0 4px rgba(255,255,255,.35))
+        drop-shadow(0 6px 10px rgba(0,0,0,.45));
     }
     .party-slot.empty{
       background: rgba(2,6,23,.35);
