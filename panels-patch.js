@@ -1006,6 +1006,9 @@ function renderEnhancedPanels() {
         myParty = myPieces.map(p => ({ pid: safeStr(p?.pid) }));
       }
       renderMyTeam(teamRoot, by, pieces, myParty);
+      // Update fichas count badge
+      const fichasCount = $("fichas_count");
+      if (fichasCount) fichasCount.textContent = String(myParty.length);
     }
   }
 

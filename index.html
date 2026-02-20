@@ -7,41 +7,75 @@
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
   <style>
+    /* ═══════════════════════════════════════════════════════
+       VARIABLES
+       ═══════════════════════════════════════════════════════ */
     :root{
-      --bg0:#060b16;
-      --bg1:#0b1220;
-      --card:rgba(255,255,255,.04);
-      --card2:rgba(2,6,23,.28);
-      --border:rgba(148,163,184,.26);
-      --border2:rgba(255,255,255,.10);
-      --text:#e5e7eb;
-      --muted:#94a3b8;
+      --bg0:#050913;
+      --bg1:#070d1f;
+      --glass: rgba(12, 18, 35, .52);
+      --glass2: rgba(10, 16, 32, .38);
+      --stroke: rgba(120, 210, 255, .18);
+      --stroke2: rgba(120, 210, 255, .30);
+      --glow: rgba(56, 189, 248, .55);
+      --glow2: rgba(34, 211, 238, .30);
+      --text:#e8f0ff;
+      --muted: rgba(232,240,255,.72);
       --accent:rgba(56,189,248,.55);
       --accent2:rgba(56,189,248,.18);
       --good:rgba(34,197,94,.18);
       --warn:rgba(251,191,36,.18);
       --bad:rgba(248,113,113,.18);
-      --shadow:0 16px 30px rgba(2,6,23,.28);
-      --radius:18px;
-      --radius2:14px;
+      --radius: 18px;
+      --radius2: 14px;
+      --blur: 16px;
+      --shadow: 0 10px 35px rgba(0,0,0,.45);
+      --inner: inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(0,0,0,.25);
     }
+
+    /* ═══ Reset & Body ═══ */
     *{box-sizing:border-box}
-    html,body{height:100%}
+    html,body{height:100%;margin:0}
     body{
-      margin:0;
       font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;
-      background:radial-gradient(1400px 700px at 18% 0%, rgba(56,189,248,.12), transparent 60%),
-                 radial-gradient(1200px 600px at 85% 20%, rgba(168,85,247,.10), transparent 65%),
-                 linear-gradient(180deg, var(--bg0), var(--bg1));
+      background:
+        radial-gradient(1200px 700px at 70% 0%, rgba(56,189,248,.18), transparent 55%),
+        radial-gradient(900px 600px at 20% 30%, rgba(99,102,241,.16), transparent 60%),
+        linear-gradient(180deg, var(--bg1), var(--bg0) 70%);
       color:var(--text);
       overflow:hidden;
     }
+    /* Star field pseudo */
+    body::before{
+      content:"";
+      position:fixed; inset:0;
+      background-image:
+        radial-gradient(2px 2px at 20% 30%, rgba(255,255,255,.35) 40%, transparent 42%),
+        radial-gradient(1px 1px at 70% 10%, rgba(255,255,255,.25) 40%, transparent 42%),
+        radial-gradient(1px 1px at 40% 80%, rgba(255,255,255,.22) 40%, transparent 42%),
+        radial-gradient(1px 1px at 85% 65%, rgba(255,255,255,.18) 40%, transparent 42%);
+      opacity:.55;
+      pointer-events:none;
+      mix-blend-mode: screen;
+    }
+    body::after{
+      content:"";
+      position:fixed; inset:-2px;
+      background:
+        radial-gradient(800px 400px at 50% 15%, rgba(56,189,248,.12), transparent 60%),
+        radial-gradient(600px 320px at 30% 85%, rgba(34,211,238,.10), transparent 60%);
+      filter: blur(10px);
+      opacity:.85;
+      pointer-events:none;
+    }
+    /* Pre-connect / entry screen */
     body.preconnect {
       overflow: auto;
     }
-    body.preconnect .topbar,
+    body.preconnect .hero-header,
     body.preconnect #scoreboard,
-    body.preconnect .app {
+    body.preconnect .hud-tabs,
+    body.preconnect .hud-body {
       display: none;
     }
     #entry_screen {
@@ -60,25 +94,16 @@
       margin: 0;
     }
 
-    /* Top bar */
-    .topbar{
-      display:flex;align-items:center;justify-content:space-between;gap:12px;
-      padding:12px 14px;
-      border-bottom:1px solid rgba(255,255,255,.08);
-      background:rgba(2,6,23,.35);
-      backdrop-filter: blur(8px);
-    }
-    .brand{display:flex;align-items:center;gap:10px;min-width: 240px}
-    .brand .title{font-weight:900;letter-spacing:.2px}
-    .brand .sub{font-size:12px;color:var(--muted)}
-    .top-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
-    .top-actions .btn{padding:7px 11px;border-radius:999px;font-size:12px}
+    /* ═══════════════════════════════════════════════════════
+       COMMON COMPONENTS
+       ═══════════════════════════════════════════════════════ */
     .pill{
       display:inline-flex;align-items:center;gap:8px;
       padding:6px 10px;
       border-radius:999px;
-      border:1px solid var(--border);
-      background:rgba(2,6,23,.35);
+      background: rgba(6,10,22,.55);
+      border: 1px solid rgba(120, 210, 255, .14);
+      box-shadow: var(--inner);
       font-weight:700;
       font-size:12px;
       user-select:none;
@@ -87,8 +112,9 @@
     .pill.ok{background:var(--good);border-color:rgba(34,197,94,.45)}
     .pill.warn{background:var(--warn);border-color:rgba(251,191,36,.45)}
     .pill.err{background:var(--bad);border-color:rgba(248,113,113,.45)}
+
     .btn{
-      appearance:none;border:1px solid var(--border);
+      appearance:none;border:1px solid rgba(120,210,255,.18);
       background:linear-gradient(180deg, rgba(56,189,248,.55) 0%, rgba(14,165,233,.35) 100%);
       color:var(--text);
       border-radius:12px;
@@ -101,109 +127,271 @@
     .btn:active{transform:translateY(0)}
     .btn.secondary{background:rgba(255,255,255,.06);font-weight:800}
     .btn.ghost{background:rgba(2,6,23,.18)}
+    .btn.cta{
+      background: linear-gradient(180deg, rgba(56,189,248,.22), rgba(56,189,248,.10));
+      border-color: rgba(56,189,248,.45);
+      box-shadow: 0 0 0 1px rgba(56,189,248,.16), 0 10px 25px rgba(0,0,0,.35);
+    }
+    .btn.danger{
+      background: rgba(239,68,68,.14);
+      border-color: rgba(239,68,68,.35);
+    }
+    .btn.toggle{
+      background: rgba(6,10,22,.35);
+      border: 1px solid rgba(120,210,255,.18);
+    }
+    .btn.toggle[aria-pressed="true"]{
+      border-color: rgba(56,189,248,.45);
+      box-shadow: 0 0 0 1px rgba(56,189,248,.12);
+    }
     .input{
       width:100%;
       padding:10px 12px;
       border-radius:12px;
-      border:1px solid var(--border);
+      border:1px solid rgba(120,210,255,.14);
       background:rgba(0,0,0,.22);
       color:var(--text);
       outline:none;
     }
     .input:focus{border-color:rgba(56,189,248,.55);box-shadow:0 0 0 3px rgba(56,189,248,.18)}
     .label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px 2px}
+    .row{display:flex;gap:10px;align-items:center}
+    .row.spread{justify-content:space-between}
+    .muted{color:var(--muted);font-size:12px}
+    .tiny{font-size:11px;color:rgba(226,232,240,.8)}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+    pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.35;color:rgba(226,232,240,.92)}
+    code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
 
-    /* Layout */
-    .app{
-      height:calc(100% - 56px); /* adjusted dynamically by scoreboard JS */
-      display:grid;
-      grid-template-columns: minmax(0, 1fr);
-      gap:12px;
-      padding:12px;
-      min-height:0;
-    }
-    @media (max-width: 1100px){
-      body{overflow:auto}
-      .app{grid-template-columns: 1fr; height:auto}
-    }
-
-    .panel{
-      background:radial-gradient(1200px 500px at 20% 0%, rgba(56,189,248,0.10), transparent 60%),
-                 rgba(15,23,42,0.48);
-      border:1px solid rgba(148,163,184,0.28);
+    /* Card */
+    .card{
       border-radius:var(--radius);
-      box-shadow: inset 0 0 18px rgba(15,23,42,0.35);
+      border:1px solid rgba(148,163,184,.22);
+      background:rgba(2,6,23,.22);
+      padding:12px;
+      box-shadow:0 10px 20px rgba(2,6,23,.18);
+      margin-bottom:10px;
+    }
+    .card.selected{border:2px solid rgba(56,189,248,.55);background:radial-gradient(900px 380px at 15% 0%, rgba(56,189,248,0.12), transparent 60%), rgba(2,6,23,.22)}
+    .avatar{
+      width:36px;height:36px;border-radius:14px;
+      border:1px solid rgba(226,232,240,.18);
+      background:rgba(255,255,255,.05);
+      display:flex;align-items:center;justify-content:center;
+      font-weight:900;
+      box-shadow:0 10px 18px rgba(2,6,23,.22);
+      flex:0 0 auto;
+    }
+    .mini{
+      width:40px;height:40px;border-radius:14px;
+      border:1px solid rgba(226,232,240,.18);
+      background:rgba(255,255,255,.05);
+      object-fit:contain;
+      padding:4px;
+      flex:0 0 auto;
+    }
+
+    /* Panel */
+    .panel{
+      border-radius: var(--radius);
+      background: var(--glass);
+      border: 1px solid rgba(120,210,255,.14);
+      box-shadow: var(--shadow), var(--inner);
+      backdrop-filter: blur(var(--blur));
+      -webkit-backdrop-filter: blur(var(--blur));
       min-height:0;
       overflow:hidden;
     }
     .panel-inner{padding:12px; height:100%; overflow:auto}
-    .panel.side-panel{display:none}
-
-    /* Tab panels dentro do .mid devem expandir quando ativos */
-    .mid [role="tabpanel"].panel {
-      flex: 1;
-      min-height: 500px;
-      overflow: hidden;
-    }
-    .mid [role="tabpanel"].panel .panel-inner {
-      height: 100%;
-      overflow: auto;
-    }
-    /* Arena-card tambem deve expandir */
-    .arena-card { flex: 1; }
     .panel-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
-    .panel-title h3{margin:0;font-size:14px;letter-spacing:.2px}
+    .panel-title h3{margin:0;font-size:.95rem;letter-spacing:.35px}
 
-    .mid{
-      display:flex;
-      flex-direction:column;
-      gap:12px;
-      min-height:0;
+    /* Hide legacy debug panels */
+    .card:has(#btn_move_piece),
+    .card:has(#actions_log){
+      display:none !important;
+    }
+    #btn_move_piece,
+    #actions_log{
+      display:none !important;
     }
 
-    /* Tabs */
+    /* ═══════════════════════════════════════════════════════
+       HERO HEADER
+       ═══════════════════════════════════════════════════════ */
+    .hero-header{
+      position:fixed; top:0; left:0; right:0;
+      height:64px;
+      display:flex; align-items:center; justify-content:space-between;
+      padding: 0 20px;
+      background: linear-gradient(180deg, rgba(9,14,29,.92), rgba(9,14,29,.68));
+      border-bottom: 1px solid rgba(120,210,255,.12);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      z-index: 100;
+    }
+    .hero-left{
+      display:flex; align-items:center; gap:12px;
+    }
+    .hero-icon{
+      font-size:24px;
+      filter: drop-shadow(0 0 8px rgba(56,189,248,.4));
+    }
+    .hero-title{
+      font-weight:950; font-size:16px; letter-spacing:.5px;
+      background: linear-gradient(135deg, #e8f0ff 0%, #38bdf8 100%);
+      -webkit-background-clip:text;
+      -webkit-text-fill-color:transparent;
+      background-clip:text;
+    }
+    .hero-sub{
+      font-size:11px; color:rgba(232,240,255,.55); margin-top:1px;
+    }
+    .hero-right{
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end;
+    }
+    .hero-right .pill{ font-size:11px; padding:5px 9px; }
+    .hero-right .btn{ padding:7px 11px; border-radius:999px; font-size:12px; }
+    .hero-roll-btn{
+      background: linear-gradient(180deg, rgba(56,189,248,.45), rgba(14,165,233,.25)) !important;
+      border-color: rgba(56,189,248,.55) !important;
+      padding:9px 16px !important;
+      font-size:13px !important;
+      box-shadow: 0 0 16px rgba(56,189,248,.2), 0 8px 20px rgba(0,0,0,.3);
+      animation: heroRollGlow 3s ease-in-out infinite;
+    }
+    @keyframes heroRollGlow{
+      0%,100%{ box-shadow: 0 0 12px rgba(56,189,248,.15), 0 8px 20px rgba(0,0,0,.3); }
+      50%{ box-shadow: 0 0 22px rgba(56,189,248,.3), 0 8px 20px rgba(0,0,0,.3); }
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       TABS (pill-style)
+       ═══════════════════════════════════════════════════════ */
+    .hud-tabs{
+      margin-top: 72px; /* below fixed hero */
+      padding: 8px 20px;
+    }
     .tabs{
-      display:flex;gap:8px;flex-wrap:wrap;
-      padding:10px 10px;
-      border-radius:var(--radius);
-      border:1px solid rgba(148,163,184,.28);
-      background:rgba(2,6,23,.22);
+      display:flex;
+      gap: 6px;
+      padding: 6px 8px;
+      border-radius: 999px;
+      background: rgba(7, 12, 26, .55);
+      border: 1px solid rgba(120,210,255,.12);
+      box-shadow: var(--inner);
+      backdrop-filter: blur(var(--blur));
+      -webkit-backdrop-filter: blur(var(--blur));
+      max-width: 1440px;
+      margin: 0 auto;
+      flex-wrap:wrap;
     }
     .tab{
-      display:inline-flex;align-items:center;gap:8px;
-      padding:8px 10px;
-      border-radius:12px;
-      border:1px solid rgba(148,163,184,.22);
-      background:rgba(255,255,255,.04);
-      color:var(--text);
+      flex: 0 0 auto;
+      padding: 9px 16px;
+      border-radius: 999px;
       cursor:pointer;
-      font-weight:900;
-      font-size:12px;
       user-select:none;
+      font-weight: 950;
+      font-size:12px;
+      letter-spacing:.3px;
+      color: rgba(232,240,255,.65);
+      border: 1px solid transparent;
+      background: transparent;
+      transition: all .2s;
     }
-    .tab.active{border-color:rgba(56,189,248,.55);background:rgba(56,189,248,.14)}
+    .tab:hover{
+      color: rgba(232,240,255,.9);
+      background: rgba(56,189,248,.06);
+    }
+    .tab.active{
+      color: var(--text);
+      border-color: rgba(56,189,248,.42);
+      background: linear-gradient(180deg, rgba(56,189,248,.20), rgba(56,189,248,.08));
+      box-shadow: 0 0 0 1px rgba(56,189,248,.10), 0 4px 16px rgba(0,0,0,.3);
+    }
 
-    /* Arena */
+    /* ═══════════════════════════════════════════════════════
+       HUD BODY — 3-column grid
+       ═══════════════════════════════════════════════════════ */
+    .hud-body{
+      display:grid;
+      grid-template-columns: 280px 1fr 320px;
+      gap: 12px;
+      padding: 8px 20px 16px;
+      max-width: 1440px;
+      margin: 0 auto;
+      height: calc(100vh - 72px - 52px); /* hero + tabs */
+      min-height: 0;
+    }
+
+    /* Left sidebar: Fichas */
+    .sidebar-left{
+      display:flex; flex-direction:column; gap:0;
+      min-height:0; overflow:hidden;
+    }
+    .sidebar-left .panel{
+      flex:1; min-height:0; display:flex; flex-direction:column;
+    }
+    .sidebar-left .panel-inner{
+      flex:1; overflow-y:auto; overflow-x:hidden;
+    }
+
+    /* Center: main content */
+    .hud-center{
+      min-width:0; min-height:0;
+      display:flex; flex-direction:column;
+    }
+
+    /* Right sidebar: Inspector */
+    .sidebar-right{
+      display:flex; flex-direction:column; gap:12px;
+      min-height:0; overflow:hidden;
+    }
+    .sidebar-right .panel{
+      flex:1; min-height:0; display:flex; flex-direction:column;
+    }
+    .sidebar-right .panel-inner{
+      flex:1; overflow-y:auto; overflow-x:hidden;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       ARENA
+       ═══════════════════════════════════════════════════════ */
     .arena-card{
-      background:rgba(2,6,23,.22);
-      border:1px solid rgba(148,163,184,.22);
-      border-radius:var(--radius);
-      box-shadow:var(--shadow);
+      background:transparent;
+      border:none;
+      box-shadow:none;
       min-height:0;
       overflow:hidden;
       display:flex;
       flex-direction:column;
+      flex:1;
     }
     .arena-head{
       padding:10px 12px;
+      border-radius:var(--radius);
+      background: var(--glass2);
+      border: 1px solid rgba(120,210,255,.14);
+      box-shadow: var(--inner);
+      margin-bottom:10px;
       display:flex;align-items:center;justify-content:space-between;gap:10px;
-      border-bottom:1px solid rgba(255,255,255,.08);
     }
     .arena-head .left{display:flex;align-items:center;gap:10px;min-width:0}
     .arena-head .left .name{font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .arena-head .left .meta{font-size:12px;color:var(--muted)}
-    .arena-wrap{position:relative;flex:1;min-height: 640px;background:rgba(0,0,0,.18)}
-    canvas#arena{position:absolute;inset:0;width:100%;height:100%;display:block}
+    .stage-controls{ display:flex; align-items:center; gap:8px; justify-content:flex-end; }
+    .stage-controls .btn{ height:34px; }
+    .stage-zoom{ display:flex; gap:6px; padding-left:4px; padding-right:4px; }
+
+    .arena-wrap{
+      position:relative;flex:1;min-height:400px;
+      background:rgba(2,6,23,.35);
+      border-radius: var(--radius);
+      border: 1px solid rgba(120,210,255,.18);
+      box-shadow: var(--shadow), inset 0 0 0 1px rgba(255,255,255,.04);
+    }
+    canvas#arena{position:absolute;inset:0;width:100%;height:100%;display:block;border-radius:var(--radius)}
 
     /* DOM fallback */
     .arena-dom{position:absolute;inset:0;display:grid;gap:0}
@@ -226,6 +414,11 @@
       user-select:none;
       pointer-events:none;
     }
+    .dom-cell.place-ok{
+      outline: 1px solid rgba(163,230,53,.18);
+      background: rgba(163,230,53,.10);
+    }
+
     .arena-hint{
       position:absolute;left:10px;bottom:10px;
       display:flex;flex-direction:column;gap:6px;
@@ -268,67 +461,170 @@
     }
     .piece-context-menu button:hover{background:rgba(56,189,248,.15);border-color:rgba(56,189,248,.45)}
 
-    /* Cards list */
-    .card{
-      border-radius:var(--radius);
-      border:1px solid rgba(148,163,184,.22);
-      background:rgba(2,6,23,.22);
-      padding:12px;
-      box-shadow:0 10px 20px rgba(2,6,23,.18);
-      margin-bottom:10px;
+    /* ═══════════════════════════════════════════════════════
+       INSPECTOR (right sidebar)
+       ═══════════════════════════════════════════════════════ */
+    .inspector-title{ font-weight: 950; font-size: .95rem; }
+    .inspector-sub{ font-size: .75rem; opacity: .75; }
+    .inspector-card{
+      margin-top: 12px;
+      border-radius: var(--radius);
+      background: rgba(2,6,23,.28);
+      border: 1px solid rgba(255,255,255,.06);
+      box-shadow: var(--inner);
+      overflow:hidden;
     }
-    .card.selected{border:2px solid rgba(56,189,248,.55);background:radial-gradient(900px 380px at 15% 0%, rgba(56,189,248,0.12), transparent 60%), rgba(2,6,23,.22)}
-    .row{display:flex;gap:10px;align-items:center}
-    .row.spread{justify-content:space-between}
-    .avatar{
-      width:36px;height:36px;border-radius:14px;
-      border:1px solid rgba(226,232,240,.18);
-      background:rgba(255,255,255,.05);
-      display:flex;align-items:center;justify-content:center;
-      font-weight:900;
-      box-shadow:0 10px 18px rgba(2,6,23,.22);
-      flex:0 0 auto;
+    .inspector-media{
+      height: 160px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background: radial-gradient(500px 200px at 50% 0%, rgba(56,189,248,.18), transparent 60%);
+      border-bottom: 1px solid rgba(255,255,255,.06);
     }
-    .mini{
-      width:40px;height:40px;border-radius:14px;
-      border:1px solid rgba(226,232,240,.18);
-      background:rgba(255,255,255,.05);
-      object-fit:contain;
-      padding:4px;
-      flex:0 0 auto;
+    .inspector-media img{
+      width: 120px;
+      height: 120px;
+      object-fit: contain;
+      filter: drop-shadow(0 16px 20px rgba(0,0,0,.40));
     }
-    .muted{color:var(--muted);font-size:12px}
-    .tiny{font-size:11px;color:rgba(226,232,240,.8)}
-    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+    .inspector-body{ padding: 12px; }
+    .inspector-name{ font-weight: 950; font-size: 1.05rem; }
+    .inspector-chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top: 8px; }
+    .chip{
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: .68rem;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(6,10,22,.45);
+    }
+    .chip.ok{ border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.12); }
+    .chip.warn{ border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.10); }
 
-    /* Log */
-    .log-wrap{display:flex;flex-direction:column;gap:10px;min-height:0}
-    .log-list{flex:1;min-height:200px;overflow:auto;padding-right:4px}
-    .log-item{padding:10px 10px;border-radius:14px;border:1px solid rgba(148,163,184,.18);background:rgba(0,0,0,.18);margin-bottom:8px}
-    .log-item .head{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
-    .log-item .by{font-weight:900}
-    .log-item .at{font-size:11px;color:rgba(148,163,184,.9)}
-    .log-item .text{margin-top:6px;white-space:pre-wrap;word-break:break-word}
-    .log-compose{display:flex;gap:10px;align-items:center}
-    .log-compose input{flex:1}
-
-    /* Dev tools */
-    details.dev{border-radius:var(--radius);border:1px solid rgba(148,163,184,.22);background:rgba(2,6,23,.18);overflow:hidden}
-    details.dev > summary{cursor:pointer;padding:10px 12px;font-weight:950;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px}
-    details.dev > summary::-webkit-details-marker{display:none}
-    .dev-body{padding:12px;border-top:1px solid rgba(255,255,255,.08)}
-
-    /* Esconde painéis legados de debug (não fazem parte do layout final) */
-    .card:has(#btn_move_piece),
-    .card:has(#actions_log){
-      display:none !important;
+    .hpbar{ margin-top: 12px; }
+    .hpbar-track{
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.10);
+      overflow:hidden;
     }
-    #btn_move_piece,
-    #actions_log{
-      display:none !important;
+    .hpbar-fill{
+      height: 100%;
+      background: linear-gradient(90deg, rgba(34,197,94,.95), rgba(56,189,248,.80));
+    }
+    .hpbar-meta{ margin-top: 6px; font-size: .75rem; opacity: .85; }
+
+    .inspector-actions{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 14px;
     }
 
-    /* ═══ PVP Party Cards (replicando app.py) ═══ */
+    .glass-details{
+      border-radius: var(--radius);
+      border: 1px solid rgba(255,255,255,.06);
+      background: rgba(2,6,23,.20);
+      padding: 10px 12px;
+    }
+    .glass-details summary{
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      list-style:none;
+      font-weight: 950;
+    }
+    .glass-details summary::-webkit-details-marker{display:none}
+
+    /* ═══════════════════════════════════════════════════════
+       PARTY WINDOW (pokeball slots)
+       ═══════════════════════════════════════════════════════ */
+    .party-window{
+      display:grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .party-slot{
+      position:relative;
+      height: 56px;
+      border-radius: 999px;
+      background:
+        radial-gradient(18px 18px at 50% 48%, rgba(255,255,255,.10), transparent 60%),
+        linear-gradient(180deg, rgba(239,68,68,.65) 0 50%, rgba(241,245,249,.75) 50% 100%);
+      border: 1px solid rgba(0,0,0,.25);
+      box-shadow: inset 0 -8px 18px rgba(0,0,0,.25), 0 10px 18px rgba(0,0,0,.25);
+      overflow:hidden;
+      cursor:pointer;
+    }
+    .party-slot::before{
+      content:"";
+      position:absolute; left:0; right:0; top:50%;
+      height: 10px; transform: translateY(-50%);
+      background: rgba(2,6,23,.65);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+    }
+    .party-slot::after{
+      content:"";
+      position:absolute; left:50%; top:50%;
+      width: 14px; height: 14px;
+      transform: translate(-50%,-50%);
+      border-radius: 50%;
+      background: rgba(241,245,249,.85);
+      border: 2px solid rgba(2,6,23,.85);
+      box-shadow: 0 0 0 4px rgba(255,255,255,.08);
+    }
+    .party-slot img{
+      position:absolute;
+      left: 50%;
+      top: 12px;
+      width: 22px; height: 22px;
+      transform: translateX(-50%);
+      filter: drop-shadow(0 6px 10px rgba(0,0,0,.35));
+    }
+    .party-slot .slot-label{
+      position:absolute;
+      left: 6px; top: 5px;
+      font-weight: 950;
+      font-size: .6rem;
+      color: rgba(2,6,23,.85);
+      background: rgba(241,245,249,.85);
+      border-radius: 999px;
+      padding: 1px 5px;
+    }
+    .party-slot .slot-badge{
+      position:absolute;
+      right: 6px; bottom: 5px;
+      font-size: .55rem;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: rgba(2,6,23,.65);
+      border: 1px solid rgba(255,255,255,.10);
+    }
+    .party-slot .slot-badge.ready{
+      background: rgba(56,189,248,.20);
+      border-color: rgba(56,189,248,.35);
+      color: rgba(232,240,255,.95);
+      box-shadow: 0 0 0 1px rgba(56,189,248,.10);
+    }
+    .party-slot.placing{
+      border-color: rgba(56,189,248,.55);
+      box-shadow: 0 0 0 2px rgba(56,189,248,.18), 0 18px 28px rgba(0,0,0,.35);
+    }
+    .party-slot:disabled{
+      opacity:.55;
+      cursor:not-allowed;
+    }
+    .party-slot.empty{
+      background: rgba(2,6,23,.35);
+      border: 1px dashed rgba(255,255,255,.10);
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       PVP PARTY CARDS (for panels-patch.js)
+       ═══════════════════════════════════════════════════════ */
     .pvp-party-card {
       border-radius: 14px;
       border: 1.5px solid rgba(148,163,184,.2);
@@ -423,41 +719,6 @@
     .pvp-btn-icon { flex:0 0 36px; text-align:center; }
     .pvp-btn-danger:hover:not(:disabled) { background:rgba(248,113,113,.14); border-color:rgba(248,113,113,.4); }
 
-    .party-window {
-      display:grid;
-      grid-template-columns:repeat(8,minmax(74px,1fr));
-      gap:10px;
-    }
-    .party-slot {
-      position:relative;
-      aspect-ratio:1;
-      border-radius:999px;
-      border:1px solid rgba(148,163,184,.35);
-      background:radial-gradient(circle at 50% 35%, rgba(248,250,252,.9) 0 18%, rgba(248,113,113,.88) 19% 48%, rgba(15,23,42,.92) 49% 53%, rgba(241,245,249,.85) 54% 100%);
-      box-shadow:0 10px 18px rgba(2,6,23,.28);
-      cursor:pointer;
-      overflow:hidden;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      padding:8px;
-    }
-    .party-slot:hover:not(:disabled) { transform:translateY(-1px); border-color:rgba(56,189,248,.5); }
-    .party-slot:disabled { cursor:not-allowed; }
-    .party-slot img { width:90%; height:90%; object-fit:contain; image-rendering:pixelated; filter:drop-shadow(0 4px 8px rgba(2,6,23,.6)); }
-    .party-slot.empty { opacity:.45; }
-    .party-slot.placing { outline:2px solid rgba(56,189,248,.9); }
-    .party-slot.ko { filter:grayscale(1); opacity:.35; }
-    .party-slot .slot-badge {
-      position:absolute; bottom:6px; left:50%; transform:translateX(-50%);
-      font-size:10px; font-weight:900; padding:2px 6px; border-radius:999px;
-      background:rgba(15,23,42,.82); border:1px solid rgba(148,163,184,.35); color:#e2e8f0;
-      white-space:nowrap;
-    }
-    .party-slot .slot-label {
-      position:absolute; top:4px; right:6px; font-size:10px; font-weight:900; color:rgba(15,23,42,.85);
-      background:rgba(255,255,255,.8); border-radius:999px; padding:1px 5px;
-    }
     /* Opponent group */
     .pvp-opp-group { margin-bottom:10px; }
     .pvp-opp-header {
@@ -477,13 +738,8 @@
       background:rgba(248,113,113,.12); border:1px solid rgba(248,113,113,.25); color:rgba(248,113,113,.8);
     }
 
-    pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.35;color:rgba(226,232,240,.92)}
-    .grid2{display:grid;grid-template-columns:1fr;gap:10px}
-    @media (min-width: 1100px){.grid2{grid-template-columns: 1fr 1fr}}
-    code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
-
     /* ═══════════════════════════════════════════════════════
-       COMBAT STYLES (inline para não depender de CSS externo)
+       COMBAT STYLES
        ═══════════════════════════════════════════════════════ */
     .cb-defense-grid {
       display: grid;
@@ -551,18 +807,26 @@
     }
 
     /* ═══════════════════════════════════════════════════════
-       SCOREBOARD — placar circular multi-jogador
+       SCOREBOARD
        ═══════════════════════════════════════════════════════ */
     #scoreboard {
-      display: none; /* shown by JS when connected */
+      display: none;
       width: 100%;
       padding: 10px 14px;
+      margin-top: 72px; /* below fixed hero */
       background: rgba(2,6,23,.45);
       border-bottom: 1px solid rgba(148,163,184,.18);
       backdrop-filter: blur(10px);
       z-index: 50;
     }
     #scoreboard.sb-visible { display: block; }
+    /* when scoreboard visible, push tabs & body down */
+    #scoreboard.sb-visible ~ .hud-tabs {
+      margin-top: 0;
+    }
+    #scoreboard.sb-visible ~ .hud-body {
+      /* recalc dynamically in JS if needed */
+    }
 
     .sb-container {
       display: flex;
@@ -573,8 +837,6 @@
       max-width: 1400px;
       margin: 0 auto;
     }
-
-    /* Versus layout (2 players) */
     .sb-container.sb-versus {
       justify-content: center;
       gap: 48px;
@@ -595,7 +857,6 @@
     }
     .sb-container.sb-versus { position: relative; }
 
-    /* Quad layout (3-4 players) */
     .sb-container.sb-quad {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -606,7 +867,6 @@
       grid-column: 1 / -1;
     }
 
-    /* Single player card */
     .sb-player {
       display: flex;
       flex-direction: column;
@@ -617,14 +877,11 @@
     }
     .sb-player.sb-me { order: -1; }
 
-    /* Portrait ring wrapper */
     .sb-portrait-ring {
       position: relative;
       width: 130px;
       height: 130px;
     }
-
-    /* Center photo */
     .sb-photo {
       position: absolute;
       top: 50%;
@@ -663,8 +920,6 @@
       border-color: rgba(34,197,94,.65);
       box-shadow: 0 0 12px rgba(34,197,94,.3);
     }
-
-    /* Pokémon slot on the ring */
     .sb-slot {
       position: absolute;
       width: 32px;
@@ -697,8 +952,6 @@
       border: 1.5px dashed rgba(148,163,184,.18);
       background: rgba(15,23,42,.3);
     }
-
-    /* Mini HP bar under each slot */
     .sb-slot-hp {
       position: absolute;
       bottom: -5px;
@@ -715,8 +968,6 @@
       border-radius: 2px;
       transition: width .3s;
     }
-
-    /* Trainer name */
     .sb-name {
       font-weight: 900;
       font-size: 12px;
@@ -728,8 +979,6 @@
       white-space: nowrap;
     }
     .sb-me .sb-name { color: rgba(34,197,94,.95); }
-
-    /* Place avatar button */
     .sb-place-btn {
       appearance: none;
       cursor: pointer;
@@ -758,8 +1007,145 @@
       50%     { box-shadow: 0 0 0 5px rgba(251,191,36,0); }
     }
 
-    /* Responsive: mobile stacks vertically */
+    /* Log */
+    .log-wrap{display:flex;flex-direction:column;gap:10px;min-height:0}
+    .log-list{flex:1;min-height:200px;overflow:auto;padding-right:4px}
+    .log-item{padding:10px 10px;border-radius:14px;border:1px solid rgba(148,163,184,.18);background:rgba(0,0,0,.18);margin-bottom:8px}
+    .log-item .head{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+    .log-item .by{font-weight:900}
+    .log-item .at{font-size:11px;color:rgba(148,163,184,.9)}
+    .log-item .text{margin-top:6px;white-space:pre-wrap;word-break:break-word}
+    .log-compose{display:flex;gap:10px;align-items:center}
+    .log-compose input{flex:1}
+
+    /* Dev tools */
+    details.dev{border-radius:var(--radius);border:1px solid rgba(148,163,184,.22);background:rgba(2,6,23,.18);overflow:hidden}
+    details.dev > summary{cursor:pointer;padding:10px 12px;font-weight:950;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px}
+    details.dev > summary::-webkit-details-marker{display:none}
+    .dev-body{padding:12px;border-top:1px solid rgba(255,255,255,.08)}
+
+    /* Rolls banner */
+    #rolls_banner {
+      display:none;
+      position:fixed; top:0; left:0; right:0; z-index:9999;
+      background:linear-gradient(90deg,#1e293b 0%,#334155 50%,#1e293b 100%);
+      border-bottom:2px solid #f59e0b;
+      color:#fbbf24; font-weight:900; font-size:14px;
+      text-align:center; padding:6px 16px;
+      animation: rollBannerIn .3s ease-out;
+    }
+    @keyframes rollBannerIn { from { transform: translateY(-100%); opacity:0; } to { transform: translateY(0); opacity:1; } }
+    body.has-roll-banner .hero-header { margin-top: 34px; }
+
+    /* Tab panels: non-arena tabs fill space */
+    .hud-center [role="tabpanel"].panel {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .hud-center [role="tabpanel"].panel .panel-inner {
+      height: 100%;
+      overflow: auto;
+    }
+
+    /* Mini card */
+    .mini-card{
+      background: rgba(2,6,23,.25);
+      border: 1px solid rgba(255,255,255,.06);
+    }
+
+    /* Grid helpers */
+    .grid2{display:grid;grid-template-columns:1fr;gap:10px}
+    @media (min-width: 1100px){.grid2{grid-template-columns: 1fr 1fr}}
+
+    /* Sidebar section header */
+    .sidebar-section{
+      display:flex; align-items:center; gap:8px;
+      padding:8px 10px;
+      border-radius:12px;
+      background: rgba(56,189,248,.06);
+      border: 1px solid rgba(56,189,248,.12);
+      margin-bottom:10px;
+    }
+    .sidebar-section-icon{ font-size:14px; }
+    .sidebar-section-label{ font-weight:900; font-size:12px; color:rgba(226,232,240,.9); flex:1; }
+    .sidebar-section-badge{
+      font-size:10px; font-weight:800; padding:2px 8px; border-radius:6px;
+      background:rgba(56,189,248,.12); border:1px solid rgba(56,189,248,.25); color:rgba(56,189,248,.85);
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       SCROLLBAR (glassmorphism)
+       ═══════════════════════════════════════════════════════ */
+    .panel-inner::-webkit-scrollbar { width: 5px; }
+    .panel-inner::-webkit-scrollbar-track { background: transparent; }
+    .panel-inner::-webkit-scrollbar-thumb {
+      background: rgba(148,163,184,.2);
+      border-radius: 10px;
+    }
+    .panel-inner::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,.35); }
+
+    /* ═══════════════════════════════════════════════════════
+       RESPONSIVE
+       ═══════════════════════════════════════════════════════ */
+    @media (max-width: 1200px) {
+      .hud-body{
+        grid-template-columns: 240px 1fr 280px;
+        padding: 8px 12px 14px;
+      }
+    }
+    @media (max-width: 1024px) {
+      .hud-body{
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+        height: auto;
+        overflow-y: auto;
+      }
+      body{ overflow: auto; }
+      .sidebar-left,
+      .sidebar-right{
+        max-height: 350px;
+      }
+      .sidebar-left .panel,
+      .sidebar-right .panel{
+        max-height: 350px;
+      }
+      .arena-wrap{
+        min-height: 500px;
+      }
+      .hero-right{
+        gap:6px;
+      }
+      .hero-right .pill:not(:first-child){
+        display:none;
+      }
+    }
     @media (max-width: 700px) {
+      .hero-header{
+        height: auto;
+        padding: 8px 12px;
+        flex-wrap: wrap;
+        gap:8px;
+      }
+      .hero-title{ font-size:14px; }
+      .hero-right{
+        gap:6px;
+        justify-content: center;
+        width:100%;
+      }
+      .hud-tabs{
+        margin-top: auto;
+        padding: 6px 10px;
+      }
+      .tabs{
+        gap:4px;
+        padding:4px 6px;
+      }
+      .tab{ padding:7px 10px; font-size:11px; }
+      .hud-body{
+        padding:6px 8px 12px;
+        gap:8px;
+      }
       .sb-container,
       .sb-container.sb-versus,
       .sb-container.sb-quad {
@@ -775,375 +1161,20 @@
       .sb-slot-img, .sb-slot-empty { width: 26px; height: 26px; }
       .sb-slot-hp { width: 18px; }
     }
+
+    /* ── Compat: legacy .app hidden, .side-panel hidden ── */
+    .app { display:none !important; }
+    .panel.side-panel { display:none !important; }
   </style>
 </head>
 
 <body class="preconnect">
-  <!-- HUD de Rolagens Globais -->
-  <div id="rolls_banner" style="
-    display:none;
-    position:fixed; top:0; left:0; right:0; z-index:9999;
-    background:linear-gradient(90deg,#1e293b 0%,#334155 50%,#1e293b 100%);
-    border-bottom:2px solid #f59e0b;
-    color:#fbbf24; font-weight:900; font-size:14px;
-    text-align:center; padding:6px 16px;
-    animation: rollBannerIn .3s ease-out;
-  ">🎲 —</div>
-  <style>
-    @keyframes rollBannerIn { from { transform: translateY(-100%); opacity:0; } to { transform: translateY(0); opacity:1; } }
-    body.has-roll-banner .topbar { margin-top: 34px; }
-  
+  <!-- Rolls HUD -->
+  <div id="rolls_banner">🎲 —</div>
 
-  /* ═══════════════════════════════════════════════════════
-     HUD premium — overrides (dark sci‑fi / neon + glass)
-     ═══════════════════════════════════════════════════════ */
-  :root{
-    --bg0:#050913;
-    --bg1:#070d1f;
-    --glass: rgba(12, 18, 35, .52);
-    --glass2: rgba(10, 16, 32, .38);
-    --stroke: rgba(120, 210, 255, .18);
-    --stroke2: rgba(120, 210, 255, .30);
-    --glow: rgba(56, 189, 248, .55);
-    --glow2: rgba(34, 211, 238, .30);
-    --text:#e8f0ff;
-    --muted: rgba(232,240,255,.72);
-    --radius: 18px;
-    --radius2: 14px;
-    --blur: 16px;
-    --shadow: 0 10px 35px rgba(0,0,0,.45);
-    --inner: inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(0,0,0,.25);
-  }
-  body{
-    background:
-      radial-gradient(1200px 700px at 70% 0%, rgba(56,189,248,.18), transparent 55%),
-      radial-gradient(900px 600px at 20% 30%, rgba(99,102,241,.16), transparent 60%),
-      linear-gradient(180deg, var(--bg1), var(--bg0) 70%);
-  }
-  body::before{
-    content:"";
-    position:fixed; inset:0;
-    background-image:
-      radial-gradient(2px 2px at 20% 30%, rgba(255,255,255,.35) 40%, transparent 42%),
-      radial-gradient(1px 1px at 70% 10%, rgba(255,255,255,.25) 40%, transparent 42%),
-      radial-gradient(1px 1px at 40% 80%, rgba(255,255,255,.22) 40%, transparent 42%),
-      radial-gradient(1px 1px at 85% 65%, rgba(255,255,255,.18) 40%, transparent 42%);
-    opacity:.55;
-    pointer-events:none;
-    mix-blend-mode: screen;
-  }
-  body::after{
-    content:"";
-    position:fixed; inset:-2px;
-    background:
-      radial-gradient(800px 400px at 50% 15%, rgba(56,189,248,.12), transparent 60%),
-      radial-gradient(600px 320px at 30% 85%, rgba(34,211,238,.10), transparent 60%);
-    filter: blur(10px);
-    opacity:.85;
-    pointer-events:none;
-  }
-
-  .topbar{
-    position:fixed; top:0; left:0; right:0;
-    height:56px;
-    padding: 0 14px;
-    background: linear-gradient(180deg, rgba(9,14,29,.88), rgba(9,14,29,.62));
-    border-bottom: 1px solid rgba(255,255,255,.06);
-    backdrop-filter: blur(var(--blur));
-    -webkit-backdrop-filter: blur(var(--blur));
-    z-index: 50;
-  }
-  .brand .title{ letter-spacing:.4px; }
-  .brand .sub{ color: rgba(232,240,255,.68); }
-
-  .top-actions .btn.cta{
-    background: linear-gradient(180deg, rgba(56,189,248,.22), rgba(56,189,248,.10));
-    border-color: rgba(56,189,248,.45);
-    box-shadow: 0 0 0 1px rgba(56,189,248,.16), 0 10px 25px rgba(0,0,0,.35);
-  }
-  .pill{
-    background: rgba(6,10,22,.55);
-    border: 1px solid rgba(120, 210, 255, .14);
-    box-shadow: var(--inner);
-  }
-
-  /* desloca layout por causa da topbar fixa */
-  #scoreboard{ margin-top: 64px; }
-
-  /* Tabs segmentadas */
-  .tabsbar{
-    grid-column: 1 / -1;
-    display:flex;
-    gap: 6px;
-    padding: 8px;
-    border-radius: 999px;
-    background: rgba(7, 12, 26, .45);
-    border: 1px solid rgba(120,210,255,.14);
-    box-shadow: var(--inner);
-    backdrop-filter: blur(var(--blur));
-    -webkit-backdrop-filter: blur(var(--blur));
-    margin: 10px 12px 12px;
-    align-self: start;
-  }
-  .tab{
-    flex: 0 0 auto;
-    padding: 10px 14px;
-    border-radius: 999px;
-    cursor:pointer;
-    user-select:none;
-    font-weight: 950;
-    letter-spacing:.3px;
-    color: rgba(232,240,255,.75);
-    border: 1px solid transparent;
-    background: transparent;
-  }
-  .tab.active{
-    color: var(--text);
-    border-color: rgba(56,189,248,.42);
-    background: linear-gradient(180deg, rgba(56,189,248,.20), rgba(56,189,248,.08));
-    box-shadow: 0 0 0 1px rgba(56,189,248,.10), 0 14px 28px rgba(0,0,0,.35);
-  }
-
-  /* Grid 3 colunas */
-  main.hud{
-    display:grid;
-    grid-template-columns: 300px 1fr 340px;
-    grid-template-rows: auto 1fr;
-    gap: 12px;
-    padding: 0 12px 14px;
-    max-width: 1440px;
-    margin: 0 auto;
-  }
-  @media (max-width: 1420px){
-    main.hud{ max-width: 1200px; }
-  }
-  @media (max-width: 1100px){
-    main.hud{ grid-template-columns: 280px 1fr 320px; }
-  }
-
-  .panel{
-    border-radius: var(--radius);
-    background: var(--glass);
-    border: 1px solid rgba(120,210,255,.14);
-    box-shadow: var(--shadow), var(--inner);
-    backdrop-filter: blur(var(--blur));
-    -webkit-backdrop-filter: blur(var(--blur));
-  }
-  .panel-inner{ padding: 12px; }
-  .panel-title h3{
-    margin:0; font-size: .95rem; letter-spacing:.35px;
-  }
-  .mini-card{
-    background: rgba(2,6,23,.25);
-    border: 1px solid rgba(255,255,255,.06);
-  }
-  .hud-left{ grid-row: 2; grid-column: 1; }
-  .hud-center{ grid-row: 2; grid-column: 2; min-width: 0; }
-  .hud-right{ grid-row: 2; grid-column: 3; }
-
-  /* Stage */
-  .arena-card{
-    background: transparent;
-    border: none;
-    box-shadow: none;
-  }
-  .arena-head{
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    background: var(--glass2);
-    border: 1px solid rgba(120,210,255,.14);
-    box-shadow: var(--inner);
-    margin-bottom: 10px;
-  }
-  .stage-controls{ display:flex; align-items:center; gap:8px; justify-content:flex-end; }
-  .stage-controls .btn{ height: 34px; }
-  .btn.toggle{
-    background: rgba(6,10,22,.35);
-    border: 1px solid rgba(120,210,255,.18);
-  }
-  .btn.toggle[aria-pressed="true"]{
-    border-color: rgba(56,189,248,.45);
-    box-shadow: 0 0 0 1px rgba(56,189,248,.12);
-  }
-  .stage-zoom{ display:flex; gap:6px; padding-left:4px; padding-right:4px; }
-
-  /* Moldura do mapa */
-  #arena_wrap{
-    border-radius: var(--radius);
-    border: 1px solid rgba(120,210,255,.18);
-    box-shadow: var(--shadow), inset 0 0 0 1px rgba(255,255,255,.04);
-    background: rgba(2,6,23,.35);
-  }
-  .arena-canvas{ border-radius: var(--radius); }
-
-  /* DOM fallback highlight */
-  .dom-cell.place-ok{
-    outline: 1px solid rgba(163,230,53,.18);
-    background: rgba(163,230,53,.10);
-  }
-
-  /* Pokébolas (slots) */
-  .party-window{
-    display:grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 10px;
-    margin-top: 12px;
-  }
-  .party-slot{
-    position:relative;
-    height: 64px;
-    border-radius: 999px;
-    background:
-      radial-gradient(18px 18px at 50% 48%, rgba(255,255,255,.10), transparent 60%),
-      linear-gradient(180deg, rgba(239,68,68,.65) 0 50%, rgba(241,245,249,.75) 50% 100%);
-    border: 1px solid rgba(0,0,0,.25);
-    box-shadow: inset 0 -8px 18px rgba(0,0,0,.25), 0 10px 18px rgba(0,0,0,.25);
-    overflow:hidden;
-    cursor:pointer;
-  }
-  .party-slot::before{
-    content:"";
-    position:absolute; left:0; right:0; top:50%;
-    height: 10px; transform: translateY(-50%);
-    background: rgba(2,6,23,.65);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
-  }
-  .party-slot::after{
-    content:"";
-    position:absolute; left:50%; top:50%;
-    width: 16px; height: 16px;
-    transform: translate(-50%,-50%);
-    border-radius: 50%;
-    background: rgba(241,245,249,.85);
-    border: 2px solid rgba(2,6,23,.85);
-    box-shadow: 0 0 0 4px rgba(255,255,255,.08);
-  }
-  .party-slot img{
-    position:absolute;
-    left: 50%;
-    top: 16px;
-    width: 26px; height: 26px;
-    transform: translateX(-50%);
-    filter: drop-shadow(0 6px 10px rgba(0,0,0,.35));
-  }
-  .party-slot .slot-label{
-    position:absolute;
-    left: 8px; top: 7px;
-    font-weight: 950;
-    font-size: .7rem;
-    color: rgba(2,6,23,.85);
-    background: rgba(241,245,249,.85);
-    border-radius: 999px;
-    padding: 2px 7px;
-  }
-  .party-slot .slot-badge{
-    position:absolute;
-    right: 8px; bottom: 7px;
-    font-size: .62rem;
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: rgba(2,6,23,.65);
-    border: 1px solid rgba(255,255,255,.10);
-  }
-  .party-slot .slot-badge.ready{
-    background: rgba(56,189,248,.20);
-    border-color: rgba(56,189,248,.35);
-    color: rgba(232,240,255,.95);
-    box-shadow: 0 0 0 1px rgba(56,189,248,.10);
-  }
-  .party-slot.placing{
-    border-color: rgba(56,189,248,.55);
-    box-shadow: 0 0 0 2px rgba(56,189,248,.18), 0 18px 28px rgba(0,0,0,.35);
-  }
-  .party-slot:disabled{
-    opacity:.55;
-    cursor:not-allowed;
-  }
-  .party-slot.empty{
-    background: rgba(2,6,23,.35);
-    border: 1px dashed rgba(255,255,255,.10);
-  }
-
-  /* Inspector */
-  .inspector-title{ font-weight: 950; font-size: .95rem; }
-  .inspector-sub{ font-size: .75rem; opacity: .75; }
-  .inspector-card{
-    margin-top: 12px;
-    border-radius: var(--radius);
-    background: rgba(2,6,23,.28);
-    border: 1px solid rgba(255,255,255,.06);
-    box-shadow: var(--inner);
-    overflow:hidden;
-  }
-  .inspector-media{
-    height: 170px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    background: radial-gradient(500px 200px at 50% 0%, rgba(56,189,248,.18), transparent 60%);
-    border-bottom: 1px solid rgba(255,255,255,.06);
-  }
-  .inspector-media img{
-    width: 120px;
-    height: 120px;
-    object-fit: contain;
-    filter: drop-shadow(0 16px 20px rgba(0,0,0,.40));
-  }
-  .inspector-body{ padding: 12px; }
-  .inspector-name{ font-weight: 950; font-size: 1.05rem; }
-  .inspector-chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top: 8px; }
-  .chip{
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: .68rem;
-    border: 1px solid rgba(255,255,255,.10);
-    background: rgba(6,10,22,.45);
-  }
-  .chip.ok{ border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.12); }
-  .chip.warn{ border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.10); }
-
-  .hpbar{ margin-top: 12px; }
-  .hpbar-track{
-    height: 10px;
-    border-radius: 999px;
-    background: rgba(255,255,255,.08);
-    border: 1px solid rgba(255,255,255,.10);
-    overflow:hidden;
-  }
-  .hpbar-fill{
-    height: 100%;
-    background: linear-gradient(90deg, rgba(34,197,94,.95), rgba(56,189,248,.80));
-  }
-  .hpbar-meta{ margin-top: 6px; font-size: .75rem; opacity: .85; }
-
-  .inspector-actions{
-    display:grid;
-    grid-template-columns: 1fr;
-    gap: 10px;
-    margin-top: 14px;
-  }
-  .btn.danger{
-    background: rgba(239,68,68,.14);
-    border-color: rgba(239,68,68,.35);
-  }
-
-  .glass-details{
-    border-radius: var(--radius);
-    border: 1px solid rgba(255,255,255,.06);
-    background: rgba(2,6,23,.20);
-    padding: 10px 12px;
-  }
-  .glass-details summary{
-    cursor:pointer;
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    list-style:none;
-    font-weight: 950;
-  }
-
-</style>
-
+  <!-- ═══════════════════════════════════════════════════════
+       ENTRY SCREEN (pre-connect)
+       ═══════════════════════════════════════════════════════ -->
   <section id="entry_screen" aria-label="Conexão">
     <div class="panel entry-card">
       <div class="panel-inner">
@@ -1170,250 +1201,89 @@
     </div>
   </section>
 
-  <header class="topbar">
-    <div class="brand">
-      <div style="font-size:20px">🏟️</div>
+  <!-- ═══════════════════════════════════════════════════════
+       HERO HEADER
+       ═══════════════════════════════════════════════════════ -->
+  <header class="hero-header">
+    <div class="hero-left">
+      <div class="hero-icon">🏟️</div>
       <div>
-        <div class="title">PvP — Arena Tática</div>
-        <div class="sub">Realtime via Firestore (rooms/&lt;rid&gt;)</div>
+        <div class="hero-title">PVP — Arena Tática</div>
+        <div class="hero-sub">Realtime via Firestore</div>
       </div>
     </div>
-    <div class="top-actions">
-      <button class="btn secondary cta" id="top_roll_btn" title="Rolar 1d20">🎲 Rolar dado</button>
-      <button class="btn ghost" id="disconnect" title="Sair / Desconectar">⎋ Sair</button>
+    <div class="hero-right">
       <div class="pill">🧩 Sala <span id="rid_badge" style="font-weight:950">—</span></div>
-      <div class="pill">🏷️ Fase <span id="phase_badge" style="font-weight:950">—</span></div>
-      <div class="pill" title="Última rolagem">🎲 <span id="roll_pill_text" style="font-weight:950">—</span></div>
       <div class="pill">📡 <span id="sync_badge" style="font-weight:950">—</span></div>
-      <div id="status" class="pill warn">desconectado</div>
+      <div class="pill" id="status">desconectado</div>
+      <button class="btn hero-roll-btn" id="top_roll_btn" title="Rolar 1d20">🎲 Rolar dado</button>
+      <button class="btn ghost" id="disconnect" title="Sair / Desconectar">⎋ Sair</button>
     </div>
   </header>
 
-  <!-- SCOREBOARD — placar circular multi-jogador -->
+  <!-- Hidden compat badges (used by main.js) -->
+  <span id="phase_badge" style="display:none">—</span>
+  <span id="roll_pill_text" style="display:none">—</span>
+  <span id="me_badge" style="display:none">by: —</span>
+  <span id="role_badge" style="display:none">role: —</span>
+  <span id="rid_card_badge" style="display:none">—</span>
+  <span id="by_card_badge" style="display:none">—</span>
+
+  <!-- SCOREBOARD -->
   <div id="scoreboard"></div>
 
-  <main class="app">
-    <!-- LEFT PANEL -->
-    <section class="panel side-panel" aria-label="Sua equipe">
-      <div class="panel-inner">
-        <div class="panel-title">
-          <h3>🧑‍🎤 Sua Equipe</h3>
-          <div class="pill mono" id="me_badge">by: —</div>
-        </div>
-
-        <div class="card" style="margin-bottom:12px">
-          <div class="row spread" style="margin-bottom:10px">
-            <div style="font-weight:950">🔌 Sessão</div>
-            <div class="pill mono">rid: <span id="rid_card_badge">—</span></div>
-          </div>
-          <div class="muted">Conectado como <b id="by_card_badge">—</b>.</div>
-          <div class="row" style="margin-top:10px">
-            <button class="btn secondary" id="disconnect_panel">Desconectar</button>
-          </div>
-        </div>
-
-        <div class="card" style="margin-bottom:12px">
-          <div class="row spread" style="margin-bottom:10px">
-            <div style="font-weight:950">🤖 Meu Avatar</div>
-            <div class="pill mono" id="role_badge">role: —</div>
-          </div>
-          <div class="row">
-            <div class="avatar" id="avatar_icon">🙂</div>
-            <div style="min-width:0">
-              <div style="font-weight:950" id="trainer_name">—</div>
-              <div class="muted">Selecionar peça no grid: <b>clique</b> • Mover: <b>clique no tile</b> ou <b>arraste</b></div>
-            </div>
-          </div>
-        </div>
-
-        <div id="team_list" aria-label="Peças do jogador"></div>
-      </div>
-    </section>
-
-    <!-- MIDDLE -->
-    <section class="mid" aria-label="Área central">
-      <div class="tabs" role="tablist">
-        <div class="tab active" data-tab="arena" role="tab" aria-selected="true">🗺️ Arena</div>
-        <div class="tab" data-tab="combat" role="tab" aria-selected="false">⚔️ Combate</div>
-        <div class="tab" data-tab="initiative" role="tab" aria-selected="false">🧭 Iniciativa</div>
-        <div class="tab" data-tab="sheets" role="tab" aria-selected="false">📋 Fichas</div>
-        <div class="tab" data-tab="log" role="tab" aria-selected="false">📜 Log</div>
-      </div>
-
-      <!-- Arena -->
-      <section class="arena-card" id="tab_arena" role="tabpanel">
-        <div class="arena-head">
-          <div class="left">
-            <div style="font-size:18px">🗺️</div>
-            <div style="min-width:0">
-              <div class="name">Arena</div>
-              <div class="meta" id="arena_meta">grid — • tema —</div>
-            </div>
-          </div>
-          <div class="row" style="gap:8px">
-            <button class="btn ghost" id="btn_zoom_fit" title="Zoom automático">🔍 Auto</button>
-            <button class="btn secondary" id="btn_center" title="Centralizar">🧭</button>
-          </div>
-        </div>
-
-        <div class="arena-wrap" id="arena_wrap">
-          <canvas id="arena" width="1200" height="800"></canvas>
-          <div id="arena_dom" class="arena-dom" style="display:none"></div>
-          <div class="floating-status">
-            <div class="pill mono" id="sel_badge">seleção: —</div>
-            <div class="pill mono" id="hover_badge">tile: —</div>
-          </div>
-          <div class="arena-hint">
-            <div class="hint">Clique numa peça para selecionar • Clique num tile para mover • Arraste para mover</div>
-            <div class="hint">Clique com o botão direito no pokémon para ocultar, retirar da arena ou reduzir HP.</div>
-            <div class="hint">Envio sempre por <b>rooms/{rid}/actions</b> (front não mexe no state)</div>
-          </div>
-          <div id="piece_context_menu" class="piece-context-menu" role="menu" aria-label="Ações do pokémon">
-            <button type="button" data-menu-act="toggle">👁️ Ocultar / revelar</button>
-            <button type="button" data-menu-act="remove">❌ Retirar da arena</button>
-            <button type="button" data-menu-act="hp-down">💔 Reduzir 1 HP</button>
-          </div>
-        </div>
-      </section>
-
-      <!-- ═══════════════════════════════════════════════════════
-           ⚔️ COMBATE — Aba funcional completa (combat.js + combat-patch.js)
-           ═══════════════════════════════════════════════════════ -->
-      <section class="panel" id="tab_combat" role="tabpanel" style="display:none;flex:1;min-height:0">
-        <div class="panel-inner">
-          <!-- CombatUI renderiza aqui dinamicamente -->
-        </div>
-      </section>
-
-      <!-- Initiative placeholder -->
-      <section class="panel" id="tab_initiative" role="tabpanel" style="display:none;flex:1;min-height:0">
-        <div class="panel-inner">
-          <div class="panel-title"><h3>🧭 Iniciativa</h3></div>
-          <div class="card">
-            <div style="font-weight:950;margin-bottom:6px">Placeholder conectado</div>
-            <div class="muted">Estrutura pronta para consumir dados do battle/initiative e pieces.</div>
-          </div>
-          <pre id="initiative_preview">—</pre>
-        </div>
-      </section>
-
-      <!-- Sheets placeholder -->
-      <section class="panel" id="tab_sheets" role="tabpanel" style="display:none;flex:1;min-height:0">
-        <div class="panel-inner">
-          <div class="panel-title"><h3>📋 Fichas</h3></div>
-          <div class="card">
-            <div style="font-weight:950;margin-bottom:6px">Placeholder conectado</div>
-            <div class="muted">Usa a seleção no grid para decidir qual ficha abrir (próxima etapa).</div>
-          </div>
-          <pre id="sheets_preview">—</pre>
-        </div>
-      </section>
-
-      <!-- Log -->
-      <section class="panel" id="tab_log" role="tabpanel" style="display:none;flex:1;min-height:0">
-        <div class="panel-inner log-wrap">
-          <div class="panel-title">
-            <h3>📜 Log</h3>
-            <div class="pill mono" id="log_count">0</div>
-          </div>
-          <div class="card" style="margin-bottom:0">
-            <div class="log-compose">
-              <input class="input" id="log_text" placeholder="Escreva um log (ADD_LOG)..." />
-              <button class="btn" id="btn_add_log">Enviar</button>
-            </div>
-            <div class="muted" style="margin-top:10px">Mostrando <code>public_state/battle.logs</code> em tempo real.</div>
-          </div>
-          <div class="log-list" id="log_list"></div>
-        </div>
-      </section>
-
-      <!-- Time (posicionamento) -->
-      <details class="dev" id="devtools">
-        <summary>
-          <span>🧢 Time (posicionamento)</span>
-          <span class="pill mono">slots: 8</span>
-        </summary>
-        <div class="dev-body">
-          <div class="card" style="margin-bottom:0">
-            <div class="row spread" style="margin-bottom:10px">
-              <div style="font-weight:950">🎯 Time para posicionar</div>
-            </div>
-            <div class="muted" style="margin-bottom:10px">Clique em uma pokébola para armar o Pokémon e depois clique em um tile da arena.</div>
-            <div id="party_window" class="party-window" aria-label="Slots da party"></div>
-          </div>
-        </div>
-      </details>
-    </section>
-
-    <!-- RIGHT PANEL -->
-    <section class="panel side-panel" aria-label="Oponentes">
-      <div class="panel-inner">
-        <div class="panel-title">
-          <h3>🆚 Oponentes</h3>
-          <div class="pill mono" id="opp_count">0</div>
-        </div>
-
-        <div id="opp_list"></div>
-
-        <div class="card" style="margin-top:12px">
-          <div style="font-weight:950;margin-bottom:6px">Info</div>
-          <div class="muted">Esta lateral pode mostrar mochila, status, ações do turno etc. (próxima etapa).</div>
-        </div>
-      </div>
-    </section>
-  </main>
-
   <!-- ═══════════════════════════════════════════════════════
-       Scripts: main.js (original) + combat-patch.js (novo)
+       TABS (pill navigation)
        ═══════════════════════════════════════════════════════ -->
-  <script type="module" src="./main.js"></script>
-  <script type="module" src="./combat-patch.js"></script>
-  <script type="module" src="./initiative-patch.js"></script>
-  <script type="module" src="./arena-combat-patch.js"></script>
-  <script type="module" src="./scoreboard-patch.js"></script>
-</body>
-</html>
-<main class="hud">
-    <div class="tabsbar tabs" role="tablist" aria-label="Abas">
+  <div class="hud-tabs">
+    <div class="tabs" role="tablist" aria-label="Abas">
       <div class="tab active" data-tab="arena" role="tab" aria-selected="true">Arena</div>
       <div class="tab" data-tab="combat" role="tab" aria-selected="false">Combate</div>
       <div class="tab" data-tab="initiative" role="tab" aria-selected="false">Iniciativa</div>
       <div class="tab" data-tab="sheets" role="tab" aria-selected="false">Fichas</div>
       <div class="tab" data-tab="log" role="tab" aria-selected="false">Log</div>
     </div>
-    <aside class="panel hud-left" aria-label="Time (posicionamento)">
-      <div class="panel-inner">
-        <div class="panel-title row spread">
-          <div>
-            <h3>Time (posicionamento)</h3>
-            <div class="muted tiny">Clique na pokébola → clique no tile</div>
-          </div>
-          <div class="row" style="gap:8px">
-            <div class="pill mono" id="me_badge">by: —</div>
-          </div>
-        </div>
+  </div>
 
-        <div class="card mini-card">
-          <div class="row spread" style="margin-bottom:8px">
-            <div class="tiny muted">Estado</div>
-            <button class="btn ghost" id="btn_cancel_place" style="display:none">Cancelar</button>
-          </div>
-          <div class="row" style="gap:8px;align-items:center">
-            <div class="avatar" id="avatar_icon">🙂</div>
-            <div style="min-width:0">
-              <div style="font-weight:950" id="trainer_name">—</div>
-              <div class="tiny muted">Armadura: <span class="mono" id="armed_label">—</span></div>
+  <!-- ═══════════════════════════════════════════════════════
+       HUD BODY — 3-column layout
+       ═══════════════════════════════════════════════════════ -->
+  <div class="hud-body">
+    <!-- ┌─── LEFT: Fichas (team list) ───┐ -->
+    <div class="sidebar-left">
+      <div class="panel">
+        <div class="panel-inner">
+          <!-- Trainer info -->
+          <div class="card mini-card" style="margin-bottom:10px">
+            <div class="row" style="gap:8px;align-items:center">
+              <div class="avatar" id="avatar_icon">🙂</div>
+              <div style="min-width:0; flex:1">
+                <div style="font-weight:950; font-size:13px" id="trainer_name">—</div>
+                <div class="tiny muted">Armado: <span class="mono" id="armed_label">—</span></div>
+              </div>
+              <button class="btn ghost" id="btn_cancel_place" style="display:none; padding:4px 8px; font-size:10px">Cancelar</button>
             </div>
           </div>
+
+          <!-- Pokeball slots -->
+          <div id="party_window" class="party-window" aria-label="Slots de pokébolas"></div>
+
+          <!-- Section divider -->
+          <div style="margin:12px 0 8px; border-top:1px solid rgba(120,210,255,.08)"></div>
+
+          <!-- Fichas list (rendered by panels-patch.js) -->
+          <div class="sidebar-section">
+            <span class="sidebar-section-icon">📋</span>
+            <span class="sidebar-section-label">Fichas</span>
+            <span class="sidebar-section-badge" id="fichas_count">0</span>
+          </div>
+          <div id="team_list" aria-label="Peças do jogador"></div>
         </div>
-
-        <div id="party_window" class="party-window" aria-label="Slots de pokébolas"></div>
-
-        <!-- Mantido por compat/debug (não aparece no layout) -->
-        <div id="team_list" style="display:none"></div>
       </div>
-    </aside>
-    <section class="hud-center" aria-label="Conteúdo">
+    </div>
+
+    <!-- ┌─── CENTER: Arena + other tabs ───┐ -->
+    <div class="hud-center">
       <!-- Arena -->
       <section class="arena-card" id="tab_arena" role="tabpanel">
         <div class="arena-head">
@@ -1455,16 +1325,14 @@
         </div>
       </section>
 
-      <!-- ═══════════════════════════════════════════════════════
-           ⚔️ COMBATE — Aba funcional completa (combat.js + combat-patch.js)
-           ═══════════════════════════════════════════════════════ -->
+      <!-- Combate -->
       <section class="panel" id="tab_combat" role="tabpanel" style="display:none;flex:1;min-height:0">
         <div class="panel-inner">
           <!-- CombatUI renderiza aqui dinamicamente -->
         </div>
       </section>
 
-      <!-- Initiative placeholder -->
+      <!-- Initiative -->
       <section class="panel" id="tab_initiative" role="tabpanel" style="display:none;flex:1;min-height:0">
         <div class="panel-inner">
           <div class="panel-title"><h3>🧭 Iniciativa</h3></div>
@@ -1476,7 +1344,7 @@
         </div>
       </section>
 
-      <!-- Sheets placeholder -->
+      <!-- Sheets -->
       <section class="panel" id="tab_sheets" role="tabpanel" style="display:none;flex:1;min-height:0">
         <div class="panel-inner">
           <div class="panel-title"><h3>📋 Fichas</h3></div>
@@ -1506,8 +1374,8 @@
         </div>
       </section>
 
-      <!-- Time (posicionamento) -->
-      <details class="dev" id="devtools">
+      <!-- Dev tools (hidden by default) -->
+      <details class="dev" id="devtools" style="display:none">
         <summary>
           <span>🧢 Time (posicionamento)</span>
           <span class="pill mono">slots: 8</span>
@@ -1518,25 +1386,54 @@
               <div style="font-weight:950">🎯 Time para posicionar</div>
             </div>
             <div class="muted" style="margin-bottom:10px">Clique em uma pokébola para armar o Pokémon e depois clique em um tile da arena.</div>
-            <div id="party_window" class="party-window" aria-label="Slots da party"></div>
           </div>
         </div>
       </details>
-    </section>
+    </div>
 
-    
-    </section>
-    <aside class="panel hud-right" aria-label="Inspector">
-      <div class="panel-inner">
-        <div id="inspector_root"></div>
+    <!-- ┌─── RIGHT: Inspector ───┐ -->
+    <div class="sidebar-right">
+      <div class="panel">
+        <div class="panel-inner">
+          <div id="inspector_root"></div>
 
-        <details class="glass-details" style="margin-top:12px">
-          <summary>
-            <span>Oponentes</span>
-            <span class="pill mono" id="opp_count">0</span>
-          </summary>
-          <div id="opp_list" style="margin-top:10px"></div>
-        </details>
+          <details class="glass-details" style="margin-top:12px" open>
+            <summary>
+              <span>Oponentes</span>
+              <span class="pill mono" id="opp_count">0</span>
+            </summary>
+            <div id="opp_list" style="margin-top:10px"></div>
+          </details>
+        </div>
       </div>
-    </aside>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       LEGACY LAYOUT (hidden — kept for compat with main.js DOM queries)
+       ═══════════════════════════════════════════════════════ -->
+  <main class="app" style="display:none !important">
+    <section class="panel side-panel" aria-label="Sua equipe">
+      <div class="panel-inner">
+        <div class="panel-title"><h3>🧑‍🎤 Sua Equipe</h3></div>
+      </div>
+    </section>
+    <section class="mid" aria-label="Área central">
+    </section>
+    <section class="panel side-panel" aria-label="Oponentes">
+      <div class="panel-inner">
+        <div class="panel-title"><h3>🆚 Oponentes</h3></div>
+      </div>
+    </section>
   </main>
+
+  <!-- ═══════════════════════════════════════════════════════
+       Scripts
+       ═══════════════════════════════════════════════════════ -->
+  <script type="module" src="./main.js"></script>
+  <script type="module" src="./combat-patch.js"></script>
+  <script type="module" src="./initiative-patch.js"></script>
+  <script type="module" src="./arena-combat-patch.js"></script>
+  <script type="module" src="./scoreboard-patch.js"></script>
+</body>
+</html>
