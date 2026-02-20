@@ -643,6 +643,8 @@ function updateTopBadges() {
     const turnState = appState.battle?.turn_state || null;
     if (!turnState || !Array.isArray(turnState.order) || !turnState.order.length) {
       turnBadge.textContent = "Rodada — • aguardando iniciativa";
+    } else if (safeStr(turnState.phase) === "preprep_asking") {
+      turnBadge.textContent = `Rodada ${Number(turnState.round) || 1} • 📋 fase de preprep`;
     } else if (safeStr(turnState.phase) !== "active") {
       turnBadge.textContent = `Rodada ${Number(turnState.round) || 1} • aguardando nova iniciativa`;
     } else {
@@ -670,7 +672,8 @@ function getBattleDocRef() {
 
 function getCurrentTurnActor() {
   const turnState = appState.battle?.turn_state;
-  if (!turnState || safeStr(turnState.phase) !== "active") return null;
+  const phase = safeStr(turnState?.phase);
+  if (!turnState || (phase !== "active" && phase !== "preprep_asking")) return null;
   const order = Array.isArray(turnState.order) ? turnState.order : [];
   if (!order.length) return null;
   const idx = Math.max(0, Number(turnState.index) || 0);
@@ -878,6 +881,7 @@ passTurnBtn?.addEventListener("click", async () => {
       const turnState = battleData?.turn_state || {};
       const phase = safeStr(turnState.phase);
       const order = Array.isArray(turnState.order) ? turnState.order : [];
+      if (phase === "preprep_asking") throw new Error("aguardando fase de preprep");
       if (phase !== "active" || !order.length) throw new Error("não há rodada ativa");
 
       const me = safeStr(appState.by);
