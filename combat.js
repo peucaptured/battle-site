@@ -503,7 +503,7 @@ export class CombatUI {
     // Area attack panel
     html += `<div id="cb_area_panel" style="display:none">
       <div class="muted" style="margin-bottom:8px;padding:8px;border-radius:12px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3)">
-        Ataque em Área: Dodge (CD 10 + Nível) reduz dano pela metade.
+        Ataque em Área: Dodge obrigatório (CD 10 + Rank). Se passar, dano cai para metade do Rank.
       </div>
       <label class="label">Nível do Efeito / Dano</label>
       <input class="input" id="cb_area_level" type="number" value="1" min="1" style="margin-bottom:10px" />
@@ -695,7 +695,7 @@ export class CombatUI {
         aoe_dc: lvl + 10,
         dmg_base: lvl,
         is_effect: isEff,
-        logs: [`${by} lançou Área (Nv ${lvl}). Defensor rola Dodge (CD ${lvl + 10}).`],
+        logs: [`${by} lançou Área (Rank ${lvl}). Defensor rola Dodge obrigatório (CD ${lvl + 10}).`],
       });
     });
   }
@@ -716,14 +716,10 @@ export class CombatUI {
 
     if (isDefender) {
       html += `
-        <div style="margin-top:12px;font-weight:900;font-size:13px">🛡️ Escolha sua defesa:</div>
-        <div class="muted" style="margin-bottom:10px">Dodge (CD 10 + Nível) reduz o Rank pela metade.</div>
+        <div style="margin-top:12px;font-weight:900;font-size:13px">🛡️ Dodge obrigatório:</div>
+        <div class="muted" style="margin-bottom:10px">CD 10 + Rank. Se passar, toma metade do Rank. Se falhar, toma Rank total.</div>
         <div class="cb-defense-grid">
           <button class="btn secondary" data-def="dodge">Dodge</button>
-          <button class="btn secondary" data-def="parry">Parry</button>
-          <button class="btn secondary" data-def="fort">Fort</button>
-          <button class="btn secondary" data-def="will">Will</button>
-          <button class="btn secondary" data-def="thg" style="grid-column:span 2">THG (Toughness)</button>
         </div>
       `;
     } else {
@@ -754,17 +750,17 @@ export class CombatUI {
           let finalRank, msg;
           if (totalRoll >= dc) {
             finalRank = Math.max(1, Math.floor(baseRank / 2));
-            msg = `Sucesso! (${totalRoll} vs ${dc}) com ${defType.toUpperCase()}. Rank reduzido: ${baseRank} -> ${finalRank}.`;
+            msg = `Sucesso no Dodge! (${totalRoll} vs ${dc}). Rank reduzido: ${baseRank} -> ${finalRank}.`;
           } else {
             finalRank = baseRank;
-            msg = `Falha! (${totalRoll} vs ${dc}) com ${defType.toUpperCase()}. Rank total: ${finalRank}.`;
+            msg = `Falha no Dodge! (${totalRoll} vs ${dc}). Rank total: ${finalRank}.`;
           }
 
           const ref = this._battleRef(); if (!ref) return;
           await updateDoc(ref, {
             status: "waiting_defense",
             dmg_base: finalRank,
-            logs: arrayUnion(msg + " Escolha a resistência agora."),
+            logs: arrayUnion(msg + " Agora escolha como resistir."),
           });
         });
       });

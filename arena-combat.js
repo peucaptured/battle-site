@@ -1148,8 +1148,8 @@ export class ArenaCombatUI {
         dmg_base: lvl,
         is_effect: isEff,
         pendingFor: tOwner,
-        prompt: { type: "ROLL_RESIST", options: { dc: lvl + 10, isEffect: isEff, isAoe: true } },
-        logs: [`${by} lançou Área (Nv ${lvl}). Defensor rola Dodge (CD ${lvl + 10}).`],
+        prompt: { type: "ROLL_RESIST", options: { dc: lvl + 10, isEffect: isEff, isAoe: true, aoePhase: "dodge" } },
+        logs: [`${by} lançou Área (Rank ${lvl}). Defensor rola Dodge obrigatório (CD ${lvl + 10}).`],
       });
 
       this._showFloat(targetPiece, `🌀 Área Nv${lvl} — CD ${lvl + 10}`, "pending");
@@ -1541,13 +1541,15 @@ export class ArenaCombatUI {
     el.innerHTML = `
       <div class="ac-prompt-title">🛡️ Resistir ao ataque!</div>
       <div class="ac-prompt-dc">CD ${dc} ${isEffect ? "(Efeito)" : "(Dano)"}${isAoe ? " — Área" : ""}</div>
-      <div style="font-size:11px;color:rgba(148,163,184,.7);margin-bottom:8px">Escolha a resistência:</div>
+      <div style="font-size:11px;color:rgba(148,163,184,.7);margin-bottom:8px">${isAoe ? "Dodge obrigatório da área:" : "Escolha a resistência:"}</div>
       <div class="ac-prompt-grid">
         <button class="ac-prompt-btn" data-def="dodge">Dodge</button>
+        ${isAoe ? "" : `
         <button class="ac-prompt-btn" data-def="parry">Parry</button>
         <button class="ac-prompt-btn" data-def="fort">Fort</button>
         <button class="ac-prompt-btn" data-def="will">Will</button>
         <button class="ac-prompt-btn ac-wide" data-def="thg">THG (Toughness)</button>
+        `}
       </div>
     `;
 
@@ -1576,10 +1578,10 @@ export class ArenaCombatUI {
           let finalRank, msg;
           if (checkTotal >= dc) {
             finalRank = Math.max(1, Math.floor(baseRank / 2));
-            msg = `Sucesso! (${checkTotal} vs ${dc}) ${defType.toUpperCase()}. Rank: ${baseRank}→${finalRank}`;
+            msg = `Sucesso no Dodge! (${checkTotal} vs ${dc}). Rank: ${baseRank}→${finalRank}`;
           } else {
             finalRank = baseRank;
-            msg = `Falha! (${checkTotal} vs ${dc}) ${defType.toUpperCase()}. Rank total: ${finalRank}`;
+            msg = `Falha no Dodge! (${checkTotal} vs ${dc}). Rank total: ${finalRank}`;
           }
 
           // Show float
@@ -1594,7 +1596,7 @@ export class ArenaCombatUI {
             dmg_base: finalRank,
             pendingFor: by,
             prompt: { type: "ROLL_RESIST", options: { dc: newDc, isEffect: isEff, isAoe: false } },
-            logs: arrayUnion(`${msg}. Agora resista (CD ${newDc}).`),
+            logs: arrayUnion(`${msg}. Agora escolha como resistir (CD ${newDc}).`),
           });
           this._closePrompt();
         } else {
