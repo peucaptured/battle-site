@@ -185,7 +185,43 @@ function saveLoginCache(name, userData, uid, customToken) {
     );
   } catch {}
 }
+let sheetsUnsub = null;
 
+function ensureSheetsRealtime() {
+  if (!currentDb) return;
+
+  const trainerId = appState.selfTrainerId;
+  if (!trainerId) {
+    console.warn("[sheets] sem selfTrainerId");
+    return;
+  }
+
+  if (sheetsUnsub) sheetsUnsub();
+
+  console.log("[sheets] ouvindo:", trainerId);
+
+  const col = collection(currentDb, "trainers", trainerId, "sheets");
+
+  sheetsUnsub = onSnapshot(col, (snap) => {
+    console.log("[sheets] docs:", snap.size);
+
+    const sheets = snap.docs.map(d => ({
+      id: d.id,
+      ...d.data(),
+    }));
+
+    appState.selfSheets = sheets;
+
+    updateSidePanels(); // já existe no seu código
+  });
+}
+
+function teardownSheetsRealtime() {
+  if (sheetsUnsub) {
+    sheetsUnsub();
+    sheetsUnsub = null;
+  }
+}
 
 function clearLoginCache() {
   try { localStorage.removeItem(LOGIN_CACHE_KEY); } catch {}
@@ -812,6 +848,12 @@ connectBtn?.addEventListener("click", async () => {
   document.body.classList.remove("preconnect");
   setStatus("ok", "conectado");
   updateTopBadges();
+  // ✅ iniciar realtime das fichas do treinador logado
+  try {
+    ensureSheetsRealtime?.();
+  } catch (e) {
+    console.warn("ensureSheetsRealtime falhou:", e);
+  }
 
   // players (suporta 2 formatos: subcoleção rooms/{rid}/players e/ou campos no doc rooms/{rid})
   let playersFromCol = [];
