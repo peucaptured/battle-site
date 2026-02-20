@@ -1791,7 +1791,7 @@ function renderPartyWindow() {
     const ko = hp <= 0;
     const onBoard = isPokemonAlreadyOnBoard(by, pid);
     const placing = placingPid && placingPid === pid;
-    const disabled = ko || onBoard;
+    const disabled = ko && !onBoard;
     const readyBadge = placing ? '<span class="slot-badge ready">pronto</span>' : '';
     const badges = `${readyBadge}${onBoard ? '<span class="slot-badge">em campo</span>' : ''}${ko ? '<span class="slot-badge">KO</span>' : ''}`;
     return `<button type="button" class="party-slot ${ko ? 'ko' : ''} ${placing ? 'placing' : ''}" data-slot="${idx}" data-pid="${escapeAttr(pid)}" ${disabled ? 'disabled' : ''}>
@@ -1808,6 +1808,20 @@ function renderPartyWindow() {
     if (!btn) return;
     const pid = safeStr(btn.dataset.pid);
     if (!pid) return;
+
+    const activePieceId = getActivePieceIdForPokemon(by, pid);
+    if (activePieceId) {
+      removePieceFromBoard(activePieceId);
+      return;
+    }
+
+    if (getPlacingPokemonPid() && getPlacingPokemonPid() === pid) {
+      clearPokemonPlacingMode();
+      updateSidePanels();
+      setStatus("ok", "posicionamento cancelado");
+      return;
+    }
+
     startPlacePokemon(pid);
   });
 }
@@ -3039,6 +3053,15 @@ function isPokemonAlreadyOnBoard(ownerName, pid) {
     safeStr(p?.pid) === safeStr(pid) &&
     safeStr(p?.status || "active") === "active"
   );
+}
+
+function getActivePieceIdForPokemon(ownerName, pid) {
+  const found = (appState.pieces || []).find((p) =>
+    safeStr(p?.owner) === safeStr(ownerName) &&
+    safeStr(p?.pid) === safeStr(pid) &&
+    safeStr(p?.status || "active") === "active"
+  );
+  return safeStr(found?.id);
 }
 
 // Interações Arena
