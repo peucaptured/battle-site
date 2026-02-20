@@ -43,6 +43,14 @@ function d20() {
   return Math.floor(Math.random() * 20) + 1;
 }
 
+function normalizeOwnerName(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isSameOwner(a, b) {
+  return normalizeOwnerName(a) !== "" && normalizeOwnerName(a) === normalizeOwnerName(b);
+}
+
 /** Tabela Speed → Mod (igual ao app.py) */
 function speedToMod(speed) {
   const s = safeInt(speed, 0);
@@ -261,7 +269,7 @@ export class InitiativeUI {
       if (!rec) return;
 
       const isOwner2 = this._role === "owner" || this._role === "gm";
-      if (!isOwner2 && rec.owner !== this._by) {
+      if (!isOwner2 && !isSameOwner(rec.owner, this._by)) {
         alert("Você só pode rolar iniciativa dos seus próprios Pokémon.");
         return;
       }
@@ -310,14 +318,17 @@ export class InitiativeUI {
     const rows = [];
     for (const p of this._pieces) {
       const pKind = String(p.kind || "piece");
-      if (!["trainer", "piece"].includes(pKind)) continue;
+      const isTrainer = pKind === "trainer";
+      const isPokemon = !isTrainer && String(p.pid || "").trim() !== "";
+      if (!isTrainer && !isPokemon) continue;
+      if (isPokemon && String(p.status || "active") !== "active") continue;
 
       const key = `${pKind}:${p.id}`;
       const owner = String(p.owner || "");
 
       let display, speed_val, speed_mod, pid;
 
-      if (pKind === "trainer") {
+      if (isTrainer) {
         display = `🧍 ${owner || "Treinador"}`;
         pid = "";
         speed_val = 0;
@@ -369,9 +380,9 @@ export class InitiativeUI {
       );
 
       let final_init;
-      if (pKind === "piece" && d20_roll > 0) {
+      if (isPokemon && d20_roll > 0) {
         final_init = d20_roll + speed_mod + bonus_input;
-      } else if (pKind === "trainer") {
+      } else if (isTrainer) {
         final_init = bonus_input;
       } else {
         final_init = 0;
@@ -380,7 +391,7 @@ export class InitiativeUI {
       rows.push({
         key,
         owner,
-        kind: pKind === "trainer" ? "Avatar" : "Pokémon",
+        kind: isTrainer ? "Avatar" : "Pokémon",
         pid,
         display,
         speed: speed_val,
@@ -405,7 +416,7 @@ export class InitiativeUI {
     // ── Atualiza select de Pokémon
     const pool = isOwner
       ? rows.filter(r => r.kind === "Pokémon")
-      : rows.filter(r => r.kind === "Pokémon" && r.owner === this._by);
+      : rows.filter(r => r.kind === "Pokémon" && isSameOwner(r.owner, this._by));
 
     const prevSel = selEl.value;
     selEl.innerHTML = pool.length
@@ -418,7 +429,8 @@ export class InitiativeUI {
       rowsEl.innerHTML = `<div class="card muted">Sem peças em campo para registrar iniciativa.</div>`;
     } else {
       rowsEl.innerHTML = rows.map(r => {
-        const canEdit = isOwner || r.owner === this._by;
+        const canEditPokemon = r.kind === "Pokémon" && isSameOwner(r.owner, this._by);
+        const canEdit = isOwner ? true : canEditPokemon;
         const bonusVal = safeInt(this._bonusEdits[r.key] ?? r.bonus, 0);
 
         // cor da badge d20
