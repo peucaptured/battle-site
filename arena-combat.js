@@ -744,7 +744,8 @@ export class ArenaCombatUI {
       const owner = safeStr(piece.owner);
       const role = this.getRole();
       const isPlayer = (role === "owner" || role === "challenger");
-      if (!isPlayer || owner === by || !owner) return null;
+      const canStartCombat = !!window.canCurrentPlayerStartCombat?.();
+      if (!isPlayer || !canStartCombat || owner === by || !owner) return null;
       return piece;
     };
 
@@ -808,6 +809,7 @@ export class ArenaCombatUI {
     const by = this.getBy();
     const role = this.getRole();
     const isPlayer = (role === "owner" || role === "challenger");
+    const canStartCombat = !!window.canCurrentPlayerStartCombat?.();
     const el = document.createElement("div");
     el.className = "ac-context";
 
@@ -819,7 +821,7 @@ export class ArenaCombatUI {
       const isMine = owner && owner === by;
       const name = displayName(safeStr(piece.pid));
 
-      if (isEnemy && isPlayer) {
+      if (isEnemy && isPlayer && canStartCombat) {
         items.push({ icon: "⚔️", label: `Atacar ${name}`, action: () => { this._closeAll(); this._openAttackOverlay(piece, x, y); } });
         if (this._lastMove) {
           items.push({ icon: "🔄", label: `Repetir: ${this._lastMove.moveName}`, kbd: "", action: () => { this._closeAll(); this._executeRepeatOnTarget(piece); } });

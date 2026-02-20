@@ -52,6 +52,8 @@ const playersCount = $("players_count");
 const lastActionEl = $("last_action");
 const actionsLogEl = $("actions_log");
 const topRollBtn = $("top_roll_btn");
+const passTurnBtn = $("pass_turn_btn");
+const turnBadge = $("turn_badge");
 const cancelPlaceBtn = $("btn_cancel_place");
 
 const playersPre = $("players");
@@ -630,6 +632,89 @@ function updateTopBadges() {
 
   const synced = appState.connected ? "Sincronizado ✓" : "—";
   if (syncBadge) syncBadge.textContent = synced;
+
+  if (turnBadge) {
+    const turnState = appState.battle?.turn_state || null;
+    if (!turnState || !Array.isArray(turnState.order) || !turnState.order.length) {
+      turnBadge.textContent = "Rodada — • aguardando iniciativa";
+    } else if (safeStr(turnState.phase) !== "active") {
+      turnBadge.textContent = `Rodada ${Number(turnState.round) || 1} • aguardando nova iniciativa`;
+    } else {
+      const idx = Number(turnState.index) || 0;
+      const cur = turnState.order[idx] || null;
+      if (!cur) {
+        turnBadge.textContent = `Rodada ${Number(turnState.round) || 1} • aguardando próxima ação`;
+      } else {
+        const mon = safeStr(cur.display || cur.pid || cur.pieceId || "Pokémon");
+        const owner = safeStr(cur.owner || "—");
+        turnBadge.textContent = `Rodada ${Number(turnState.round) || 1} • Turno: ${mon} (${owner})`;
+      }
+    }
+  }
+
+  if (passTurnBtn) {
+    passTurnBtn.disabled = !canCurrentPlayerPassTurn();
+  }
+}
+
+function getBattleDocRef() {
+  if (!currentDb || !currentRid) return null;
+  return doc(currentDb, "rooms", currentRid, "public_state", "battle");
+}
+
+function getCurrentTurnActor() {
+  const turnState = appState.battle?.turn_state;
+  if (!turnState || safeStr(turnState.phase) !== "active") return null;
+  const order = Array.isArray(turnState.order) ? turnState.order : [];
+  if (!order.length) return null;
+  const idx = Math.max(0, Number(turnState.index) || 0);
+  return order[idx] || null;
+}
+
+function isCurrentTurnOwnerMe() {
+  const me = safeStr(appState.by);
+  const cur = getCurrentTurnActor();
+  return !!me && !!cur && safeStr(cur.owner) === me;
+}
+
+function canCurrentPlayerPassTurn() {
+  return isCurrentTurnOwnerMe();
+}
+
+function canCurrentPlayerStartCombat() {
+  const role = safeStr(appState.role);
+  const isPlayer = role === "owner" || role === "challenger" || role === "gm";
+  return isPlayer && isCurrentTurnOwnerMe();
+}
+
+function buildTurnOrderFromCurrentBoard() {
+  const pieces = Array.isArray(appState.pieces) ? appState.pieces : [];
+  const init = appState.battle?.initiative || {};
+  const activePieces = pieces.filter((p) => safeStr(p?.status || "active") === "active");
+
+  const order = activePieces.map((p) => {
+    const pieceId = safeStr(p?.id);
+    const pid = safeStr(p?.pid);
+    const owner = safeStr(p?.owner);
+    const key = `piece:${pieceId}`;
+    const initVal = Number(init?.[key]?.initiative);
+    const display = safeStr((window.dexMap && (window.dexMap[pid] || window.dexMap[String(Number(pid))])) || p?.name || p?.display_name || pid || pieceId);
+    return {
+      pieceId,
+      pid,
+      owner,
+      display,
+      initiative: Number.isFinite(initVal) ? initVal : 0,
+    };
+  });
+
+  order.sort((a, b) => {
+    if (b.initiative !== a.initiative) return b.initiative - a.initiative;
+    const byOwner = a.owner.localeCompare(b.owner);
+    if (byOwner !== 0) return byOwner;
+    return a.display.localeCompare(b.display);
+  });
+  return order;
 }
 
 function setTab(tabName) {
@@ -704,6 +789,33 @@ topRollBtn?.addEventListener("click", async () => {
     return;
   }
 
+  const turnState = appState.battle?.turn_state || null;
+  if (turnState && safeStr(turnState.phase) === "active") {
+    setStatus("warn", "iniciativa só pode ser rolada no início da rodada");
+    return;
+  }
+
+  const order = buildTurnOrderFromCurrentBoard();
+  if (!order.length) {
+    setStatus("err", "sem pokémon ativos para iniciar rodada");
+    return;
+  }
+
+  const currentRound = Number(turnState?.round) || 0;
+  const nextTurnState = {
+    round: currentRound + 1,
+    phase: "active",
+    index: 0,
+    order,
+    updatedAt: Date.now(),
+  };
+
+  const battleRef = getBattleDocRef();
+  if (!battleRef) {
+    setStatus("err", "battle doc indisponível");
+    return;
+  }
+
   const by = safeStr(appState.by || byInput?.value || "Anon") || "Anon";
   const value = Math.floor(Math.random() * 20) + 1;
 
@@ -713,6 +825,10 @@ topRollBtn?.addEventListener("click", async () => {
   topRollBtn.textContent = "⏳ Rolando...";
 
   try {
+    await runTransaction(currentDb, async (tx) => {
+      tx.set(battleRef, { turn_state: nextTurnState }, { merge: true });
+    });
+
     await addDoc(collection(currentDb, "rooms", currentRid, "rolls"), {
       by,
       trainer: by,
@@ -726,6 +842,66 @@ topRollBtn?.addEventListener("click", async () => {
   } finally {
     topRollBtn.disabled = prevDisabled;
     topRollBtn.textContent = prevLabel || "🎲 Rolar dado";
+  }
+});
+
+passTurnBtn?.addEventListener("click", async () => {
+  if (!currentDb || !currentRid || !appState.connected) {
+    setStatus("err", "conecte antes de passar o turno");
+    return;
+  }
+  if (!canCurrentPlayerPassTurn()) {
+    setStatus("err", "apenas o jogador do turno pode passar");
+    return;
+  }
+
+  const battleRef = getBattleDocRef();
+  if (!battleRef) {
+    setStatus("err", "battle doc indisponível");
+    return;
+  }
+
+  try {
+    await runTransaction(currentDb, async (tx) => {
+      const snap = await tx.get(battleRef);
+      const battleData = snap.exists() ? snap.data() : {};
+      const turnState = battleData?.turn_state || {};
+      const phase = safeStr(turnState.phase);
+      const order = Array.isArray(turnState.order) ? turnState.order : [];
+      if (phase !== "active" || !order.length) throw new Error("não há rodada ativa");
+
+      const me = safeStr(appState.by);
+      const idx = Math.max(0, Number(turnState.index) || 0);
+      const cur = order[idx] || null;
+      if (!cur || safeStr(cur.owner) !== me) throw new Error("não é seu turno");
+
+      let nextIndex = idx + 1;
+      let nextRound = Number(turnState.round) || 1;
+      let nextPhase = "active";
+      if (nextIndex >= order.length) {
+        nextIndex = 0;
+        nextRound += 1;
+        nextPhase = "awaiting_initiative";
+      }
+
+      tx.set(
+        battleRef,
+        {
+          turn_state: {
+            ...turnState,
+            round: nextRound,
+            index: nextIndex,
+            phase: nextPhase,
+            updatedAt: Date.now(),
+          },
+        },
+        { merge: true }
+      );
+    });
+
+    setStatus("ok", "turno avançado");
+  } catch (e) {
+    setStatus("err", `erro ao passar turno: ${e?.message || e}`);
   }
 });
 
@@ -2241,7 +2417,8 @@ function sendMoveSelected(toRow, toCol) {
   const pieceId = safeStr(appState.selectedPieceId);
   if (!pieceId) return;
   if (!canCurrentPlayerMovePiece(pieceId)) {
-    setStatus("err", "você só pode mover peças suas");
+    if (!isCurrentTurnOwnerMe()) setStatus("err", "somente o jogador do turno pode mover");
+    else setStatus("err", "você só pode mover peças suas");
     return;
   }
   const by = safeStr(byInput?.value || "Anon") || "Anon";
@@ -2439,6 +2616,7 @@ function isPieceMine(p) {
 }
 
 function canCurrentPlayerMovePiece(pieceId) {
+  if (!isCurrentTurnOwnerMe()) return false;
   const pid = safeStr(pieceId);
   if (!pid) return false;
   const pieces = Array.isArray(appState.pieces) ? appState.pieces : [];
@@ -3986,6 +4164,8 @@ window.removePieceFromBoard = removePieceFromBoard;
 window.startPlacePokemon  = startPlacePokemon;
 window.screenToTile       = screenToTile;
 window.getPieceAt         = getPieceAt;
+window.canCurrentPlayerStartCombat = canCurrentPlayerStartCombat;
+window.canCurrentPlayerPassTurn = canCurrentPlayerPassTurn;
 window.isPieceVisibleToMe = isPieceVisibleToMe;
 window.getSpriteUrlFromPid = getSpriteUrlFromPid;
 window._arenaView         = view;
