@@ -60,25 +60,13 @@ function moveStatValue(meta, stats) {
 }
 
 function spriteUrl(pid) {
-  const k = safeStr(pid);
-  if (!k) return "";
   try {
-    if (window.dexMap) {
-      const name = window.dexMap[k] || window.dexMap[String(Number(k))];
-      if (name) {
-        const slug = name.toLowerCase().replace(/[♀]/g,"f").replace(/[♂]/g,"m")
-          .replace(/[''‛′'`\.]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"");
-        return `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
-      }
+    if (typeof window.getSpriteUrlFromPid === "function") {
+      return safeStr(window.getSpriteUrlFromPid(pid));
     }
   } catch {}
-  if (k.startsWith("EXT:")) {
-    const name = k.slice(4).trim();
-    if (!name) return "";
-    const slug = name.toLowerCase().replace(/[♀]/g,"f").replace(/[♂]/g,"m")
-      .replace(/[''‛′'`\.]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"");
-    return `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
-  }
+  const k = safeStr(pid);
+  if (!k) return "";
   if (/^\d+$/.test(k)) return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${Number(k)}.png`;
   return "";
 }
@@ -86,14 +74,14 @@ function spriteUrl(pid) {
 function displayName(pid) {
   const k = safeStr(pid);
   if (!k) return "???";
+  if (k.startsWith("EXT:")) return k.slice(4).trim() || "???";
   try {
     if (window.dexMap) {
       const name = window.dexMap[k] || window.dexMap[String(Number(k))];
-      if (name) return name;
+      if (safeStr(name)) return safeStr(name);
     }
   } catch {}
-  if (k.startsWith("EXT:")) return k.slice(4).trim() || "???";
-  return k;
+  return "???";
 }
 
 // ─── CSS injection ────────────────────────────────────────────────
@@ -933,7 +921,7 @@ export class ArenaCombatUI {
           onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'" />
         <div>
           <div class="ac-overlay-name">${escHtml(tName)}</div>
-          <div class="ac-overlay-sub">${escHtml(tOwner)} • PID ${escHtml(tPid)}</div>
+          <div class="ac-overlay-sub">${escHtml(tOwner)} • ${escHtml(tName)}</div>
         </div>
         <button class="ac-overlay-close" title="Fechar (Esc)">✕</button>
       </div>
