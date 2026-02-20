@@ -402,6 +402,7 @@ const appState = {
   renderedLogKeys: new Set(),
   movement: {
     dashByPieceId: {},
+    freeByPieceId: {},
     halfStepIntentByPieceId: {},
     turnKey: "",
   },
@@ -1792,6 +1793,7 @@ function renderInspectorCard() {
 
   const isMine = isPieceMine(p);
   const mvBudget = getPieceMovementBudget(p);
+  const freeMove = !!appState.movement?.freeByPieceId?.[selId];
   const moveSummary = `Speed ${mvBudget.speed} • deslocamento ${mvBudget.maxTiles % 1 ? "1/2" : mvBudget.maxTiles} quadrado(s)`;
 
   wrap.innerHTML = `
@@ -1831,6 +1833,7 @@ function renderInspectorCard() {
 
         <div class="inspector-actions">
           <button type="button" class="btn primary" data-ins-act="move">Mover</button>
+          <button type="button" class="btn ${freeMove ? "primary" : "secondary"}" data-ins-act="free" ${isMine ? "" : "disabled"}>🧭 Deslocamento livre ${freeMove ? "ON" : "OFF"}</button>
           <button type="button" class="btn ${mvBudget.dash ? "primary" : "secondary"}" data-ins-act="dash" ${isMine ? "" : "disabled"}>${mvBudget.dash ? "⚡ Standard gasta (x2)" : "⚡ Abrir mão da Standard (x2)"}</button>
           <button type="button" class="btn secondary" data-ins-act="toggle">Ocultar</button>
           <button type="button" class="btn danger" data-ins-act="remove">Retirar da arena</button>
@@ -1843,6 +1846,19 @@ function renderInspectorCard() {
   wrap.querySelector('[data-ins-act="move"]')?.addEventListener("click", () => {
     setStatus("ok", "Mover: clique no tile de destino na arena");
     // nada além disso: o click no tile já move a seleção atual
+  });
+  wrap.querySelector('[data-ins-act="free"]')?.addEventListener("click", () => {
+    if (!isMine) return;
+    const cur = !!appState.movement.freeByPieceId[selId];
+    if (cur) delete appState.movement.freeByPieceId[selId];
+    else appState.movement.freeByPieceId[selId] = true;
+    setStatus(
+      "ok",
+      cur
+        ? "deslocamento livre desativado: voltou a respeitar turno e alcance"
+        : "deslocamento livre ativado: movimento em qualquer quadro, mesmo fora do turno"
+    );
+    updateSidePanels();
   });
   wrap.querySelector('[data-ins-act="dash"]')?.addEventListener("click", () => {
     if (!isMine) return;
@@ -2487,13 +2503,26 @@ function updateMovementTurnState() {
 function getReachableTileMap(piece) {
   const out = new Map();
   if (!piece) return out;
+  const pieceId = safeStr(piece?.id);
   const row = Number(piece.row);
   const col = Number(piece.col);
   if (!Number.isFinite(row) || !Number.isFinite(col)) return out;
 
-  const { maxTiles } = getPieceMovementBudget(piece);
   const gs = Number(appState.gridSize) || 0;
   if (gs <= 0) return out;
+
+  if (pieceId && appState.movement?.freeByPieceId?.[pieceId]) {
+    for (let r = 0; r < gs; r++) {
+      for (let c = 0; c < gs; c++) {
+        if (r === row && c === col) continue;
+        if (isTileOccupied(r, c)) continue;
+        out.set(`${r}:${c}`, { row: r, col: c, halfStep: false, free: true });
+      }
+    }
+    return out;
+  }
+
+  const { maxTiles } = getPieceMovementBudget(piece);
 
   if (maxTiles < 1) {
     for (let dr = -1; dr <= 1; dr++) {
@@ -2555,6 +2584,12 @@ function sendMoveSelected(toRow, toCol) {
   const canReach = reach.get(tileKey);
   if (!canReach) {
     setStatus("err", "tile fora do deslocamento máximo permitido");
+    return;
+  }
+
+  if (canReach.free) {
+    const by = safeStr(byInput?.value || "Anon") || "Anon";
+    sendAction("MOVE_PIECE", by, { pieceId, row: Number(toRow), col: Number(toCol) });
     return;
   }
 
@@ -2793,14 +2828,15 @@ function isPieceMine(p) {
 }
 
 function canCurrentPlayerMovePiece(pieceId) {
-  if (!isCurrentTurnOwnerMe()) return false;
   const pid = safeStr(pieceId);
   if (!pid) return false;
   const pieces = Array.isArray(appState.pieces) ? appState.pieces : [];
   const piece = pieces.find((p) => safeStr(p?.id) === pid);
   if (!piece) return false;
   if (safeStr(piece?.status || "active") !== "active") return false;
-  return isPieceMine(piece);
+  if (!isPieceMine(piece)) return false;
+  if (appState.movement?.freeByPieceId?.[pid]) return true;
+  return isCurrentTurnOwnerMe();
 }
 
 // Visibilidade no mapa (mesma lógica do app.py):
