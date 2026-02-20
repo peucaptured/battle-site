@@ -253,6 +253,12 @@
     }
     .hero-right .pill{ font-size:11px; padding:5px 9px; }
     .hero-right .btn{ padding:7px 11px; border-radius:999px; font-size:12px; }
+    .turn-pill{
+      max-width: 360px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .hero-roll-btn{
       background: linear-gradient(180deg, rgba(56,189,248,.45), rgba(14,165,233,.25)) !important;
       border-color: rgba(56,189,248,.55) !important;
@@ -1071,8 +1077,10 @@
     <div class="hero-right">
       <div class="pill">🧩 Sala <span id="rid_badge" style="font-weight:950">—</span></div>
       <div class="pill">📡 <span id="sync_badge" style="font-weight:950">—</span></div>
+      <div class="pill turn-pill" id="turn_badge">Rodada — • aguardando iniciativa</div>
       <div class="pill" id="status">desconectado</div>
-      <button class="btn hero-roll-btn" id="top_roll_btn" title="Rolar 1d20">🎲 Rolar dado</button>
+      <button class="btn hero-roll-btn" id="top_roll_btn" title="Rolar iniciativa da rodada">🎲 Rolar iniciativa</button>
+      <button class="btn secondary" id="pass_turn_btn" title="Passar para o próximo Pokémon">⏭️ Passar turno</button>
       <button class="btn ghost" id="disconnect" title="Sair / Desconectar">⎋ Sair</button>
     </div>
   </header>
