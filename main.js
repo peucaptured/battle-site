@@ -1963,6 +1963,21 @@ const view = {
 let domGridSize = 0;
 let domCells = []; // flat [row*gs+col] -> element
 
+function updateHudViewportHeight() {
+  const hero = document.querySelector(".hero-header");
+  const tabs = document.querySelector(".hud-tabs");
+  const scoreboard = document.getElementById("scoreboard");
+
+  const heroH = hero?.offsetHeight || 0;
+  const tabsH = tabs?.offsetHeight || 0;
+  const scoreH = (scoreboard && scoreboard.classList.contains("sb-visible")) ? (scoreboard.offsetHeight || 0) : 0;
+
+  const viewport = window.innerHeight || document.documentElement.clientHeight || 0;
+  const hudH = Math.max(320, viewport - heroH - tabsH - scoreH - 16);
+
+  document.documentElement.style.setProperty("--hud-viewport-height", `${hudH}px`);
+}
+
 function resizeCanvasToContainer() {
   const rect = canvasWrap.getBoundingClientRect();
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
@@ -1975,10 +1990,26 @@ function resizeCanvasToContainer() {
 }
 
 if (useCanvas && typeof ResizeObserver !== "undefined") {
-  const ro = new ResizeObserver(() => resizeCanvasToContainer());
+  const ro = new ResizeObserver(() => {
+    updateHudViewportHeight();
+    resizeCanvasToContainer();
+  });
   ro.observe(canvasWrap);
-  window.addEventListener("resize", () => resizeCanvasToContainer());
+  window.addEventListener("resize", () => {
+    updateHudViewportHeight();
+    resizeCanvasToContainer();
+  });
 }
+
+if (typeof MutationObserver !== "undefined") {
+  const scoreboard = document.getElementById("scoreboard");
+  if (scoreboard) {
+    const mo = new MutationObserver(() => updateHudViewportHeight());
+    mo.observe(scoreboard, { attributes: true, attributeFilter: ["class"] });
+  }
+}
+
+updateHudViewportHeight();
 
 function fitToView() {
   const gs = appState.gridSize || 10;
@@ -3033,6 +3064,7 @@ bindArenaInteractionsDom();
 if (useCanvas) {
   if (canvas) canvas.style.display = "block";
   if (arenaDom) arenaDom.style.display = "none";
+  updateHudViewportHeight();
   resizeCanvasToContainer();
   fitToView();
   requestAnimationFrame(draw);
