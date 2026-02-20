@@ -3143,8 +3143,31 @@ function draw() {
   }
 
 
-  // pieces
+  // pieces — dynamic borders per owner
   const pieces = appState.pieces || [];
+  const _by = safeStr(appState.by);
+
+  // Build stable opponent color map
+  const _oppColors = [
+    { border: "rgba(248,113,113,0.75)", fill: "rgba(248,113,113,0.10)", glow: "rgba(248,113,113,0.25)" }, // red
+    { border: "rgba(251,191,36,0.75)",  fill: "rgba(251,191,36,0.10)",  glow: "rgba(251,191,36,0.25)"  }, // amber
+    { border: "rgba(168,85,247,0.75)",  fill: "rgba(168,85,247,0.10)",  glow: "rgba(168,85,247,0.25)"  }, // purple
+    { border: "rgba(236,72,153,0.75)",  fill: "rgba(236,72,153,0.10)",  glow: "rgba(236,72,153,0.25)"  }, // pink
+  ];
+  const _myColor = { border: "rgba(34,197,94,0.65)", fill: "rgba(34,197,94,0.08)", glow: "rgba(34,197,94,0.20)" };
+  const _selColor = { border: "rgba(56,189,248,0.85)", fill: "rgba(56,189,248,0.18)", glow: "rgba(56,189,248,0.35)" };
+  const _defaultColor = { border: "rgba(148,163,184,0.22)", fill: "rgba(0,0,0,0.18)", glow: "transparent" };
+
+  // Map unique opponent names to colors (stable ordering)
+  const oppOwners = [...new Set(pieces
+    .filter(p => safeStr(p?.owner) && safeStr(p?.owner) !== _by && safeStr(p?.status || "active") === "active")
+    .map(p => safeStr(p.owner))
+  )].sort();
+  const _oppColorMap = {};
+  for (let i = 0; i < oppOwners.length; i++) {
+    _oppColorMap[oppOwners[i]] = _oppColors[i % _oppColors.length];
+  }
+
   for (const p of pieces) {
     if (safeStr(p?.status || "active") !== "active") continue;
     if (!isPieceVisibleToMe(p)) continue;
@@ -3154,10 +3177,24 @@ function draw() {
     const x = ox + col * tile;
     const y = oy + row * tile;
     const id = safeStr(p?.id);
+    const owner = safeStr(p?.owner);
     const isSel = safeStr(appState.selectedPieceId) && safeStr(appState.selectedPieceId) === id;
+    const isMine = _by && owner === _by;
 
-    // token base
-    ctx.fillStyle = isSel ? "rgba(56,189,248,0.22)" : "rgba(0,0,0,0.18)";
+    // Determine color scheme
+    let colorScheme;
+    if (isSel) {
+      colorScheme = _selColor;
+    } else if (isMine) {
+      colorScheme = _myColor;
+    } else if (_oppColorMap[owner]) {
+      colorScheme = _oppColorMap[owner];
+    } else {
+      colorScheme = _defaultColor;
+    }
+
+    // token base fill
+    ctx.fillStyle = colorScheme.fill;
     ctx.fillRect(x + 2, y + 2, tile - 4, tile - 4);
 
     // sprite
@@ -3176,10 +3213,21 @@ function draw() {
       ctx.fillText(label, x + tile / 2, y + tile / 2);
     }
 
-    // outline
-    ctx.strokeStyle = isSel ? "rgba(56,189,248,0.75)" : "rgba(148,163,184,0.22)";
-    ctx.lineWidth = isSel ? 3 : 1;
+    // Dynamic border
+    ctx.strokeStyle = colorScheme.border;
+    ctx.lineWidth = isSel ? 3 : (isMine || _oppColorMap[owner]) ? 2 : 1;
     ctx.strokeRect(x + 2, y + 2, tile - 4, tile - 4);
+
+    // Glow effect for selected piece
+    if (isSel) {
+      ctx.save();
+      ctx.shadowColor = _selColor.glow;
+      ctx.shadowBlur = 8;
+      ctx.strokeStyle = _selColor.border;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 1, y + 1, tile - 2, tile - 2);
+      ctx.restore();
+    }
   }
 
   // drag ghost
@@ -3310,7 +3358,7 @@ function _injectSheetsStyleOnce() {
   if (document.getElementById("sheets_tab_style")) return;
   const st = document.createElement("style");
   st.id = "sheets_tab_style";
-  st.textContent = "\n/* ─── FICHAS TAB (injetado pelo main.js) ─── */\n#tab_sheets .sheets-status-bar{\n  display:flex;align-items:center;gap:8px;flex-wrap:wrap;\n  padding:10px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.12);\n  background:rgba(15,23,42,.55);margin-bottom:16px;\n}\n#tab_sheets .fichas-layout{display:grid;grid-template-columns:1.15fr .85fr;gap:20px;align-items:start;}\n@media (max-width: 900px){ #tab_sheets .fichas-layout{grid-template-columns:1fr;} }\n#tab_sheets .cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:10px;}\n#tab_sheets .poke-card{border-radius:14px;padding:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);\n  cursor:pointer;transition:all .2s;position:relative;overflow:hidden;}\n#tab_sheets .poke-card::before{content:'';position:absolute;inset:0;background:var(--card-bg,transparent);opacity:.12;pointer-events:none;border-radius:inherit;}\n#tab_sheets .poke-card:hover{border-color:rgba(255,255,255,.2);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3);}\n#tab_sheets .poke-card.selected{border-color:rgba(59,130,246,.5);box-shadow:0 0 0 2px rgba(59,130,246,.3) inset,0 10px 30px rgba(0,0,0,.3);}\n#tab_sheets .card-head{display:flex;gap:10px;align-items:center;position:relative;z-index:1;}\n#tab_sheets .card-head img{width:64px;height:64px;object-fit:contain;border-radius:12px;border:1px solid rgba(255,255,255,.12);\n  background:rgba(0,0,0,.15);padding:4px;image-rendering:pixelated;}\n#tab_sheets .card-info{flex:1;min-width:0;}\n#tab_sheets .card-name{font-weight:900;font-size:.95rem;line-height:1.15;}\n#tab_sheets .card-sub{font-size:.78rem;opacity:.75;margin-top:2px;}\n#tab_sheets .pill-row{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;}\n#tab_sheets .type-pill{padding:2px 8px;border-radius:999px;font-size:.68rem;font-weight:900;text-transform:uppercase;\n  border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.2);}\n#tab_sheets .card-divider{height:1px;background:rgba(255,255,255,.12);margin:8px 0;position:relative;z-index:1;}\n#tab_sheets .card-moves-label{font-weight:900;font-size:.78rem;opacity:.8;margin-bottom:4px;position:relative;z-index:1;}\n#tab_sheets .card-move-row{display:flex;align-items:center;gap:6px;padding:3px 0;position:relative;z-index:1;}\n#tab_sheets .card-move-name{font-weight:700;font-size:.82rem;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}\n#tab_sheets .mv-pill{padding:1px 6px;border-radius:999px;font-size:.66rem;font-weight:900;font-family:monospace;border:1px solid rgba(255,255,255,.12);}\n#tab_sheets .mv-pill.acc{background:rgba(56,189,248,.12);border-color:rgba(56,189,248,.3);color:#38bdf8;}\n#tab_sheets .mv-pill.rk{background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.3);color:#eab308;}\n#tab_sheets .mv-pill.area{background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.3);color:#a855f7;}\n#tab_sheets .card-open{display:block;text-align:right;font-weight:900;font-size:.78rem;color:#38bdf8;margin-top:6px;position:relative;z-index:1;cursor:pointer;}\n#tab_sheets .sheet-panel{border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(17,24,39,.9);padding:18px;position:sticky;top:16px;}\n#tab_sheets .sheet-header{display:flex;gap:16px;align-items:flex-start;margin-bottom:14px;}\n#tab_sheets .sheet-art{width:130px;height:130px;object-fit:contain;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.2);padding:8px;}\n#tab_sheets .sheet-name{font-weight:900;font-size:1.2rem;}\n#tab_sheets .sheet-sub{font-size:.85rem;opacity:.75;margin-top:2px;}\n#tab_sheets .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:12px 0;}\n#tab_sheets .stat-box{text-align:center;padding:8px 4px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);}\n#tab_sheets .stat-label{font-size:.68rem;font-weight:700;opacity:.75;text-transform:uppercase;}\n#tab_sheets .stat-val{font-size:1.1rem;font-weight:900;margin-top:2px;}\n#tab_sheets .section-title{font-weight:900;font-size:.88rem;margin:14px 0 6px;}\n#tab_sheets .chip-row{display:flex;flex-wrap:wrap;gap:5px;}\n#tab_sheets .chip{padding:3px 10px;border-radius:999px;font-size:.75rem;font-weight:700;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);}\n#tab_sheets .sheet-divider{height:1px;background:rgba(255,255,255,.12);margin:12px 0;}\n#tab_sheets .move-expander{border:1px solid rgba(255,255,255,.12);border-radius:10px;margin-bottom:6px;overflow:hidden;}\n#tab_sheets .move-header{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;background:rgba(255,255,255,.04);transition:background .15s;}\n#tab_sheets .move-header:hover{background:rgba(255,255,255,.08);}\n#tab_sheets .move-header .arrow{font-size:.7rem;transition:transform .2s;opacity:.75;}\n#tab_sheets .move-expander.open .arrow{transform:rotate(90deg);}\n#tab_sheets .move-h-name{font-weight:900;font-size:.85rem;flex:1;}\n#tab_sheets .move-body{padding:10px 12px;border-top:1px solid rgba(255,255,255,.12);display:none;font-size:.82rem;opacity:.85;}\n#tab_sheets .move-expander.open .move-body{display:block;}\n#tab_sheets .notes-input{width:100%;padding:6px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.25);color:inherit;font-size:.82rem;margin-top:8px;}\n#tab_sheets .hp-track{height:8px;border-radius:4px;background:rgba(0,0,0,.25);overflow:hidden;}\n#tab_sheets .hp-fill{height:100%;border-radius:4px;transition:width .3s;}\n#tab_sheets .sheets-empty{ text-align:center; padding:40px 20px; opacity:.75;}\n#tab_sheets .spinner{width:24px;height:24px;border:3px solid rgba(255,255,255,.12);border-top-color:#38bdf8;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto;}\n@keyframes spin{to{transform:rotate(360deg);}}\n";
+  st.textContent = "\n/* ─── FICHAS TAB (injetado pelo main.js) ─── */\n#tab_sheets .sheets-status-bar{\n  display:flex;align-items:center;gap:8px;flex-wrap:wrap;\n  padding:10px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.12);\n  background:rgba(15,23,42,.55);margin-bottom:16px;\n}\n#tab_sheets .fichas-layout{display:flex;flex-direction:column;gap:12px;}\n#tab_sheets .cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;}\n#tab_sheets .poke-card{border-radius:14px;padding:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);\n  cursor:pointer;transition:all .2s;position:relative;overflow:hidden;}\n#tab_sheets .poke-card::before{content:'';position:absolute;inset:0;background:var(--card-bg,transparent);opacity:.12;pointer-events:none;border-radius:inherit;}\n#tab_sheets .poke-card:hover{border-color:rgba(255,255,255,.2);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3);}\n#tab_sheets .poke-card.selected{border-color:rgba(59,130,246,.5);box-shadow:0 0 0 2px rgba(59,130,246,.3) inset,0 10px 30px rgba(0,0,0,.3);}\n#tab_sheets .card-head{display:flex;gap:10px;align-items:center;position:relative;z-index:1;}\n#tab_sheets .card-head img{width:64px;height:64px;object-fit:contain;border-radius:12px;border:1px solid rgba(255,255,255,.12);\n  background:rgba(0,0,0,.15);padding:4px;image-rendering:pixelated;}\n#tab_sheets .card-info{flex:1;min-width:0;}\n#tab_sheets .card-name{font-weight:900;font-size:.95rem;line-height:1.15;}\n#tab_sheets .card-sub{font-size:.78rem;opacity:.75;margin-top:2px;}\n#tab_sheets .pill-row{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;}\n#tab_sheets .type-pill{padding:2px 8px;border-radius:999px;font-size:.68rem;font-weight:900;text-transform:uppercase;\n  border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.2);}\n#tab_sheets .card-divider{height:1px;background:rgba(255,255,255,.12);margin:8px 0;position:relative;z-index:1;}\n#tab_sheets .card-moves-label{font-weight:900;font-size:.78rem;opacity:.8;margin-bottom:4px;position:relative;z-index:1;}\n#tab_sheets .card-move-row{display:flex;align-items:center;gap:6px;padding:3px 0;position:relative;z-index:1;}\n#tab_sheets .card-move-name{font-weight:700;font-size:.82rem;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}\n#tab_sheets .mv-pill{padding:1px 6px;border-radius:999px;font-size:.66rem;font-weight:900;font-family:monospace;border:1px solid rgba(255,255,255,.12);}\n#tab_sheets .mv-pill.acc{background:rgba(56,189,248,.12);border-color:rgba(56,189,248,.3);color:#38bdf8;}\n#tab_sheets .mv-pill.rk{background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.3);color:#eab308;}\n#tab_sheets .mv-pill.area{background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.3);color:#a855f7;}\n#tab_sheets .card-open{display:block;text-align:right;font-weight:900;font-size:.78rem;color:#38bdf8;margin-top:6px;position:relative;z-index:1;cursor:pointer;}\n#tab_sheets .sheet-panel{border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(17,24,39,.9);padding:18px;position:sticky;top:16px;}\n#tab_sheets .sheet-header{display:flex;gap:16px;align-items:flex-start;margin-bottom:14px;}\n#tab_sheets .sheet-art{width:130px;height:130px;object-fit:contain;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.2);padding:8px;}\n#tab_sheets .sheet-name{font-weight:900;font-size:1.2rem;}\n#tab_sheets .sheet-sub{font-size:.85rem;opacity:.75;margin-top:2px;}\n#tab_sheets .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:12px 0;}\n#tab_sheets .stat-box{text-align:center;padding:8px 4px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);}\n#tab_sheets .stat-label{font-size:.68rem;font-weight:700;opacity:.75;text-transform:uppercase;}\n#tab_sheets .stat-val{font-size:1.1rem;font-weight:900;margin-top:2px;}\n#tab_sheets .section-title{font-weight:900;font-size:.88rem;margin:14px 0 6px;}\n#tab_sheets .chip-row{display:flex;flex-wrap:wrap;gap:5px;}\n#tab_sheets .chip{padding:3px 10px;border-radius:999px;font-size:.75rem;font-weight:700;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);}\n#tab_sheets .sheet-divider{height:1px;background:rgba(255,255,255,.12);margin:12px 0;}\n#tab_sheets .move-expander{border:1px solid rgba(255,255,255,.12);border-radius:10px;margin-bottom:6px;overflow:hidden;}\n#tab_sheets .move-header{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;background:rgba(255,255,255,.04);transition:background .15s;}\n#tab_sheets .move-header:hover{background:rgba(255,255,255,.08);}\n#tab_sheets .move-header .arrow{font-size:.7rem;transition:transform .2s;opacity:.75;}\n#tab_sheets .move-expander.open .arrow{transform:rotate(90deg);}\n#tab_sheets .move-h-name{font-weight:900;font-size:.85rem;flex:1;}\n#tab_sheets .move-body{padding:10px 12px;border-top:1px solid rgba(255,255,255,.12);display:none;font-size:.82rem;opacity:.85;}\n#tab_sheets .move-expander.open .move-body{display:block;}\n#tab_sheets .notes-input{width:100%;padding:6px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.25);color:inherit;font-size:.82rem;margin-top:8px;}\n#tab_sheets .hp-track{height:8px;border-radius:4px;background:rgba(0,0,0,.25);overflow:hidden;}\n#tab_sheets .hp-fill{height:100%;border-radius:4px;transition:width .3s;}\n#tab_sheets .sheets-empty{ text-align:center; padding:40px 20px; opacity:.75;}\n#tab_sheets .spinner{width:24px;height:24px;border:3px solid rgba(255,255,255,.12);border-top-color:#38bdf8;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto;}\n@keyframes spin{to{transform:rotate(360deg);}}\n";
   document.head.appendChild(st);
 }
 
@@ -3348,13 +3396,11 @@ function ensureSheetsUI() {
     <div id="sheetsContent" style="display:none;">
       <div class="fichas-layout">
         <div>
-          <div style="font-weight: 900; margin-bottom: 10px;">Cards</div>
           <div class="cards-grid" id="cardsGrid"></div>
         </div>
-        <div>
-          <div style="font-weight: 900; margin-bottom: 10px;">Ficha completa</div>
+        <div id="sheetDetailWrap" style="display:none;">
           <div id="sheetDetail">
-            <div class="sheets-empty">👆 Selecione um card à esquerda.</div>
+            <div class="sheets-empty">Selecione um card.</div>
           </div>
         </div>
       </div>

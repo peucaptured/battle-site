@@ -315,33 +315,34 @@
        HUD BODY — 3-column grid
        ═══════════════════════════════════════════════════════ */
     .hud-body{
-      /* Grid columns (default) */
-      --hud-left-col: 280px;
-      --hud-right-col: 320px;
-      --hud-right-col-wide: minmax(440px, 680px);
+      /* Grid columns (default) — use clamp for responsive without overflow */
+      --hud-left-col: clamp(200px, 18vw, 280px);
+      --hud-right-col: clamp(220px, 22vw, 320px);
+      --hud-right-col-wide: clamp(340px, 35vw, 680px);
 
       display:grid;
-      grid-template-columns: var(--hud-left-col) 1fr var(--hud-right-col);
+      grid-template-columns: var(--hud-left-col) minmax(0, 1fr) var(--hud-right-col);
       gap: 12px;
       padding: 8px 20px 16px;
-      max-width: 1440px;
+      max-width: 100vw;
       margin: 0 auto;
       height: calc(100vh - 72px - 52px); /* hero + tabs */
       min-height: 0;
+      overflow: hidden;
     }
 
     /* When a ficha estiver aberta no Inspector, a coluna direita expande */
     body.sheet-inspector-mode .hud-body{
-      grid-template-columns: var(--hud-left-col) 1fr var(--hud-right-col-wide);
+      grid-template-columns: var(--hud-left-col) minmax(0, 1fr) var(--hud-right-col-wide);
     }
 
     /* Left sidebar: Fichas */
     .sidebar-left{
       display:flex; flex-direction:column; gap:0;
-      min-height:0; overflow:hidden;
+      min-height:0; min-width:0; overflow:hidden;
     }
     .sidebar-left .panel{
-      flex:1; min-height:0; display:flex; flex-direction:column;
+      flex:1; min-height:0; min-width:0; display:flex; flex-direction:column;
     }
     .sidebar-left .panel-inner{
       flex:1; overflow-y:auto; overflow-x:hidden;
@@ -351,15 +352,16 @@
     .hud-center{
       min-width:0; min-height:0;
       display:flex; flex-direction:column;
+      overflow:hidden;
     }
 
     /* Right sidebar: Inspector */
     .sidebar-right{
       display:flex; flex-direction:column; gap:12px;
-      min-height:0; overflow:hidden;
+      min-height:0; min-width:0; overflow:hidden;
     }
     .sidebar-right .panel{
-      flex:1; min-height:0; display:flex; flex-direction:column;
+      flex:1; min-height:0; min-width:0; display:flex; flex-direction:column;
     }
     .sidebar-right .panel-inner{
       flex:1; overflow-y:auto; overflow-x:hidden;
@@ -853,204 +855,11 @@
     }
 
     /* ═══════════════════════════════════════════════════════
-       SCOREBOARD
+       SCOREBOARD (styles injected by scoreboard-patch.js)
        ═══════════════════════════════════════════════════════ */
+    /* Minimal stub — actual styles are in scoreboard-patch.js */
     #scoreboard {
       display: none;
-      width: 100%;
-      padding: 10px 14px;
-      margin-top: 72px; /* below fixed hero */
-      background: rgba(2,6,23,.45);
-      border-bottom: 1px solid rgba(148,163,184,.18);
-      backdrop-filter: blur(10px);
-      z-index: 50;
-    }
-    #scoreboard.sb-visible { display: block; }
-    /* when scoreboard visible, push tabs & body down */
-    #scoreboard.sb-visible ~ .hud-tabs {
-      margin-top: 0;
-    }
-    #scoreboard.sb-visible ~ .hud-body {
-      /* recalc dynamically in JS if needed */
-    }
-
-    .sb-container {
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
-      gap: 24px;
-      flex-wrap: wrap;
-      max-width: 1400px;
-      margin: 0 auto;
-    }
-    .sb-container.sb-versus {
-      justify-content: center;
-      gap: 48px;
-    }
-    .sb-container.sb-versus .sb-player:first-child { align-items: flex-end; }
-    .sb-container.sb-versus .sb-player:last-child { align-items: flex-start; }
-    .sb-container.sb-versus::after {
-      content: "VS";
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-      font-weight: 950;
-      font-size: 22px;
-      color: rgba(248,113,113,.75);
-      text-shadow: 0 0 18px rgba(248,113,113,.4);
-      pointer-events: none;
-    }
-    .sb-container.sb-versus { position: relative; }
-
-    .sb-container.sb-quad {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 18px 32px;
-      justify-items: center;
-    }
-    .sb-container.sb-quad.sb-three .sb-player:last-child {
-      grid-column: 1 / -1;
-    }
-
-    .sb-player {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 6px;
-      min-width: 140px;
-      max-width: 220px;
-    }
-    .sb-player.sb-me { order: -1; }
-
-    .sb-portrait-ring {
-      position: relative;
-      width: 130px;
-      height: 130px;
-    }
-    .sb-photo {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 52px;
-      height: 52px;
-      border-radius: 50%;
-      border: 2.5px solid rgba(56,189,248,.55);
-      background: rgba(15,23,42,.7);
-      object-fit: cover;
-      z-index: 2;
-      box-shadow: 0 0 12px rgba(56,189,248,.25);
-    }
-    .sb-photo-placeholder {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 52px;
-      height: 52px;
-      border-radius: 50%;
-      border: 2.5px solid rgba(56,189,248,.55);
-      background: rgba(15,23,42,.7);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 22px;
-      font-weight: 900;
-      color: rgba(56,189,248,.8);
-      z-index: 2;
-      box-shadow: 0 0 12px rgba(56,189,248,.25);
-    }
-    .sb-me .sb-photo,
-    .sb-me .sb-photo-placeholder {
-      border-color: rgba(34,197,94,.65);
-      box-shadow: 0 0 12px rgba(34,197,94,.3);
-    }
-    .sb-slot {
-      position: absolute;
-      width: 32px;
-      height: 32px;
-      transform: translate(-50%, -50%);
-      z-index: 1;
-    }
-    .sb-slot-img {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      border: 1.5px solid rgba(148,163,184,.3);
-      background: rgba(15,23,42,.6);
-      object-fit: contain;
-      image-rendering: pixelated;
-      padding: 2px;
-      display: block;
-    }
-    .sb-slot-img.sb-ko {
-      filter: grayscale(1);
-      opacity: .45;
-    }
-    .sb-slot-img.sb-unrevealed {
-      opacity: .7;
-    }
-    .sb-slot-empty {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      border: 1.5px dashed rgba(148,163,184,.18);
-      background: rgba(15,23,42,.3);
-    }
-    .sb-slot-hp {
-      position: absolute;
-      bottom: -5px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 24px;
-      height: 3px;
-      border-radius: 2px;
-      background: rgba(148,163,184,.22);
-      overflow: hidden;
-    }
-    .sb-slot-hp-fill {
-      height: 100%;
-      border-radius: 2px;
-      transition: width .3s;
-    }
-    .sb-name {
-      font-weight: 900;
-      font-size: 12px;
-      color: rgba(226,232,240,.9);
-      text-align: center;
-      max-width: 140px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .sb-me .sb-name { color: rgba(34,197,94,.95); }
-    .sb-place-btn {
-      appearance: none;
-      cursor: pointer;
-      font-weight: 800;
-      font-size: 10px;
-      padding: 3px 10px;
-      border-radius: 8px;
-      border: 1px solid rgba(56,189,248,.3);
-      background: rgba(56,189,248,.1);
-      color: rgba(56,189,248,.9);
-      transition: all .15s;
-    }
-    .sb-place-btn:hover {
-      background: rgba(56,189,248,.2);
-      border-color: rgba(56,189,248,.5);
-      transform: translateY(-1px);
-    }
-    .sb-place-btn.sb-placing {
-      background: rgba(251,191,36,.15);
-      border-color: rgba(251,191,36,.5);
-      color: rgba(251,191,36,.95);
-      animation: sbPulse 1.5s ease-in-out infinite;
-    }
-    @keyframes sbPulse {
-      0%,100% { box-shadow: 0 0 0 0 rgba(251,191,36,.2); }
-      50%     { box-shadow: 0 0 0 5px rgba(251,191,36,0); }
     }
 
     /* Log */
@@ -1136,9 +945,9 @@
        ═══════════════════════════════════════════════════════ */
     @media (max-width: 1200px) {
       .hud-body{
-        --hud-left-col: 240px;
-        --hud-right-col: 280px;
-        --hud-right-col-wide: minmax(380px, 560px);
+        --hud-left-col: clamp(180px, 18vw, 240px);
+        --hud-right-col: clamp(200px, 20vw, 280px);
+        --hud-right-col-wide: clamp(320px, 32vw, 560px);
         padding: 8px 12px 14px;
       }
     }
@@ -1194,20 +1003,7 @@
         padding:6px 8px 12px;
         gap:8px;
       }
-      .sb-container,
-      .sb-container.sb-versus,
-      .sb-container.sb-quad {
-        display: flex !important;
-        flex-direction: column;
-        align-items: center;
-        gap: 14px;
-      }
-      .sb-container.sb-versus::after { display: none; }
-      .sb-portrait-ring { width: 110px; height: 110px; }
-      .sb-photo, .sb-photo-placeholder { width: 44px; height: 44px; }
-      .sb-slot { width: 26px; height: 26px; }
-      .sb-slot-img, .sb-slot-empty { width: 26px; height: 26px; }
-      .sb-slot-hp { width: 18px; }
+      /* scoreboard responsive: handled in scoreboard-patch.js */
     }
 
     /* ── Compat: legacy .app hidden, .side-panel hidden ── */

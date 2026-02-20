@@ -1,5 +1,10 @@
 /**
- * scoreboard-patch.js — Scoreboard circular multi-jogador (até 4 players, até 8 pokémon cada)
+ * scoreboard-patch.js — Scoreboard horizontal multi-jogador (até 4 players, até 8 pokémon cada)
+ *
+ * Layout conceito: barra horizontal compacta (max 20% da tela).
+ * Cada jogador: avatar + nome à esquerda, fileira horizontal de até 8 pokémon à direita.
+ * Pokémon não revelado = pokébola. HP bar embaixo de cada sprite.
+ * Se adapta a 1-4 jogadores empilhando verticalmente.
  *
  * Padrão "patch": ES module independente, lê window.appState e DOM,
  * subscreve Firestore por conta própria, não modifica main.js.
@@ -45,12 +50,232 @@ function escapeAttr(s) {
 // ── State tracking ──
 let _lastRid = null;
 let _partyStatesUnsub = null;
-let _playersUnsub = null;
-let _stateUnsub = null;
 let _partyStates = {};
 let _prevHash = "";
 
 const sbRoot = document.getElementById("scoreboard");
+
+// ── Inject scoreboard styles ──
+(function injectStyles() {
+  if (document.getElementById("sb-patch-css")) return;
+  const style = document.createElement("style");
+  style.id = "sb-patch-css";
+  style.textContent = `
+/* ═══ SCOREBOARD v2 — Horizontal compact bar ═══ */
+#scoreboard {
+  display: none;
+  width: 100%;
+  padding: 6px 14px;
+  margin-top: 72px;
+  background: rgba(2,6,23,.55);
+  border-bottom: 1px solid rgba(148,163,184,.18);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 50;
+  max-height: 20vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+#scoreboard.sb-visible { display: block; }
+#scoreboard.sb-visible ~ .hud-tabs { margin-top: 0; }
+
+/* Container: stacks players vertically */
+.sb-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+/* Single player row */
+.sb-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(148,163,184,.10);
+  min-height: 0;
+}
+.sb-row.sb-row-me {
+  border-color: rgba(34,197,94,.25);
+  background: rgba(34,197,94,.04);
+}
+
+/* Avatar + name block */
+.sb-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  min-width: 100px;
+  max-width: 160px;
+}
+.sb-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid rgba(56,189,248,.45);
+  background: rgba(15,23,42,.7);
+  object-fit: cover;
+  flex: 0 0 32px;
+  box-shadow: 0 0 8px rgba(56,189,248,.15);
+}
+.sb-avatar-placeholder {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid rgba(56,189,248,.45);
+  background: rgba(15,23,42,.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 900;
+  color: rgba(56,189,248,.8);
+  flex: 0 0 32px;
+  box-shadow: 0 0 8px rgba(56,189,248,.15);
+}
+.sb-row-me .sb-avatar,
+.sb-row-me .sb-avatar-placeholder {
+  border-color: rgba(34,197,94,.55);
+  box-shadow: 0 0 8px rgba(34,197,94,.2);
+}
+.sb-trainer-name {
+  font-weight: 900;
+  font-size: 11px;
+  color: rgba(226,232,240,.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100px;
+}
+.sb-row-me .sb-trainer-name { color: rgba(34,197,94,.95); }
+
+/* Pokémon lineup (horizontal scroll if needed) */
+.sb-lineup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+  scrollbar-width: none;
+}
+.sb-lineup::-webkit-scrollbar { display: none; }
+
+/* Single pokémon slot */
+.sb-poke {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  min-width: 30px;
+}
+.sb-poke-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(148,163,184,.25);
+  background: rgba(15,23,42,.5);
+  object-fit: contain;
+  image-rendering: pixelated;
+  padding: 1px;
+  display: block;
+}
+.sb-poke-img.sb-ko {
+  filter: grayscale(1);
+  opacity: .4;
+}
+.sb-poke-img.sb-unrevealed {
+  opacity: .65;
+}
+/* HP bar below sprite */
+.sb-poke-hp {
+  width: 24px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(148,163,184,.18);
+  overflow: hidden;
+}
+.sb-poke-hp-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width .3s;
+}
+/* Empty slot placeholder */
+.sb-poke-empty {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1.5px dashed rgba(148,163,184,.15);
+  background: rgba(15,23,42,.25);
+}
+
+/* Place trainer button */
+.sb-place-btn {
+  appearance: none;
+  cursor: pointer;
+  font-weight: 800;
+  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(56,189,248,.3);
+  background: rgba(56,189,248,.1);
+  color: rgba(56,189,248,.9);
+  transition: all .15s;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.sb-place-btn:hover {
+  background: rgba(56,189,248,.2);
+  border-color: rgba(56,189,248,.5);
+}
+.sb-place-btn.sb-placing {
+  background: rgba(251,191,36,.15);
+  border-color: rgba(251,191,36,.5);
+  color: rgba(251,191,36,.95);
+  animation: sbPulse2 1.5s ease-in-out infinite;
+}
+@keyframes sbPulse2 {
+  0%,100% { box-shadow: 0 0 0 0 rgba(251,191,36,.2); }
+  50%     { box-shadow: 0 0 0 4px rgba(251,191,36,0); }
+}
+
+/* VS divider for 2 players */
+.sb-vs-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+.sb-vs-text {
+  font-weight: 950;
+  font-size: 12px;
+  color: rgba(248,113,113,.7);
+  text-shadow: 0 0 10px rgba(248,113,113,.3);
+  letter-spacing: 1px;
+}
+
+/* Responsive */
+@media (max-width: 700px) {
+  #scoreboard { padding: 4px 8px; }
+  .sb-row { padding: 3px 6px; gap: 6px; }
+  .sb-identity { min-width: 70px; max-width: 100px; }
+  .sb-avatar, .sb-avatar-placeholder { width: 24px; height: 24px; flex: 0 0 24px; font-size: 11px; }
+  .sb-trainer-name { font-size: 10px; max-width: 60px; }
+  .sb-poke-img, .sb-poke-empty { width: 22px; height: 22px; }
+  .sb-poke-hp { width: 18px; height: 2px; }
+  .sb-place-btn { font-size: 8px; padding: 1px 6px; }
+}
+`;
+  document.head.appendChild(style);
+})();
 
 // ── Poll for connection (main.js exposes appState on window) ──
 let _pollId = null;
@@ -65,29 +290,23 @@ function tick() {
   if (!as) return;
   const rid = safeStr(as.rid);
 
-  // Connection changed?
   if (rid !== _lastRid) {
     cleanup();
     _lastRid = rid;
     if (rid) subscribe(rid);
   }
 
-  // Visibility
   if (!rid || !as.connected) {
     sbRoot.classList.remove("sb-visible");
     return;
   }
   sbRoot.classList.add("sb-visible");
-
-  // Re-render if data changed
   renderIfChanged();
 }
 
-// ── Firestore subscriptions (party_states only — players/state come from appState) ──
+// ── Firestore subscriptions ──
 function subscribe(rid) {
   const db = getDb();
-
-  // party_states
   const psRef = doc(db, "rooms", rid, "public_state", "party_states");
   _partyStatesUnsub = onSnapshot(psRef, (snap) => {
     _partyStates = snap.exists() ? (snap.data() || {}) : {};
@@ -109,8 +328,7 @@ function buildPlayerList() {
   const players = Array.isArray(as.players) ? as.players : [];
   const pieces = Array.isArray(as.pieces) ? as.pieces : [];
 
-  // Collect unique trainer names
-  const map = new Map(); // trainerName -> {trainer_name, avatar, party_snapshot, uid}
+  const map = new Map();
   for (const p of players) {
     const tn = safeStr(p?.trainer_name);
     if (!tn) continue;
@@ -123,23 +341,19 @@ function buildPlayerList() {
       });
     }
   }
-
-  // Fallback: owners from pieces
   for (const p of pieces) {
     const tn = safeStr(p?.owner);
     if (!tn || map.has(tn)) continue;
     map.set(tn, { trainer_name: tn, uid: "", avatar: null, party_snapshot: [] });
   }
 
-  // Sort: me first, then alphabetical
   const list = Array.from(map.values());
   list.sort((a, b) => {
     if (safeStr(a.trainer_name) === by) return -1;
     if (safeStr(b.trainer_name) === by) return 1;
     return a.trainer_name.localeCompare(b.trainer_name);
   });
-
-  return list.slice(0, 4); // max 4 players
+  return list.slice(0, 4);
 }
 
 // ── Build slots for a player ──
@@ -149,7 +363,6 @@ function buildSlots(player) {
   const pieces = Array.isArray(as?.pieces) ? as.pieces : [];
   const partyStates = (_partyStates && _partyStates[tn]) ? _partyStates[tn] : {};
 
-  // Get party (use getPartyForTrainer if available, else party_snapshot)
   let party = [];
   if (typeof window.getPartyForTrainer === "function") {
     party = window.getPartyForTrainer(tn);
@@ -158,10 +371,7 @@ function buildSlots(player) {
     party = Array.isArray(player.party_snapshot) ? player.party_snapshot : [];
   }
 
-  // Normalize to pid strings
   const pids = party.map(x => safeStr(x?.pid || x?.pokemon?.id || x)).filter(Boolean);
-
-  // Pad/truncate to 8
   const slots = [];
   const count = Math.min(pids.length, 8);
   for (let i = 0; i < 8; i++) {
@@ -172,10 +382,9 @@ function buildSlots(player) {
         safeStr(p?.owner) === tn && safeStr(p?.pid) === pid && safeStr(p?.status || "active") === "active"
       );
       const revealed = piece ? !!piece.revealed : false;
-      const hp = ps.hp != null ? Number(ps.hp) : null; // null = not set
+      const hp = ps.hp != null ? Number(ps.hp) : null;
       const ko = hp != null && hp <= 0;
       const spriteUrl = getSpriteUrl(pid);
-
       slots.push({ pid, revealed, ko, hp, spriteUrl, empty: false });
     } else {
       slots.push({ pid: null, revealed: false, ko: false, hp: null, spriteUrl: "", empty: true });
@@ -184,15 +393,13 @@ function buildSlots(player) {
   return slots;
 }
 
-// ── Sprite resolution (delegates to main.js if available) ──
+// ── Sprite resolution ──
 function getSpriteUrl(pid) {
   const k = safeStr(pid);
   if (!k) return "";
-  // Try main.js global
   if (typeof window.getSpriteUrlFromPid === "function") {
     return window.getSpriteUrlFromPid(k) || POKE_BALL_URL;
   }
-  // Fallback
   if (k.startsWith("EXT:")) return POKE_BALL_URL;
   const n = Number(k);
   if (Number.isFinite(n) && n > 0 && n < 20000) {
@@ -204,11 +411,9 @@ function getSpriteUrl(pid) {
 // ── Get trainer photo ──
 function getTrainerPhoto(player) {
   const tn = safeStr(player.trainer_name);
-  // 1) player.avatar.photo_thumb_b64
   if (player.avatar?.photo_thumb_b64) {
     return `data:image/png;base64,${player.avatar.photo_thumb_b64}`;
   }
-  // 2) userProfiles
   const as = window.appState;
   if (as?.userProfiles) {
     const uid = safeStr(player.uid) || safeDocId(tn);
@@ -225,27 +430,8 @@ function safeDocId(name) {
   return safeStr(name).replace(/[/\\.\s]/g, "_").slice(0, 100) || "_";
 }
 
-// ── Compute ring positions for N slots around center ──
-function ringPositions(count, ringRadius) {
-  // Distribute slots in an arc from -135° to +135° (front-facing arc)
-  const positions = [];
-  if (count <= 0) return positions;
-  const startAngle = -Math.PI * 0.75; // -135°
-  const endAngle = Math.PI * 0.75;    // +135°
-  const step = count === 1 ? 0 : (endAngle - startAngle) / (count - 1);
-  for (let i = 0; i < count; i++) {
-    const angle = count === 1 ? -Math.PI / 2 : startAngle + step * i;
-    const cx = 50 + ringRadius * Math.cos(angle);
-    const cy = 50 + ringRadius * Math.sin(angle);
-    positions.push({ left: cx, top: cy });
-  }
-  return positions;
-}
-
-// ── Compute maxStages for a player ──
 function getMaxStages(player) {
-  const party = getPartyCount(player);
-  return party > 0 && party <= 8 ? party : 8;
+  return getPartyCount(player) || 8;
 }
 
 function getPartyCount(player) {
@@ -260,7 +446,7 @@ function getPartyCount(player) {
   return party.length;
 }
 
-// ── Quick hash for change detection ──
+// ── Change detection ──
 function computeHash() {
   const as = window.appState;
   if (!as) return "";
@@ -275,7 +461,6 @@ function computeHash() {
   return parts.join("##");
 }
 
-// ── Render (only if data changed) ──
 function renderIfChanged() {
   const hash = computeHash();
   if (hash === _prevHash) return;
@@ -283,6 +468,7 @@ function renderIfChanged() {
   render();
 }
 
+// ── Render ──
 function render() {
   if (!sbRoot) return;
   const players = buildPlayerList();
@@ -293,102 +479,75 @@ function render() {
 
   const as = window.appState;
   const by = safeStr(as?.by);
-  const count = players.length;
 
-  // Container classes
-  let layoutClass = "";
-  if (count === 2) layoutClass = "sb-versus";
-  else if (count >= 3) layoutClass = "sb-quad" + (count === 3 ? " sb-three" : "");
+  let html = `<div class="sb-bar">`;
 
-  let html = `<div class="sb-container ${layoutClass}">`;
-
-  for (const player of players) {
+  for (let pi = 0; pi < players.length; pi++) {
+    const player = players[pi];
     const tn = safeStr(player.trainer_name);
     const isMe = tn === by;
     const photo = getTrainerPhoto(player);
     const slots = buildSlots(player);
     const maxStages = getMaxStages(player);
 
-    // Ring radius as percentage of container half-size
-    const ringR = 42; // % from center
+    // Avatar
+    const avatarHtml = photo
+      ? `<img class="sb-avatar" src="${escapeAttr(photo)}" alt="${escapeAttr(tn)}" />`
+      : `<div class="sb-avatar-placeholder">${escapeHtml(tn.charAt(0).toUpperCase())}</div>`;
 
-    // Non-empty slot count for ring positioning
-    const activeSlotCount = slots.filter(s => !s.empty).length;
-    const positions = ringPositions(8, ringR);
-
-    // Photo HTML
-    const photoHtml = photo
-      ? `<img class="sb-photo" src="${escapeAttr(photo)}" alt="${escapeAttr(tn)}" />`
-      : `<div class="sb-photo-placeholder">${escapeHtml(tn.charAt(0).toUpperCase())}</div>`;
-
-    // Slots HTML
-    let slotsHtml = "";
-    for (let i = 0; i < 8; i++) {
-      const s = slots[i];
-      const pos = positions[i];
-      const posStyle = `left:${pos.left.toFixed(1)}%;top:${pos.top.toFixed(1)}%`;
-
+    // Pokémon lineup
+    let lineupHtml = "";
+    for (const s of slots) {
       if (s.empty) {
-        slotsHtml += `<div class="sb-slot" style="${posStyle}"><div class="sb-slot-empty"></div></div>`;
+        lineupHtml += `<div class="sb-poke"><div class="sb-poke-empty"></div><div class="sb-poke-hp"></div></div>`;
         continue;
       }
 
-      // Determine sprite src and class
       let imgSrc, imgClass;
       if (s.ko) {
         imgSrc = s.revealed ? s.spriteUrl : POKE_BALL_URL;
-        imgClass = "sb-slot-img sb-ko";
+        imgClass = "sb-poke-img sb-ko";
       } else if (s.revealed) {
         imgSrc = s.spriteUrl;
-        imgClass = "sb-slot-img";
+        imgClass = "sb-poke-img";
       } else {
         imgSrc = POKE_BALL_URL;
-        imgClass = "sb-slot-img sb-unrevealed";
+        imgClass = "sb-poke-img sb-unrevealed";
       }
 
-      // HP bar
-      let hpHtml = "";
-      if (!s.empty) {
-        const hpVal = s.hp != null ? s.hp : maxStages;
-        const hpPct = maxStages > 0 ? Math.max(0, Math.min(100, (hpVal / maxStages) * 100)) : 100;
-        const hpCol = s.ko ? "#64748b" : hpPct > 66 ? "#22c55e" : hpPct > 33 ? "#f59e0b" : "#ef4444";
-        hpHtml = `<div class="sb-slot-hp"><div class="sb-slot-hp-fill" style="width:${hpPct.toFixed(0)}%;background:${hpCol}"></div></div>`;
-      }
+      const hpVal = s.hp != null ? s.hp : maxStages;
+      const hpPct = maxStages > 0 ? Math.max(0, Math.min(100, (hpVal / maxStages) * 100)) : 100;
+      const hpCol = s.ko ? "#64748b" : hpPct > 66 ? "#22c55e" : hpPct > 33 ? "#f59e0b" : "#ef4444";
 
-      slotsHtml += `<div class="sb-slot" style="${posStyle}" data-pid="${escapeAttr(s.pid)}" data-owner="${escapeAttr(tn)}" title="${escapeAttr(s.pid)}">
+      lineupHtml += `<div class="sb-poke" title="${escapeAttr(s.pid)}">
         <img class="${imgClass}" src="${escapeAttr(imgSrc)}" loading="lazy" onerror="this.src='${POKE_BALL_URL}'" />
-        ${hpHtml}
+        <div class="sb-poke-hp"><div class="sb-poke-hp-fill" style="width:${hpPct.toFixed(0)}%;background:${hpCol}"></div></div>
       </div>`;
     }
 
-    // Place avatar button (only for self)
+    // Place trainer button (only for self)
     const isPlacing = !!as?.placingTrainer && as.placingTrainer === tn;
     const placeBtnHtml = isMe
-      ? `<button class="sb-place-btn${isPlacing ? " sb-placing" : ""}" data-action="place-trainer" data-trainer="${escapeAttr(tn)}">${isPlacing ? "Clique no mapa..." : "Posicionar avatar"}</button>`
+      ? `<button class="sb-place-btn${isPlacing ? " sb-placing" : ""}" data-action="place-trainer" data-trainer="${escapeAttr(tn)}">${isPlacing ? "Clique no mapa..." : "Posicionar"}</button>`
       : "";
 
-    html += `
-      <div class="sb-player${isMe ? " sb-me" : ""}" data-trainer="${escapeAttr(tn)}">
-        <div class="sb-portrait-ring">
-          ${photoHtml}
-          ${slotsHtml}
-        </div>
-        <div class="sb-name" title="${escapeAttr(tn)}">${escapeHtml(tn)}</div>
-        ${placeBtnHtml}
-      </div>`;
+    html += `<div class="sb-row${isMe ? " sb-row-me" : ""}" data-trainer="${escapeAttr(tn)}">
+      <div class="sb-identity">
+        ${avatarHtml}
+        <span class="sb-trainer-name" title="${escapeAttr(tn)}">${escapeHtml(tn)}</span>
+      </div>
+      <div class="sb-lineup">${lineupHtml}</div>
+      ${placeBtnHtml}
+    </div>`;
+
+    // VS divider between first two players (if exactly 2)
+    if (players.length === 2 && pi === 0) {
+      html += `<div class="sb-vs-divider"><span class="sb-vs-text">VS</span></div>`;
+    }
   }
 
   html += `</div>`;
   sbRoot.innerHTML = html;
-
-  // Adjust .app height
-  requestAnimationFrame(() => {
-    const sbH = sbRoot.offsetHeight;
-    const app = document.querySelector(".app");
-    if (app) {
-      app.style.height = `calc(100% - 56px - ${sbH}px)`;
-    }
-  });
 }
 
 // ── Event delegation for Place Trainer button ──
@@ -403,15 +562,14 @@ sbRoot.addEventListener("click", (ev) => {
   const as = window.appState;
   if (!as || !as.connected || !as.rid) return;
 
-  // Toggle placing mode
   if (as.placingTrainer === tn) {
     as.placingTrainer = null;
   } else {
     as.placingTrainer = tn;
-    as.placingPid = null; // cancel pokémon placement if any
+    as.placingPid = null;
   }
   renderIfChanged();
-  _prevHash = ""; // force re-render
+  _prevHash = "";
   render();
 });
 
@@ -432,7 +590,7 @@ function installCanvasInterceptor() {
 
     ev.stopImmediatePropagation();
     placeTrainerAt(as.placingTrainer, tile.row, tile.col);
-  }, true); // capture phase to intercept before main.js
+  }, true);
 }
 
 async function placeTrainerAt(trainerName, row, col) {
@@ -454,27 +612,22 @@ async function placeTrainerAt(trainerName, row, col) {
       const data = snap.exists() ? snap.data() : {};
       let pieces = Array.isArray(data?.pieces) ? [...data.pieces] : [];
 
-      // Check if tile is occupied
       const occupied = pieces.some(p =>
         safeStr(p?.status || "active") === "active" && Number(p?.row) === r && Number(p?.col) === c
       );
       if (occupied) throw new Error("tile ocupado");
 
-      // Find existing trainer token
       const existingIdx = pieces.findIndex(p =>
         safeStr(p?.owner) === tn && safeStr(p?.kind) === "trainer" && safeStr(p?.status || "active") === "active"
       );
 
-      // Get avatar choice
       let avatarChoice = "";
       const player = (as.players || []).find(p => safeStr(p?.trainer_name) === tn);
       if (player?.avatar?.avatar_choice) avatarChoice = player.avatar.avatar_choice;
 
       if (existingIdx >= 0) {
-        // Move existing trainer token
         pieces[existingIdx] = { ...pieces[existingIdx], row: r, col: c };
       } else {
-        // Create new trainer token
         const newId = `tc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
         pieces.push({
           id: newId,
@@ -500,7 +653,7 @@ async function placeTrainerAt(trainerName, row, col) {
   }
 }
 
-// ── DOM fallback click handler (for non-canvas arena) ──
+// ── DOM fallback click handler ──
 function installDomFallbackInterceptor() {
   const arenaDom = document.getElementById("arena_dom");
   if (!arenaDom) return;
@@ -520,7 +673,6 @@ function installDomFallbackInterceptor() {
 }
 
 // ── Expose getSpriteUrlFromPid if main.js hasn't yet ──
-// (main.js will overwrite this once loaded)
 if (typeof window.getSpriteUrlFromPid !== "function") {
   window.getSpriteUrlFromPid = getSpriteUrl;
 }
