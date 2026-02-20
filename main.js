@@ -1787,7 +1787,7 @@ function renderPartyWindow() {
   for (let i = 0; i < 8; i++) slots.push(party[i] || null);
   root.innerHTML = slots.map((entry, idx) => {
     const pid = safeStr(entry?.pid || entry || "");
-    if (!pid) return `<button type="button" class="party-slot empty" data-slot="${idx}" disabled><span class="slot-badge">vazio</span></button>`;
+    if (!pid) return `<button type="button" class="party-slot empty" data-slot="${idx}" disabled></button>`;
     const _psSlot = ((_partyStates && _partyStates[by]) ? _partyStates[by] : {})[pid] || {};
     const _slotSlug = spriteSlugFromPokemonName(typeof resolvePokemonNameFromPid === "function" ? resolvePokemonNameFromPid(pid) : "") || "";
     const sprite = (_slotSlug ? localSpriteUrl(_slotSlug, "art", !!_psSlot.shiny) : "") || getSpriteUrlFromPid(pid);
@@ -1796,12 +1796,8 @@ function renderPartyWindow() {
     const onBoard = isPokemonAlreadyOnBoard(by, pid);
     const placing = placingPid && placingPid === pid;
     const disabled = ko && !onBoard;
-    const readyBadge = placing ? '<span class="slot-badge ready">pronto</span>' : '';
-    const badges = `${readyBadge}${onBoard ? '<span class="slot-badge">em campo</span>' : ''}${ko ? '<span class="slot-badge">KO</span>' : ''}`;
     return `<button type="button" class="party-slot ${ko ? 'ko' : ''} ${placing ? 'placing' : ''}" data-slot="${idx}" data-pid="${escapeAttr(pid)}" ${disabled ? 'disabled' : ''}>
       ${sprite ? `<img src="${escapeAttr(sprite)}" alt="${escapeAttr(pid)}" loading="lazy" onerror="this.style.display='none'"/>` : ''}
-      <span class="slot-label">${idx + 1}</span>
-      ${badges}
     </button>`;
   }).join('');
 
@@ -1813,7 +1809,9 @@ function renderPartyWindow() {
     const pid = safeStr(btn.dataset.pid);
     if (!pid) return;
 
-    const activePieceId = getActivePieceIdForPokemon(by, pid);
+    const ownerName = safeStr(appState.by);
+
+    const activePieceId = getActivePieceIdForPokemon(ownerName, pid);
     if (activePieceId) {
       removePieceFromBoard(activePieceId);
       return;
