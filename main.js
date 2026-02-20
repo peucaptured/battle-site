@@ -49,6 +49,7 @@ const oppCount = $("opp_count");
 const playersCount = $("players_count");
 const lastActionEl = $("last_action");
 const actionsLogEl = $("actions_log");
+const topRollBtn = $("top_roll_btn");
 
 const playersPre = $("players");
 const statePre = $("state");
@@ -631,6 +632,37 @@ window.sendMovePiece = async (by, pieceId, row, col) =>
     row: Number(row),
     col: Number(col),
   });
+
+topRollBtn?.addEventListener("click", async () => {
+  if (!currentDb || !currentRid || !appState.connected) {
+    setStatus("err", "conecte antes de rolar dado");
+    return;
+  }
+
+  const by = safeStr(appState.by || byInput?.value || "Anon") || "Anon";
+  const value = Math.floor(Math.random() * 20) + 1;
+
+  const prevDisabled = topRollBtn.disabled;
+  const prevLabel = topRollBtn.textContent;
+  topRollBtn.disabled = true;
+  topRollBtn.textContent = "⏳ Rolando...";
+
+  try {
+    await addDoc(collection(currentDb, "rooms", currentRid, "rolls"), {
+      by,
+      trainer: by,
+      value,
+      label: "d20",
+      createdAt: serverTimestamp(),
+    });
+    setStatus("ok", `dado rolado: ${value}`);
+  } catch (e) {
+    setStatus("err", `erro ao rolar dado: ${e?.message || e}`);
+  } finally {
+    topRollBtn.disabled = prevDisabled;
+    topRollBtn.textContent = prevLabel || "🎲 Rolar dado";
+  }
+});
 
 // -------------------------
 // Connect / disconnect
