@@ -415,7 +415,7 @@
 
     .party-window {
       display:grid;
-      grid-template-columns:repeat(4,minmax(0,1fr));
+      grid-template-columns:repeat(8,minmax(74px,1fr));
       gap:10px;
     }
     .party-slot {
@@ -975,12 +975,21 @@
       </section>
 
       <!-- Dev tools (colapsável) -->
-      <details class="dev" id="devtools">
+      <details class="dev" id="devtools" open>
         <summary>
-          <span>🛠️ Ferramentas (ações manuais)</span>
+          <span>🧢 Time (posicionamento)</span>
           <span class="pill mono" id="last_action">—</span>
         </summary>
         <div class="dev-body">
+          <div class="card" style="margin-bottom:12px">
+            <div class="row spread" style="margin-bottom:10px">
+              <div style="font-weight:950">🎯 Time para posicionar</div>
+              <div class="pill mono">slots: 8</div>
+            </div>
+            <div class="muted" style="margin-bottom:10px">Clique em uma pokébola para armar o Pokémon e depois clique em um tile da arena.</div>
+            <div id="party_window" class="party-window" aria-label="Slots da party"></div>
+          </div>
+
           <div class="grid2">
             <div class="card" style="margin-bottom:0">
               <div style="font-weight:950;margin-bottom:10px">Mover peça (MOVE_PIECE)</div>
