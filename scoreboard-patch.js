@@ -25,20 +25,6 @@ const FIREBASE_CONFIG = {
   appId: "1:676094077702:web:dc834e5b4b5811a3b0e164",
 };
 
-// ── Firebase Storage (public URL helper) ──
-const TRAINER_PHOTO_FILENAME = "profile.png"; // <- seus arquivos estão assim
-function storageMediaUrl(path) {
-  const bucket = (FIREBASE_CONFIG && FIREBASE_CONFIG.storageBucket) || "";
-  return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media`;
-}
-function trainerFolderCandidates(trainerName) {
-  const tn = safeStr(trainerName);
-  const s = safeDocId(tn);
-  // tenta 1) nome como veio, 2) versão "safe"
-  return Array.from(new Set([tn, s].filter(Boolean)));
-}
-
-
 function getDb() {
   const apps = getApps();
   const app = apps.length ? apps[0] : initializeApp(FIREBASE_CONFIG);
@@ -216,35 +202,23 @@ function getSpriteUrl(pid) {
 }
 
 // ── Get trainer photo ──
-function getTrainerPhotoUrls(player) {
+function getTrainerPhoto(player) {
   const tn = safeStr(player.trainer_name);
-
-  // 1) player.avatar.photo_thumb_b64 (mais rápido, não depende de regras do Storage)
+  // 1) player.avatar.photo_thumb_b64
   if (player.avatar?.photo_thumb_b64) {
-    return { primary: `data:image/png;base64,${player.avatar.photo_thumb_b64}`, fallback: null };
+    return `data:image/png;base64,${player.avatar.photo_thumb_b64}`;
   }
-
-  // 2) userProfiles (se main.js estiver populando isso)
+  // 2) userProfiles
   const as = window.appState;
   if (as?.userProfiles) {
     const uid = safeStr(player.uid) || safeDocId(tn);
     const entry = as.userProfiles.get(uid);
     const profile = entry?.profile;
     if (profile?.avatar?.photo_thumb_b64) {
-      return { primary: `data:image/png;base64,${profile.avatar.photo_thumb_b64}`, fallback: null };
+      return `data:image/png;base64,${profile.avatar.photo_thumb_b64}`;
     }
   }
-
-  // 3) Firebase Storage: trainer_photos/<TrainerName>/profile.png
-  // Observação: <img> não aceita gs://, tem que ser URL HTTP.
-  if (tn) {
-    const cands = trainerFolderCandidates(tn);
-    const primary = storageMediaUrl(`trainer_photos/${cands[0]}/${TRAINER_PHOTO_FILENAME}`);
-    const fallback = cands[1] ? storageMediaUrl(`trainer_photos/${cands[1]}/${TRAINER_PHOTO_FILENAME}`) : null;
-    return { primary, fallback };
-  }
-
-  return { primary: null, fallback: null };
+  return null;
 }
 
 function safeDocId(name) {
@@ -319,31 +293,92 @@ function render() {
 
   const as = window.appState;
   const by = safeStr(as?.by);
-  const me = players.find(p => safeStr(p?.trainer_name) === by) || players[0];
-  const opponents = players.filter(p => safeStr(p?.trainer_name) !== safeStr(me?.trainer_name));
+  const count = players.length;
 
-  const oppCount = opponents.length;
-  const sbClass = `sb-line sb-opp-${Math.min(4, Math.max(0, oppCount))}`;
+  // Container classes
+  let layoutClass = "";
+  if (count === 2) layoutClass = "sb-versus";
+  else if (count >= 3) layoutClass = "sb-quad" + (count === 3 ? " sb-three" : "");
 
-  const html = `
-    <div class="sb-container ${sbClass}">
-      ${renderPartyRow(me, { isMe: true, side: "left" })}
+  let html = `<div class="sb-container ${layoutClass}">`;
 
-      <div class="sb-center">
-        ${renderPortrait(me, { isMe: true })}
-        ${oppCount ? `<div class="sb-vs" aria-label="versus">VS</div>` : ``}
-        <div class="sb-opponents">
-          ${opponents.map(p => `
-            <div class="sb-opponent">
-              ${renderPortrait(p, { isMe: false })}
-              ${renderPartyRow(p, { isMe: false, side: "right" })}
-            </div>
-          `).join("")}
+  for (const player of players) {
+    const tn = safeStr(player.trainer_name);
+    const isMe = tn === by;
+    const photo = getTrainerPhoto(player);
+    const slots = buildSlots(player);
+    const maxStages = getMaxStages(player);
+
+    // Ring radius as percentage of container half-size
+    const ringR = 42; // % from center
+
+    // Non-empty slot count for ring positioning
+    const activeSlotCount = slots.filter(s => !s.empty).length;
+    const positions = ringPositions(8, ringR);
+
+    // Photo HTML
+    const photoHtml = photo
+      ? `<img class="sb-photo" src="${escapeAttr(photo)}" alt="${escapeAttr(tn)}" />`
+      : `<div class="sb-photo-placeholder">${escapeHtml(tn.charAt(0).toUpperCase())}</div>`;
+
+    // Slots HTML
+    let slotsHtml = "";
+    for (let i = 0; i < 8; i++) {
+      const s = slots[i];
+      const pos = positions[i];
+      const posStyle = `left:${pos.left.toFixed(1)}%;top:${pos.top.toFixed(1)}%`;
+
+      if (s.empty) {
+        slotsHtml += `<div class="sb-slot" style="${posStyle}"><div class="sb-slot-empty"></div></div>`;
+        continue;
+      }
+
+      // Determine sprite src and class
+      let imgSrc, imgClass;
+      if (s.ko) {
+        imgSrc = s.revealed ? s.spriteUrl : POKE_BALL_URL;
+        imgClass = "sb-slot-img sb-ko";
+      } else if (s.revealed) {
+        imgSrc = s.spriteUrl;
+        imgClass = "sb-slot-img";
+      } else {
+        imgSrc = POKE_BALL_URL;
+        imgClass = "sb-slot-img sb-unrevealed";
+      }
+
+      // HP bar
+      let hpHtml = "";
+      if (!s.empty) {
+        const hpVal = s.hp != null ? s.hp : maxStages;
+        const hpPct = maxStages > 0 ? Math.max(0, Math.min(100, (hpVal / maxStages) * 100)) : 100;
+        const hpCol = s.ko ? "#64748b" : hpPct > 66 ? "#22c55e" : hpPct > 33 ? "#f59e0b" : "#ef4444";
+        hpHtml = `<div class="sb-slot-hp"><div class="sb-slot-hp-fill" style="width:${hpPct.toFixed(0)}%;background:${hpCol}"></div></div>`;
+      }
+
+      slotsHtml += `<div class="sb-slot" style="${posStyle}" data-pid="${escapeAttr(s.pid)}" data-owner="${escapeAttr(tn)}" title="${escapeAttr(s.pid)}">
+        <img class="${imgClass}" src="${escapeAttr(imgSrc)}" loading="lazy" onerror="this.src='${POKE_BALL_URL}'" />
+        ${hpHtml}
+      </div>`;
+    }
+
+    // Place avatar button (only for self)
+    const isPlacing = !!as?.placingTrainer && as.placingTrainer === tn;
+    const placeBtnHtml = isMe
+      ? `<button class="sb-place-btn${isPlacing ? " sb-placing" : ""}" data-action="place-trainer" data-trainer="${escapeAttr(tn)}">${isPlacing ? "Clique no mapa..." : "Posicionar avatar"}</button>`
+      : "";
+
+    html += `
+      <div class="sb-player${isMe ? " sb-me" : ""}" data-trainer="${escapeAttr(tn)}">
+        <div class="sb-portrait-ring">
+          ${photoHtml}
+          ${slotsHtml}
         </div>
-      </div>
-    </div>
-  `;
+        <div class="sb-name" title="${escapeAttr(tn)}">${escapeHtml(tn)}</div>
+        ${placeBtnHtml}
+      </div>`;
+  }
 
+  html += `</div>`;
   sbRoot.innerHTML = html;
 
   // Adjust .app height
@@ -354,71 +389,6 @@ function render() {
       app.style.height = `calc(100% - 56px - ${sbH}px)`;
     }
   });
-}
-
-function renderPortrait(player, { isMe }) {
-  const tn = safeStr(player?.trainer_name);
-  const { primary: photo, fallback: photo2 } = getTrainerPhotoUrls(player);
-  const initial = (tn.charAt(0) || "?").toUpperCase();
-
-  const photoHtml = photo
-    ? `<img class="sb-photo" src="${escapeAttr(photo)}" alt="${escapeAttr(tn)}" loading="lazy"
-        onerror="if(this.dataset.fallback!=='1' && '${escapeAttr(photo2 || "")}'){this.dataset.fallback='1';this.src='${escapeAttr(photo2 || "")}';}else{this.style.display='none';this.insertAdjacentHTML('afterend','<div class=&quot;sb-photo-placeholder&quot;>${escapeHtml(initial)}</div>');}" />`
-    : `<div class="sb-photo-placeholder">${escapeHtml(initial)}</div>`;
-
-  const as = window.appState;
-  const isPlacing = !!as?.placingTrainer && safeStr(as.placingTrainer) === tn;
-  const placeBtnHtml = isMe
-    ? `<button class="sb-place-btn${isPlacing ? " sb-placing" : ""}" data-action="place-trainer" data-trainer="${escapeAttr(tn)}">${isPlacing ? "Clique no mapa..." : "Posicionar avatar"}</button>`
-    : "";
-
-  return `
-    <div class="sb-portrait${isMe ? " sb-me" : ""}" title="${escapeAttr(tn)}">
-      <div class="sb-portrait-core">${photoHtml}</div>
-      <div class="sb-name">${escapeHtml(tn)}</div>
-      ${placeBtnHtml}
-    </div>
-  `;
-}
-
-function renderPartyRow(player, { isMe, side }) {
-  const tn = safeStr(player?.trainer_name);
-  const slots = buildSlots(player);
-  const maxStages = getMaxStages(player);
-
-  const chips = slots.map((s) => {
-    if (s.empty) {
-      return `<div class="sb-chip sb-empty" aria-hidden="true"></div>`;
-    }
-
-    let imgSrc, imgClass;
-    if (s.ko) {
-      imgSrc = s.revealed ? s.spriteUrl : POKE_BALL_URL;
-      imgClass = "sb-chip-img sb-ko";
-    } else if (s.revealed) {
-      imgSrc = s.spriteUrl;
-      imgClass = "sb-chip-img";
-    } else {
-      imgSrc = POKE_BALL_URL;
-      imgClass = "sb-chip-img sb-unrevealed";
-    }
-
-    const hpVal = s.hp != null ? s.hp : maxStages;
-    const hpPct = maxStages > 0 ? Math.max(0, Math.min(100, (hpVal / maxStages) * 100)) : 100;
-
-    return `
-      <div class="sb-chip" data-owner="${escapeAttr(tn)}" data-pid="${escapeAttr(s.pid)}" title="${escapeAttr(s.pid)}">
-        <img class="${imgClass}" src="${escapeAttr(imgSrc)}" loading="lazy" onerror="this.src='${POKE_BALL_URL}'" />
-        <div class="sb-chip-hp"><div class="sb-chip-hp-fill" style="width:${hpPct.toFixed(0)}%"></div></div>
-      </div>
-    `;
-  }).join("");
-
-  return `
-    <div class="sb-party ${isMe ? "sb-party-me" : "sb-party-opp"} sb-${escapeAttr(side || "left")}" aria-label="time de ${escapeAttr(tn)}">
-      ${chips}
-    </div>
-  `;
 }
 
 // ── Event delegation for Place Trainer button ──
