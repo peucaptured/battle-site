@@ -381,6 +381,11 @@ const STORAGE_KEYS = {
 let dexMap = null; // { pidStr: name }
 let mapUrlOverride = '';
 
+function setDexMap(obj) {
+  dexMap = (obj && typeof obj === 'object') ? obj : null;
+  window.dexMap = dexMap;
+}
+
 const pieceMenuState = {
   pieceId: null,
 };
@@ -447,13 +452,13 @@ async function tryLoadDexMapFromAssets() {
 
 // Inicializa overrides
 (function initOverrides() {
-  dexMap = loadDexMapFromStorage();
+  setDexMap(loadDexMapFromStorage());
   mapUrlOverride = loadMapOverrideFromStorage();
   // tenta assets apenas se ainda não tem nada no storage
   if (!dexMap) {
     tryLoadDexMapFromAssets().then((obj) => {
       if (obj && !dexMap) {
-        dexMap = obj;
+        setDexMap(obj);
         updateSidePanels();
       }
     });
@@ -2815,7 +2820,7 @@ function escapeAttr(s) {
 
 // Local overrides init (Dex/Map)
 (function initLocalOverrides(){
-  dexMap = loadDexMapFromStorage();
+  setDexMap(loadDexMapFromStorage());
   mapUrlOverride = loadMapOverrideFromStorage();
 
   const dexFile = document.getElementById('dex_json_file');
@@ -2827,7 +2832,7 @@ function escapeAttr(s) {
       const raw = await f.text();
       const obj = JSON.parse(raw);
       if (!obj || typeof obj !== 'object') throw new Error('JSON inválido');
-      dexMap = obj;
+      setDexMap(obj);
       saveDexMapToStorage(obj);
       setStatus('ok', 'Dex carregada (local)');
       updateSidePanels();
@@ -2836,7 +2841,7 @@ function escapeAttr(s) {
     }
   });
   dexClear?.addEventListener('click', () => {
-    dexMap = null;
+    setDexMap(null);
     saveDexMapToStorage({});
     setStatus('ok', 'Dex limpa');
     updateSidePanels();
