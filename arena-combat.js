@@ -269,9 +269,10 @@ const CSS_TEXT = `
 /* ── Range selector (in overlay) ── */
 .ac-range-row {
   display: flex; gap: 6px; margin-bottom: 8px;
+  flex-wrap: wrap;
 }
 .ac-range-btn {
-  flex: 1; appearance: none; cursor: pointer;
+  flex: 1 1 30%; appearance: none; cursor: pointer;
   padding: 6px; border-radius: 8px;
   border: 1px solid rgba(148,163,184,.22);
   background: rgba(2,6,23,.2); color: rgba(226,232,240,.75);
@@ -1010,6 +1011,7 @@ export class ArenaCombatUI {
       <div class="ac-range-row">
         <button class="ac-range-btn ac-active" data-range="distance">🏹 Distância (Dodge)</button>
         <button class="ac-range-btn" data-range="melee">⚔️ Corpo-a-corpo (Parry)</button>
+        <button class="ac-range-btn" data-range="area">🌀 Área (Dodge CD)</button>
       </div>
     `;
 
@@ -1056,6 +1058,7 @@ export class ArenaCombatUI {
           <div class="ac-quick-actions">
             <button class="ac-quick-btn" id="ac-open-radial">🎯 Favoritos (${favMoves.length})</button>
             <button class="ac-quick-btn" id="ac-open-list">📋 Todos os Golpes</button>
+            <button class="ac-quick-btn" id="ac-open-manual">✍️ Input manual</button>
           </div>
         `;
         movesArea.querySelector("#ac-open-radial")?.addEventListener("click", () => {
@@ -1063,6 +1066,9 @@ export class ArenaCombatUI {
         });
         movesArea.querySelector("#ac-open-list")?.addEventListener("click", () => {
           this._renderMoveList(movesArea, moves, stats, targetPiece, getAtkPid, () => currentRange);
+        });
+        movesArea.querySelector("#ac-open-manual")?.addEventListener("click", () => {
+          this._openManualInputDialog(targetPiece, getAtkPid(), currentRange);
         });
       } else {
         // Show compact list directly
@@ -1078,6 +1084,7 @@ export class ArenaCombatUI {
   // ─── Compact move list ─────────────────────────────────────────
   _renderMoveList(container, moves, stats, targetPiece, getAtkPid, getRange) {
     let html = `<input class="ac-search" placeholder="/ buscar golpe..." id="ac-move-search" />`;
+    html += `<button class="ac-quick-btn" id="ac-manual-input" style="width:100%;margin-bottom:6px">✍️ Input manual</button>`;
     html += `<div class="ac-movelist" id="ac-movelist-inner">`;
 
     // Area attack option
@@ -1127,6 +1134,13 @@ export class ArenaCombatUI {
         const idx = parseInt(el.dataset.idx);
         const mv = moves[idx];
         if (!mv) return;
+        if (getRange() === "area") {
+          this._openAreaDialog(targetPiece, getAtkPid(), {
+            level: safeInt(mv.rank, 1),
+            isEffect: this._isEffectMove(mv),
+          });
+          return;
+        }
         this._executeAttack(getAtkPid(), targetPiece, mv, stats, getRange());
       });
     });
@@ -1135,10 +1149,19 @@ export class ArenaCombatUI {
     container.querySelector('.ac-move-item[data-mode="area"]')?.addEventListener("click", () => {
       this._openAreaDialog(targetPiece, getAtkPid());
     });
+
+    container.querySelector("#ac-manual-input")?.addEventListener("click", () => {
+      this._openManualInputDialog(targetPiece, getAtkPid(), getRange());
+    });
+  }
+
+  _isEffectMove(move) {
+    const category = safeStr(move?.meta?.category || move?.category || "").toLowerCase();
+    return category.includes("status") || move?.meta?.is_effect === true;
   }
 
   // ─── Area attack dialog ────────────────────────────────────────
-  _openAreaDialog(targetPiece, atkPid) {
+  _openAreaDialog(targetPiece, atkPid, defaults = {}) {
     this._closeOverlay();
     const pos = this._pieceScreenPos(targetPiece);
     const el = document.createElement("div");
@@ -1151,10 +1174,10 @@ export class ArenaCombatUI {
       <div class="ac-prompt-title">🌀 Ataque em Área</div>
       <div style="margin-bottom:8px">
         <label style="font-size:11px;color:rgba(148,163,184,.7)">Nível do Efeito / Dano</label>
-        <input class="ac-search" id="ac-area-level" type="number" value="1" min="1" style="margin-top:4px" />
+        <input class="ac-search" id="ac-area-level" type="number" value="${safeInt(defaults.level, 1)}" min="1" style="margin-top:4px" />
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-        <input type="checkbox" id="ac-area-effect" />
+        <input type="checkbox" id="ac-area-effect" ${defaults.isEffect ? "checked" : ""} />
         <label for="ac-area-effect" style="font-size:12px;font-weight:700;color:rgba(226,232,240,.85)">É Efeito? (Affliction)</label>
       </div>
       <button class="ac-prompt-btn ac-wide" id="ac-area-launch">🚀 Lançar Área</button>
@@ -1194,6 +1217,80 @@ export class ArenaCombatUI {
 
       this._showFloat(targetPiece, `🌀 Área Nv${lvl} — CD ${lvl + 10}`, "pending");
       this._closePrompt();
+    });
+  }
+
+  _openManualInputDialog(targetPiece, atkPid, rangeStr) {
+    this._closeOverlay();
+    const pos = this._pieceScreenPos(targetPiece);
+    const el = document.createElement("div");
+    el.className = "ac-prompt";
+    const cpos = this._clampPos(pos.x + 30, pos.y - 50, 280, 260);
+    el.style.left = `${cpos.x}px`;
+    el.style.top = `${cpos.y}px`;
+
+    el.innerHTML = `
+      <div class="ac-prompt-title">✍️ Input manual</div>
+      <div style="display:grid;gap:8px;margin-bottom:10px">
+        <label style="font-size:11px;color:rgba(148,163,184,.7)">Acerto (Accuracy)
+          <input class="ac-search" id="ac-manual-acc" type="number" value="0" style="margin-top:4px" />
+        </label>
+        <label style="font-size:11px;color:rgba(148,163,184,.7)">Rank
+          <input class="ac-search" id="ac-manual-rank" type="number" value="1" min="1" style="margin-top:4px" />
+        </label>
+        <label style="font-size:11px;color:rgba(148,163,184,.7)">Tipo
+          <select class="ac-search" id="ac-manual-type" style="margin-top:4px">
+            <option value="damage">Dano</option>
+            <option value="effect">Affliction</option>
+          </select>
+        </label>
+      </div>
+      <button class="ac-prompt-btn ac-wide" id="ac-manual-send">✅ Confirmar</button>
+    `;
+
+    this._overlayRoot.appendChild(el);
+    this._currentPrompt = el;
+
+    el.querySelector("#ac-manual-send")?.addEventListener("click", async () => {
+      const acc = safeInt(el.querySelector("#ac-manual-acc")?.value, 0);
+      const rank = Math.max(1, safeInt(el.querySelector("#ac-manual-rank")?.value, 1));
+      const manualType = safeStr(el.querySelector("#ac-manual-type")?.value) || "damage";
+      const isEffect = manualType === "effect";
+
+      if (rangeStr === "area") {
+        const by = this.getBy();
+        const tId = safeStr(targetPiece.id);
+        const tOwner = safeStr(targetPiece.owner);
+        const tPid = safeStr(targetPiece.pid);
+
+        await this._writeBattle({
+          status: "aoe_defense",
+          attacker: by,
+          attacker_pid: atkPid,
+          target_id: tId,
+          target_owner: tOwner,
+          target_pid: tPid,
+          aoe_dc: rank + 10,
+          dmg_base: rank,
+          is_effect: isEffect,
+          pendingFor: tOwner,
+          prompt: { type: "ROLL_RESIST", options: { dc: rank + 10, isEffect, isAoe: true, aoePhase: "dodge" } },
+          logs: [`${by} lançou Área manual (Rank ${rank}, Acc ${acc}). Defensor rola Dodge obrigatório (CD ${rank + 10}).`],
+        });
+        this._showFloat(targetPiece, `🌀 Área Nv${rank} — CD ${rank + 10}`, "pending");
+        this._closePrompt();
+        return;
+      }
+
+      const manualMove = {
+        name: `Input Manual (${isEffect ? "Affliction" : "Dano"})`,
+        accuracy: acc,
+        rank,
+        meta: { category: isEffect ? "Status" : "Physical", is_effect: isEffect },
+      };
+
+      this._closePrompt();
+      await this._executeAttack(atkPid, targetPiece, manualMove, {}, rangeStr || "distance");
     });
   }
 
@@ -1252,6 +1349,13 @@ export class ArenaCombatUI {
         slot.addEventListener("click", () => {
           this._closeRadial();
           this._closeOverlay();
+          if (currentRange === "area") {
+            this._openAreaDialog(targetPiece, getAtkPid(), {
+              level: safeInt(mv.rank, 1),
+              isEffect: this._isEffectMove(mv),
+            });
+            return;
+          }
           this._executeAttack(getAtkPid(), targetPiece, mv, stats, currentRange);
         });
       } else if (i === totalSlots - 2) {
@@ -1313,6 +1417,7 @@ export class ArenaCombatUI {
     const rank = safeInt(move.rank);
     const [based, statVal] = moveStatValue(move.meta || {}, stats);
     const damage = rank + statVal;
+    const isEffect = this._isEffectMove(move);
 
     // Roll
     const roll = d20Roll();
@@ -1365,7 +1470,7 @@ export class ArenaCombatUI {
     // Write to Firestore
     if (hit) {
       // Auto-confirm rank (skip the extra step since we have move data)
-      const dcBase = 15; // damage DC
+      const dcBase = isEffect ? 10 : 15;
       const dcTotal = dcBase + damage + critBonus;
 
       await this._writeBattle({
@@ -1384,15 +1489,15 @@ export class ArenaCombatUI {
         total_atk: totalAtk,
         crit_bonus: critBonus,
         dmg_base: damage,
-        is_effect: false,
+        is_effect: isEffect,
         pendingFor: tOwner,
         prompt: {
           type: "ROLL_RESIST",
-          options: { dc: dcTotal, isEffect: false, rank: damage, critBonus },
+          options: { dc: dcTotal, isEffect, rank: damage, critBonus },
         },
         logs: [
           `${by} rolou ${roll}+${atkMod}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${critTxt}... ${resultMsg}`,
-          `Rank/Dano: ${damage}. Aguardando resistência... (CD ${dcTotal})`,
+          `Rank/Dano: ${damage}${isEffect ? " (Affliction)" : ""}. Aguardando resistência... (CD ${dcTotal})`,
         ],
       });
 
