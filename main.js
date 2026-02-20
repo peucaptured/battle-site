@@ -461,13 +461,26 @@ let userUnsub = new Map(); // uid -> unsubscribe
 
 function ensureUserSubscriptions() {
   if (!currentDb) return;
-  const wanted = new Map(); // uid -> trainer_name
+  const wanted = new Map(); // uid/docId -> trainer_name
+  const addWanted = (uid, tn) => {
+    const key = safeStr(uid);
+    const name = safeStr(tn);
+    if (!key || !name) return;
+    wanted.set(key, name);
+  };
   const by = safeStr(appState.by);
-  if (by) wanted.set(safeDocId(by), by);
+  if (by) addWanted(safeDocId(by), by);
   for (const p of (appState.players || [])) {
     const tn = safeStr(p?.trainer_name);
     if (!tn) continue;
-    wanted.set(safeDocId(tn), tn);
+    addWanted(safeDocId(tn), tn);
+    addWanted(p?.uid, tn);
+    addWanted(p?.id, tn);
+  }
+  for (const p of (appState.pieces || [])) {
+    const tn = safeStr(p?.owner);
+    if (!tn) continue;
+    addWanted(safeDocId(tn), tn);
   }
 
   // unsubscribe removidos
@@ -1216,11 +1229,23 @@ function getPartyForTrainer(trainerName) {
   const snapParty = (p && Array.isArray(p.party_snapshot)) ? p.party_snapshot : [];
 
   // 2) users_raw/users (espelhado pelo Streamlit ou por outro processo)
-  const uid = safeDocId(tn);
-  const entry = appState.userProfiles?.get?.(uid);
-  const raw = entry?.raw;
-  const data = raw?.data || raw;
-  const rawParty = Array.isArray(data?.party) ? data.party : [];
+  const player = (appState.players || []).find(x => safeStr(x?.trainer_name) === tn);
+  const uidCandidates = [
+    safeStr(player?.uid),
+    safeStr(player?.id),
+    safeDocId(tn),
+  ].filter(Boolean);
+  let rawParty = [];
+  for (const uid of uidCandidates) {
+    const entry = appState.userProfiles?.get?.(uid);
+    const raw = entry?.raw;
+    const data = raw?.data || raw;
+    const party = Array.isArray(data?.party) ? data.party : [];
+    if (party.length) {
+      rawParty = party;
+      break;
+    }
+  }
 
   // ✅ se users_raw tem party, ela manda (fonte de verdade)
   if (rawParty.length) {
