@@ -1975,17 +1975,69 @@ async function placePokemonOnBoardAt(pid, row, col) {
   }
 
   try {
-    const ok = await sendAction("ADD_PIECE", by, {
+    // ✅ Opção A: aplica direto no public_state/state (igual Streamlit), via transaction
+    // Motivo: o mapa renderiza APENAS o que está em state.pieces. Se você só cria action,
+    // precisa de um "aplicador" no backend — e aqui vamos evitar isso.
+    const stateRef = getStateDocRef();
+    if (!stateRef || !currentDb) {
+      setStatus("err", "sem conexão com o Firestore");
+      return;
+    }
+
+    const newId = makePieceId();
+    const newPiece = {
+      id: newId,
       owner: by,
       pid: monPid,
       row: r,
       col: c,
+      status: "active",
       revealed: true,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    await runTransaction(currentDb, async (tx) => {
+      const snap = await tx.get(stateRef);
+      const data = snap.exists() ? snap.data() : {};
+      const pieces = Array.isArray(data?.pieces) ? data.pieces : [];
+
+      // Revalida dentro da transaction (evita corrida)
+      const occupied = pieces.some(
+        (p) => safeStr(p?.status || "active") === "active" && Number(p?.row) === r && Number(p?.col) === c
+      );
+      if (occupied) throw new Error("tile ocupado");
+
+      const already = pieces.some(
+        (p) =>
+          safeStr(p?.status || "active") === "active" &&
+          safeStr(p?.owner) === by &&
+          safeStr(p?.pid) === monPid
+      );
+      if (already) throw new Error("esse pokémon já está no campo");
+
+      const nextPieces = pieces.concat([newPiece]);
+      tx.set(
+        stateRef,
+        {
+          pieces: nextPieces,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
     });
-    if (!ok) return;
+
+    // Optimistic UI (o snapshot vai confirmar logo em seguida)
+    try {
+      appState.pieces = Array.isArray(appState.pieces) ? appState.pieces : [];
+      appState.pieces = appState.pieces.concat([newPiece]);
+      if (!useCanvas) renderArenaDom();
+      // canvas: o loop de render já vai pegar no próximo frame
+    } catch {}
+
     clearPokemonPlacingMode();
     updateSidePanels();
-    setStatus("ok", "pokémon enviado para posicionamento");
+    setStatus("ok", "pokémon posicionado no campo");
   } catch (e) {
     setStatus("err", `falha ao colocar pokémon: ${e?.message || e}`);
   }
