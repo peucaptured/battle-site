@@ -678,8 +678,11 @@ function renderModalRevealPick() {
 async function tryAdvanceToActive() {
   const ref = getBattleRef();
   if (!ref) return;
-  const allPlayers = window.appState?.players || [];
+  const allPlayers = (window.appState?.players || [])
+    .filter(p => safeStr(p?.trainer_name));
   const responses = _preprepData?.responses || {};
+
+  if (!allPlayers.length) return;
 
   const allAnswered = allPlayers.every(p => {
     const tn = safeStr(p.trainer_name);
@@ -849,7 +852,7 @@ function onBattleSnapshot(snap) {
   const turnPhase = safeStr(turnState.phase);
 
   // If preprep is done or turn is active → close any modal
-  if (ppPhase === "done" || turnPhase === "active" || turnPhase === "preprep_asking") {
+  if (ppPhase === "done" || turnPhase === "active") {
     closeModal();
     return;
   }
@@ -868,7 +871,7 @@ function onBattleSnapshot(snap) {
     // I answered yes but haven't submitted data yet → stay on text/select
     if (myResp === "yes") {
       const myData = pp.data?.[_by];
-      if (!myData?.text) {
+      if (!Array.isArray(myData?.entries) || myData.entries.length === 0) {
         // Stay in selection/text flow; don't interrupt
         if (_modalStep === "waiting") openModal("select");
         return;
