@@ -178,8 +178,23 @@ export class CombatUI {
     if (!ref) return;
     this._partyStatesUnsub = onSnapshot(ref, (snap) => {
       this._partyStates = snap.exists() ? (snap.data() || {}) : {};
-      // don't re-render here; main.js calls render() on battle change
+      // Pré-carrega fichas de todos os trainers que aparecerem no party_states
+      const data = snap.exists() ? snap.data() : {};
+      for (const trainerName of Object.keys(data || {})) {
+        if (trainerName && !this._sheets.has(trainerName)) {
+          this._loadSheets(trainerName);
+        }
+      }
     }, () => {});
+
+    // Pré-carrega fichas dos jogadores já conhecidos via appState.players
+    setTimeout(() => {
+      const players = window.appState?.players || [];
+      for (const pl of players) {
+        const name = safeStr(pl?.trainer_name);
+        if (name && !this._sheets.has(name)) this._loadSheets(name);
+      }
+    }, 500);
   }
 
   stopListening() {
@@ -227,6 +242,20 @@ export class CombatUI {
     const tData = this._partyStates[trainerName] || {};
     const pData = tData[safeStr(pid)] || {};
     return pData.stats || {};
+  }
+
+  // ─── Get effective stats (base + boosts temporários) ─────────────
+  // boosts ficam em party_states[trainer][pid].stat_boosts = { dodge:+2, parry:-1, ... }
+  _getEffectiveStats(trainerName, pid) {
+    const tData = this._partyStates[trainerName] || {};
+    const pData = tData[safeStr(pid)] || {};
+    const base   = pData.stats || {};
+    const boosts = pData.stat_boosts || {};
+    const result = { ...base };
+    for (const [k, v] of Object.entries(boosts)) {
+      result[k] = (safeInt(result[k]) + safeInt(v));
+    }
+    return result;
   }
 
   _getDisplayName(pid) {
@@ -506,6 +535,13 @@ export class CombatUI {
       <input class="input" id="cb_atk_accuracy" type="number" value="0" style="margin-bottom:10px" />
       <div class="muted" id="cb_acc_hint" style="margin-bottom:10px"></div>`;
 
+    // Golpe Furtivo
+    html += `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:8px 10px;border-radius:10px;background:rgba(168,85,247,.10);border:1px solid rgba(168,85,247,.28)">
+        <input type="checkbox" id="cb_sneak_attack" style="accent-color:#a855f7;width:16px;height:16px;cursor:pointer"/>
+        <label for="cb_sneak_attack" style="font-size:13px;font-weight:700;cursor:pointer">🥷 Golpe Furtivo <span class="muted" style="font-weight:400">(oponente usa metade da defesa)</span></label>
+      </div>`;
+
     // Roll button
     html += `<button class="btn" id="cb_roll_attack" style="width:100%">⚔️ Rolar Ataque</button>`;
     html += `</div>`; // end normal panel
@@ -590,6 +626,18 @@ export class CombatUI {
 
     atkPokemonSel.addEventListener("change", populateMoves);
     moveSel.addEventListener("change", updateAccuracy);
+    // Pré-carrega ficha do dono do alvo quando o alvo muda
+    targetSel.addEventListener("change", () => {
+      const opt = targetSel.selectedOptions[0];
+      const owner = opt?.dataset?.owner;
+      if (owner && !this._sheets.has(owner)) this._loadSheets(owner);
+    });
+    // Dispara o pré-carregamento do alvo inicial
+    (() => {
+      const opt = targetSel.selectedOptions[0];
+      const owner = opt?.dataset?.owner;
+      if (owner && !this._sheets.has(owner)) this._loadSheets(owner);
+    })();
     populateMoves();
 
     // Cancel
@@ -616,12 +664,14 @@ export class CombatUI {
       const attackerPid = atkPokemonSel.value;
       const atkRange = this._body.querySelector("#cb_atk_range").value;
       const atkMod = safeInt(accInput.value);
+      const isSneakAttack = !!this._body.querySelector("#cb_sneak_attack")?.checked;
 
-      // get target stats
-      const tStats = this._getPokeStats(tOwner, tPid);
+      // get target stats (aplica boosts temporários se existirem)
+      const tStats = this._getEffectiveStats(tOwner, tPid);
       const dodge = safeInt(tStats.dodge);
       const parry = safeInt(tStats.parry);
-      const defenseVal = atkRange.includes("Distância") ? dodge : parry;
+      let defenseVal = atkRange.includes("Distância") ? dodge : parry;
+      if (isSneakAttack) defenseVal = Math.floor(defenseVal / 2);
       const needed = defenseVal + 10;
 
       // roll
@@ -658,6 +708,7 @@ export class CombatUI {
         }
       }
 
+      const sneakTxt = isSneakAttack ? " 🥷 Furtivo (def/2)" : "";
       const ref = this._battleRef(); if (!ref) return;
       await updateDoc(ref, {
         status: hit ? "hit_confirmed" : "missed",
@@ -674,8 +725,9 @@ export class CombatUI {
         needed,
         total_atk: totalAtk,
         crit_bonus: critBonus,
+        sneak_attack: isSneakAttack,
         logs: [
-          `${by} rolou ${roll}+${atkMod}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${critTxt}... ${resultMsg}`
+          `${by} rolou ${roll}+${atkMod}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${critTxt}${sneakTxt}... ${resultMsg}`
         ],
       });
     });

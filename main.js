@@ -811,26 +811,8 @@ topRollBtn?.addEventListener("click", async () => {
     return;
   }
 
-  const turnState = appState.battle?.turn_state || null;
-  if (turnState && safeStr(turnState.phase) === "active") {
-    setStatus("warn", "iniciativa só pode ser rolada no início da rodada");
-    return;
-  }
-
-  const order = buildTurnOrderFromCurrentBoard();
-  if (!order.length) {
-    setStatus("err", "sem pokémon ativos para iniciar rodada");
-    return;
-  }
-
-  const currentRound = Number(turnState?.round) || 0;
-  const nextTurnState = {
-    round: currentRound + 1,
-    phase: "active",
-    index: 0,
-    order,
-    updatedAt: Date.now(),
-  };
+  const by = safeStr(appState.by || byInput?.value || "Anon") || "Anon";
+  const value = Math.floor(Math.random() * 20) + 1;
 
   const battleRef = getBattleDocRef();
   if (!battleRef) {
@@ -838,19 +820,13 @@ topRollBtn?.addEventListener("click", async () => {
     return;
   }
 
-  const by = safeStr(appState.by || byInput?.value || "Anon") || "Anon";
-  const value = Math.floor(Math.random() * 20) + 1;
-
   const prevDisabled = topRollBtn.disabled;
   const prevLabel = topRollBtn.textContent;
   topRollBtn.disabled = true;
   topRollBtn.textContent = "⏳ Rolando...";
 
   try {
-    await runTransaction(currentDb, async (tx) => {
-      tx.set(battleRef, { turn_state: nextTurnState }, { merge: true });
-    });
-
+    // Sempre rola o dado
     await addDoc(collection(currentDb, "rooms", currentRid, "rolls"), {
       by,
       trainer: by,
@@ -858,12 +834,36 @@ topRollBtn?.addEventListener("click", async () => {
       label: "d20",
       createdAt: serverTimestamp(),
     });
-    setStatus("ok", `dado rolado: ${value}`);
+
+    // Se a rodada não estiver ativa, também inicia nova rodada (se houver peças)
+    const turnState = appState.battle?.turn_state || null;
+    const phase = safeStr(turnState?.phase);
+    if (phase !== "active") {
+      const order = buildTurnOrderFromCurrentBoard();
+      if (order.length) {
+        const currentRound = Number(turnState?.round) || 0;
+        const nextTurnState = {
+          round: currentRound + 1,
+          phase: "active",
+          index: 0,
+          order,
+          updatedAt: Date.now(),
+        };
+        await runTransaction(currentDb, async (tx) => {
+          tx.set(battleRef, { turn_state: nextTurnState }, { merge: true });
+        });
+        setStatus("ok", `dado rolado: ${value} • Rodada ${currentRound + 1} iniciada!`);
+      } else {
+        setStatus("ok", `dado rolado: ${value}`);
+      }
+    } else {
+      setStatus("ok", `dado rolado: ${value}`);
+    }
   } catch (e) {
     setStatus("err", `erro ao rolar dado: ${e?.message || e}`);
   } finally {
     topRollBtn.disabled = prevDisabled;
-    topRollBtn.textContent = prevLabel || "🎲 Rolar dado";
+    topRollBtn.textContent = prevLabel || "🎲 Rolar Dado";
   }
 });
 
@@ -1757,6 +1757,25 @@ function renderPartyCard(it, ownerName) {
   return card;
 }
 
+// ── Boost temporário de stat (dura enquanto o pokémon está em campo) ────────
+async function updateStatBoost(ownerName, pid, stat, delta) {
+  const db  = currentDb;
+  const rid = currentRid;
+  const trainer = safeStr(ownerName);
+  const monPid  = safeStr(pid);
+  if (!db || !rid || !trainer || !monPid || !stat) return;
+
+  // Lê o boost atual do appState (já sincronizado via onSnapshot)
+  const psData  = _partyStates?.[trainer]?.[monPid]?.stat_boosts || {};
+  const current = Number(psData[stat] || 0);
+  const newVal  = current + delta;
+
+  const psRef = doc(db, "rooms", rid, "public_state", "party_states");
+  const patch = { [trainer]: { [monPid]: { stat_boosts: { [stat]: newVal === 0 ? null : newVal } } } };
+  await setDoc(psRef, patch, { merge: true });
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 async function updatePartyStateHp(ownerName, pid, hp) {
   const db = currentDb;
   const rid = currentRid;
@@ -2132,6 +2151,9 @@ function renderSheetsInspectorCard(wrap) {
   const hpMax = 6;
   const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
   const hpCol = (hpPct > 50) ? "rgba(34,197,94,1)" : (hpPct > 25) ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
+  // Boosts temporários de stat
+  const statBoosts = ps.stat_boosts || {};
+  const isOnBoard = (appState.pieces || []).some(p => safeStr(p.owner) === by && safeStr(p.pid) === pid && safeStr(p.status || "active") === "active");
 
   const tp = (types || []).map((t) => `<span class="chip">${escapeHtml(t)}</span>`).join("");
   const abH = abilities.length ? `<div class="chip-row">${abilities.map((a) => `<span class="chip">${escapeHtml(a)}</span>`).join("")}</div>` : `<span class="muted">Sem abilities.</span>`;
@@ -2194,15 +2216,30 @@ function renderSheetsInspectorCard(wrap) {
         </div>
       </div>
       <div class="stat-grid">
-        <div class="stat-box"><div class="stat-label">Stgr</div><div class="stat-val">${stgr}</div></div>
-        <div class="stat-box"><div class="stat-label">Int</div><div class="stat-val">${intel}</div></div>
-        <div class="stat-box"><div class="stat-label">Thg</div><div class="stat-val">${thg}</div></div>
-        <div class="stat-box"><div class="stat-label">Dodge</div><div class="stat-val">${dodge}</div></div>
-        <div class="stat-box"><div class="stat-label">Parry</div><div class="stat-val">${parry}</div></div>
-        <div class="stat-box"><div class="stat-label">Fort</div><div class="stat-val">${fort}</div></div>
-        <div class="stat-box"><div class="stat-label">Will</div><div class="stat-val">${will}</div></div>
+        <div class="stat-box"><div class="stat-label">Stgr</div><div class="stat-val">${stgr + (statBoosts.stgr||0)}<span class="stat-boost-badge" data-stat="stgr">${statBoosts.stgr ? (statBoosts.stgr>0?'+':'')+statBoosts.stgr : ''}</span></div></div>
+        <div class="stat-box"><div class="stat-label">Int</div><div class="stat-val">${intel + (statBoosts.int||0)}<span class="stat-boost-badge" data-stat="int">${statBoosts.int ? (statBoosts.int>0?'+':'')+statBoosts.int : ''}</span></div></div>
+        <div class="stat-box"><div class="stat-label">Thg</div><div class="stat-val">${thg + (statBoosts.thg||0)}<span class="stat-boost-badge" data-stat="thg">${statBoosts.thg ? (statBoosts.thg>0?'+':'')+statBoosts.thg : ''}</span></div></div>
+        <div class="stat-box"><div class="stat-label">Dodge</div><div class="stat-val">${dodge + (statBoosts.dodge||0)}<span class="stat-boost-badge" data-stat="dodge">${statBoosts.dodge ? (statBoosts.dodge>0?'+':'')+statBoosts.dodge : ''}</span></div></div>
+        <div class="stat-box"><div class="stat-label">Parry</div><div class="stat-val">${parry + (statBoosts.parry||0)}<span class="stat-boost-badge" data-stat="parry">${statBoosts.parry ? (statBoosts.parry>0?'+':'')+statBoosts.parry : ''}</span></div></div>
+        <div class="stat-box"><div class="stat-label">Fort</div><div class="stat-val">${fort + (statBoosts.fort||0)}<span class="stat-boost-badge" data-stat="fort">${statBoosts.fort ? (statBoosts.fort>0?'+':'')+statBoosts.fort : ''}</span></div></div>
+        <div class="stat-box"><div class="stat-label">Will</div><div class="stat-val">${will + (statBoosts.will||0)}<span class="stat-boost-badge" data-stat="will">${statBoosts.will ? (statBoosts.will>0?'+':'')+statBoosts.will : ''}</span></div></div>
         <div class="stat-box cap"><div class="stat-label">Cap</div><div class="stat-val">${cap}</div></div>
       </div>
+      ${isOnBoard ? `
+      <div class="stat-boost-panel" data-boost-owner="${escapeAttr(by)}" data-boost-pid="${escapeAttr(pid)}">
+        <div class="stat-boost-title">⚡ Boost Temporário <span class="muted" style="font-weight:400;font-size:11px">(zera ao recolher)</span></div>
+        <div class="stat-boost-grid">
+          ${['dodge','parry','fort','will','thg','stgr'].map(s => `
+            <div class="stat-boost-row">
+              <span class="stat-boost-name">${s.charAt(0).toUpperCase()+s.slice(1)}</span>
+              <button class="btn ghost stat-boost-btn" data-boost-stat="${s}" data-boost-delta="-1">−</button>
+              <span class="stat-boost-val ${(statBoosts[s]||0) > 0 ? 'boost-pos' : (statBoosts[s]||0) < 0 ? 'boost-neg' : ''}">${(statBoosts[s]||0) > 0 ? '+' : ''}${statBoosts[s]||0}</span>
+              <button class="btn ghost stat-boost-btn" data-boost-stat="${s}" data-boost-delta="1">+</button>
+            </div>
+          `).join('')}
+        </div>
+        ${Object.keys(statBoosts).length > 0 ? `<button class="btn ghost" style="width:100%;margin-top:6px;font-size:11px" data-boost-reset>↺ Zerar todos os boosts</button>` : ''}
+      </div>` : `<div class="muted" style="font-size:11px;margin:6px 0;padding:6px;text-align:center">💤 Pokémon não está em campo — boosts indisponíveis</div>`}
       <div class="sheet-divider"></div>
       <div class="section-title">Skills</div>${skH}
       <div class="section-title">Advantages</div>${advH}
@@ -2217,6 +2254,44 @@ function renderSheetsInspectorCard(wrap) {
       if (parent) parent.classList.toggle("open");
     });
   });
+
+  // ── Handlers de boost temporário ──────────────────────────────────
+  const boostPanel = wrap.querySelector(".stat-boost-panel");
+  if (boostPanel) {
+    const boostOwner = boostPanel.dataset.boostOwner;
+    const boostPid   = boostPanel.dataset.boostPid;
+
+    boostPanel.querySelectorAll(".stat-boost-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const stat  = btn.dataset.boostStat;
+        const delta = Number(btn.dataset.boostDelta);
+        if (!stat || !delta) return;
+        btn.disabled = true;
+        try {
+          await updateStatBoost(boostOwner, boostPid, stat, delta);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    const resetBtn = boostPanel.querySelector("[data-boost-reset]");
+    if (resetBtn) {
+      resetBtn.addEventListener("click", async () => {
+        resetBtn.disabled = true;
+        const db  = currentDb;
+        const rid = currentRid;
+        if (!db || !rid) return;
+        const psRef = doc(db, "rooms", rid, "public_state", "party_states");
+        try {
+          await setDoc(psRef, { [boostOwner]: { [boostPid]: { stat_boosts: null } } }, { merge: true });
+        } finally {
+          resetBtn.disabled = false;
+        }
+      });
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────
 
   return wrap;
 }
@@ -3173,6 +3248,14 @@ async function removePieceFromBoard(pieceId) {
 
       const nextPieces = pieces.filter((p) => safeStr(p?.id) !== pid);
       tx.set(ref, { pieces: nextPieces, updatedAt: serverTimestamp() }, { merge: true });
+
+      // Zera boosts temporários ao recolher para a pokébola
+      const pokePid = safeStr(target.pid);
+      const owner   = safeStr(target.owner);
+      if (pokePid && owner && currentDb && currentRid) {
+        const psRef = doc(currentDb, "rooms", currentRid, "public_state", "party_states");
+        setDoc(psRef, { [owner]: { [pokePid]: { stat_boosts: null } } }, { merge: true }).catch(() => {});
+      }
     });
 
     // limpa seleção local se removeu
@@ -5047,6 +5130,43 @@ function _injectSheetsStyleOnce() {
   .ficha-v2 .move-h-name { font-size: 44px; }
   .ficha-v2 .mv-pill { font-size: 30px; padding: 3px 12px; border-width: 2px; }
   .ficha-v2 .sheet-divider { margin: 12px 0; }
+
+  /* ── Stat Boosts Temporários ─────────────────────────────── */
+  .stat-boost-badge {
+    display:inline-block; font-size:0.55em; font-weight:900;
+    color:#fbbf24; margin-left:3px; vertical-align:super;
+  }
+  .stat-boost-panel {
+    margin: 8px 0 10px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: rgba(168,85,247,.08);
+    border: 1px solid rgba(168,85,247,.3);
+  }
+  .stat-boost-title {
+    font-size: 13px; font-weight: 900; margin-bottom: 8px; color: #c084fc;
+  }
+  .stat-boost-grid {
+    display: grid; grid-template-columns: repeat(3,1fr); gap: 6px;
+  }
+  .stat-boost-row {
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+    background: rgba(255,255,255,.04); border-radius: 10px; padding: 4px 6px;
+  }
+  .stat-boost-name { font-size: 11px; font-weight: 700; min-width: 34px; text-align:right; }
+  .stat-boost-val {
+    font-size: 14px; font-weight: 900; min-width: 24px; text-align: center;
+  }
+  .stat-boost-val.boost-pos { color: #4ade80; }
+  .stat-boost-val.boost-neg { color: #f87171; }
+  .stat-boost-btn {
+    padding: 0 6px; height: 22px; min-width: 22px; font-size: 14px; line-height: 1;
+    border-radius: 6px;
+  }
+  /* versão compacta no inspector */
+  #inspector_root .stat-boost-panel { margin: 6px 0; }
+  #inspector_root .stat-boost-grid { grid-template-columns: repeat(3,1fr); gap: 4px; }
+  #inspector_root .stat-boost-title, #inspector_root .stat-boost-name, #inspector_root .stat-boost-val { font-size: 11px; }
 
   @media (max-width: 900px) {
     #inspector_root .inspector-title, .ficha-v2 .section-title { font-size: 28px; }

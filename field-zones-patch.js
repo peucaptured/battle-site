@@ -133,6 +133,22 @@ function startZoneRaf() {
   requestAnimationFrame(loop);
 }
 
+// ─── Offscreen canvas reutilizável para renderização de zonas ─────────────
+let _offscreenCanvas = null;
+let _offscreenCtx = null;
+
+function getOffscreen(w, h) {
+  if (!_offscreenCanvas) {
+    _offscreenCanvas = document.createElement("canvas");
+    _offscreenCtx    = _offscreenCanvas.getContext("2d");
+  }
+  if (_offscreenCanvas.width !== w || _offscreenCanvas.height !== h) {
+    _offscreenCanvas.width  = w;
+    _offscreenCanvas.height = h;
+  }
+  return { canvas: _offscreenCanvas, ctx: _offscreenCtx };
+}
+
 // ─── Render zonas no zone_canvas ─────────────────────────────────────────
 function renderZones() {
   if (!zoneCtx) return;
@@ -151,6 +167,10 @@ function renderZones() {
   const oy   = view.offY;
   if (!tile || tile <= 0) return;
 
+  const gs = window.appState?.gridSize || 10;
+  // Obtém offscreen do tamanho total do canvas
+  const { canvas: off, ctx: offCtx } = getOffscreen(W, H);
+
   for (const zone of zones) {
     const cells = Array.isArray(zone.cells) ? zone.cells : [];
     if (cells.length === 0) continue;
@@ -165,53 +185,58 @@ function renderZones() {
     const y  = oy + minR * tile;
     const zw = (maxC - minC + 1) * tile;
     const zh = (maxR - minR + 1) * tile;
-    const gs = window.appState?.gridSize || 10;
 
-    zoneCtx.save();
-    zoneCtx.beginPath();
-    zoneCtx.rect(x, y, zw, zh);
-    zoneCtx.clip();
+    // 1) Renderiza o efeito completo no offscreen (sem clip) ──────────────
+    offCtx.clearRect(0, 0, W, H);
 
-    // Chama o overlay de efeito existente (de battle_effects.js, exposto globalmente)
     if (typeof drawWeatherOverlay === "function") {
-      // Hack: substitui temporariamente appState.battle para a zona
+      // Substitui temporariamente appState.battle para a zona
       const _origBattle = window.appState.battle;
       const fakeBattle  = { weather: null, terrain: null };
       if (zone.type === "weather") fakeBattle.weather = zone.value;
       if (zone.type === "terrain") fakeBattle.terrain = zone.value;
       window.appState.battle = fakeBattle;
-      drawWeatherOverlay(zoneCtx, ox, oy, gs, tile, W, H);
+      drawWeatherOverlay(offCtx, ox, oy, gs, tile, W, H);
       window.appState.battle = _origBattle;
     } else {
-      // Fallback: cor sólida se battle_effects não estiver carregado
+      // Fallback: cor sólida
       const col = ZONE_COLORS[safeStr(zone.value).toLowerCase()] || { bg: "rgba(56,189,248,0.2)" };
-      zoneCtx.fillStyle = col.bg;
-      zoneCtx.fillRect(x, y, zw, zh);
+      offCtx.fillStyle = col.bg;
+      offCtx.fillRect(ox, oy, gs * tile, gs * tile);
     }
 
-    // Borda da zona
+    // 2) Copia apenas a região da zona para o zone_canvas (clip aqui, não no offscreen) ─
+    zoneCtx.save();
+    zoneCtx.beginPath();
+    zoneCtx.rect(x, y, zw, zh);
+    zoneCtx.clip();
+    zoneCtx.drawImage(off, 0, 0);
+    zoneCtx.restore();
+
+    // 3) Borda pontilhada da zona ─────────────────────────────────────────
     const col = ZONE_COLORS[safeStr(zone.value).toLowerCase()];
     if (col) {
+      zoneCtx.save();
       zoneCtx.strokeStyle = col.border;
       zoneCtx.lineWidth = 2;
       zoneCtx.setLineDash([4, 4]);
       zoneCtx.strokeRect(x + 1, y + 1, zw - 2, zh - 2);
       zoneCtx.setLineDash([]);
+      zoneCtx.restore();
     }
 
-    // Label mini no canto superior
+    // 4) Label mini no canto superior ─────────────────────────────────────
     const label = col?.label || safeStr(zone.value);
-    zoneCtx.globalAlpha = 0.85;
+    zoneCtx.save();
+    zoneCtx.globalAlpha = 0.9;
     zoneCtx.font = `bold ${Math.max(9, Math.min(12, tile * 0.3))}px system-ui`;
     zoneCtx.fillStyle = "#fff";
     zoneCtx.textAlign = "left";
     zoneCtx.textBaseline = "top";
-    zoneCtx.shadowColor = "rgba(0,0,0,0.8)";
-    zoneCtx.shadowBlur = 4;
+    zoneCtx.shadowColor = "rgba(0,0,0,0.9)";
+    zoneCtx.shadowBlur = 5;
     zoneCtx.fillText(label, x + 4, y + 3);
     zoneCtx.shadowBlur = 0;
-    zoneCtx.globalAlpha = 1;
-
     zoneCtx.restore();
   }
 }
