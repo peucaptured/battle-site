@@ -22,17 +22,11 @@
 
 import {
   doc,
-  getDoc,
   setDoc,
   updateDoc,
   addDoc,
   collection,
-  getDocs,
-  query,
-  orderBy,
-  limit as fbLimit,
   onSnapshot,
-  arrayUnion,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 import { getMoveType, getTypeColor, getTypeDamageBonus } from "./type-data.js";
@@ -169,6 +163,7 @@ export class CombatUI {
     this._sheets = new Map();  // trainerName → [ {pokemon, stats, moves, ...} ]
     this._sheetsMap = new Map(); // trainerName → Map<pid, sheet>
     this._partyStatesUnsub = null;
+    this._sheetUnsubs = new Map(); // trainerName -> unsubscribe fn
 
     // build static shell
     this._buildShell();
@@ -215,7 +210,7 @@ export class CombatUI {
       // Pré-carrega fichas de todos os trainers que aparecerem no party_states
       const data = snap.exists() ? snap.data() : {};
       for (const trainerName of Object.keys(data || {})) {
-        if (trainerName && !this._sheets.has(trainerName)) {
+        if (trainerName && !this._sheetUnsubs.has(trainerName)) {
           this._loadSheets(trainerName);
         }
       }
@@ -226,7 +221,7 @@ export class CombatUI {
       const players = window.appState?.players || [];
       for (const pl of players) {
         const name = safeStr(pl?.trainer_name);
-        if (name && !this._sheets.has(name)) this._loadSheets(name);
+        if (name && !this._sheetUnsubs.has(name)) this._loadSheets(name);
       }
     }, 500);
   }
@@ -234,31 +229,48 @@ export class CombatUI {
   stopListening() {
     if (this._partyStatesUnsub) { try { this._partyStatesUnsub(); } catch {} }
     this._partyStatesUnsub = null;
+    for (const [trainerName, unsub] of this._sheetUnsubs.entries()) {
+      try { unsub(); } catch {}
+      this._sheetUnsubs.delete(trainerName);
+    }
   }
 
   // ─── Load sheets for a trainer ────────────────────────────────────
   async _loadSheets(trainerName, forceReload = false) {
-    if (!forceReload && this._sheets.has(trainerName)) return;
+    if (!trainerName) return;
+    if (!forceReload && this._sheetUnsubs.has(trainerName)) return;
     const db = this.getDb();
     if (!db) return;
+    if (forceReload && this._sheetUnsubs.has(trainerName)) {
+      try { this._sheetUnsubs.get(trainerName)?.(); } catch {}
+      this._sheetUnsubs.delete(trainerName);
+    }
     const tid = safeDocId(trainerName);
     try {
       const col = collection(db, "trainers", tid, "sheets");
-      const q = query(col, orderBy("updated_at", "desc"), fbLimit(50));
-      const snap = await getDocs(q);
-      const sheets = [];
-      const map = new Map();
-      snap.forEach(d => {
-        const s = d.data() || {};
-        s._sheet_id = d.id;
-        sheets.push(s);
-        const pid = safeStr(s.pokemon?.id);
-        if (pid) map.set(pid, s);
-        const lpid = safeStr(s.linked_pid);
-        if (lpid) map.set(lpid, s);
+      const unsub = onSnapshot(col, (snap) => {
+        const sheets = [];
+        const map = new Map();
+        snap.forEach(d => {
+          const s = d.data() || {};
+          s._sheet_id = d.id;
+          sheets.push(s);
+          const pid = safeStr(s.pokemon?.id);
+          if (pid) map.set(pid, s);
+          const lpid = safeStr(s.linked_pid);
+          if (lpid) map.set(lpid, s);
+        });
+        sheets.sort((a, b) => {
+          const ta = a?.updated_at?.toMillis?.() ?? 0;
+          const tb = b?.updated_at?.toMillis?.() ?? 0;
+          return tb - ta;
+        });
+        this._sheets.set(trainerName, sheets);
+        this._sheetsMap.set(trainerName, map);
+      }, (e) => {
+        console.warn("combat: sheets realtime error", trainerName, e);
       });
-      this._sheets.set(trainerName, sheets);
-      this._sheetsMap.set(trainerName, map);
+      this._sheetUnsubs.set(trainerName, unsub);
     } catch (e) {
       console.warn("combat: loadSheets error", e);
       this._sheets.set(trainerName, []);
@@ -695,14 +707,14 @@ export class CombatUI {
     targetSel.addEventListener("change", async () => {
       const opt = targetSel.selectedOptions[0];
       const owner = opt?.dataset?.owner;
-      if (owner && !this._sheets.has(owner)) await this._loadSheets(owner);
+      if (owner && !this._sheetUnsubs.has(owner)) await this._loadSheets(owner);
       populateMoves();
     });
     // Dispara o pré-carregamento do alvo inicial
     (async () => {
       const opt = targetSel.selectedOptions[0];
       const owner = opt?.dataset?.owner;
-      if (owner && !this._sheets.has(owner)) await this._loadSheets(owner);
+      if (owner && !this._sheetUnsubs.has(owner)) await this._loadSheets(owner);
     })();
     populateMoves();
 
