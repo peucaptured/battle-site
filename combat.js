@@ -35,6 +35,7 @@ import {
   arrayUnion,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+import { getMoveType, getTypeColor, getTypeDamageBonus } from "./type-data.js";
 
 // ─── helpers ────────────────────────────────────────────────────────
 function safeStr(x) { return (x == null ? "" : String(x)).trim(); }
@@ -203,8 +204,8 @@ export class CombatUI {
   }
 
   // ─── Load sheets for a trainer ────────────────────────────────────
-  async _loadSheets(trainerName) {
-    if (this._sheets.has(trainerName)) return;
+  async _loadSheets(trainerName, forceReload = false) {
+    if (!forceReload && this._sheets.has(trainerName)) return;
     const db = this.getDb();
     if (!db) return;
     const tid = safeDocId(trainerName);
@@ -238,18 +239,24 @@ export class CombatUI {
   }
 
   // ─── Get stats from party_states (mirror of get_poke_data) ───────
+  // Fallback: se party_states não tiver dados, usa stats da ficha
   _getPokeStats(trainerName, pid) {
     const tData = this._partyStates[trainerName] || {};
     const pData = tData[safeStr(pid)] || {};
-    return pData.stats || {};
+    if (pData.stats && Object.keys(pData.stats).length > 0) return pData.stats;
+    // Fallback: stats da ficha carregada
+    const sheet = this._getSheet(trainerName, pid);
+    return sheet?.stats || {};
   }
 
   // ─── Get effective stats (base + boosts temporários) ─────────────
   // boosts ficam em party_states[trainer][pid].stat_boosts = { dodge:+2, parry:-1, ... }
+  // Fallback para stats da ficha se party_states estiver vazio
   _getEffectiveStats(trainerName, pid) {
     const tData = this._partyStates[trainerName] || {};
     const pData = tData[safeStr(pid)] || {};
-    const base   = pData.stats || {};
+    const sheet = this._getSheet(trainerName, pid);
+    const base   = (pData.stats && Object.keys(pData.stats).length > 0) ? pData.stats : (sheet?.stats || {});
     const boosts = pData.stat_boosts || {};
     const result = { ...base };
     for (const [k, v] of Object.entries(boosts)) {
@@ -587,6 +594,17 @@ export class CombatUI {
       });
     });
 
+    // Retorna os tipos do alvo atualmente selecionado (da ficha)
+    const getTargetTypes = () => {
+      const tOpt = targetSel.selectedOptions[0];
+      if (!tOpt) return [];
+      const tOwner = tOpt.dataset.owner;
+      const tPid = tOpt.dataset.pid;
+      if (!tOwner || !tPid) return [];
+      const tSheet = this._getSheet(tOwner, tPid);
+      return Array.isArray(tSheet?.pokemon?.types) ? tSheet.pokemon.types : [];
+    };
+
     // Populate moves when attacker pokemon changes
     const populateMoves = async () => {
       const pid = atkPokemonSel.value;
@@ -594,17 +612,27 @@ export class CombatUI {
 
       await this._loadSheets(by);
       const sheet = this._getSheet(by, pid);
-      const stats = sheet?.stats || this._getPokeStats(by, pid) || {};
+      // Usa stats com boosts temporários (party_states) se disponíveis
+      const baseStats = sheet?.stats || this._getPokeStats(by, pid) || {};
+      const effectiveStats = this._getEffectiveStats(by, pid);
+      const stats = Object.keys(effectiveStats).length > 0 ? effectiveStats : baseStats;
+      const atkTypes = Array.isArray(sheet?.pokemon?.types) ? sheet.pokemon.types : [];
       const moves = sheet?.moves || [];
+      const tgtTypes = getTargetTypes();
 
       let opts = `<option value="manual">Manual (sem golpe)</option>`;
       moves.forEach((mv, i) => {
         const name = safeStr(mv.name) || "Golpe";
         const rank = safeInt(mv.rank);
         const [based, statVal] = moveStatValue(mv.meta || {}, stats);
-        const damage = rank + statVal;
+        const moveType = getMoveType(name);
+        const typeBonus = tgtTypes.length > 0 && moveType ? getTypeDamageBonus(moveType, tgtTypes) : 0;
+        const damage = rank + statVal + typeBonus;
         const acc = safeInt(mv.accuracy);
-        opts += `<option value="${i}">${escHtml(name)}. Acerto: ${acc}. Dano: ${damage}</option>`;
+        const isStab = moveType && atkTypes.some(t => t === moveType || t.toLowerCase() === moveType.toLowerCase());
+        const bonusTxt = typeBonus !== 0 ? ` [${typeBonus > 0 ? '+' : ''}${typeBonus} tipo]` : '';
+        const stabTxt = isStab ? " ★" : "";
+        opts += `<option value="${i}">${escHtml(name)}${stabTxt}. A:${acc} D:${damage}${bonusTxt}</option>`;
       });
       moveSel.innerHTML = opts;
       updateAccuracy();
@@ -627,17 +655,18 @@ export class CombatUI {
 
     atkPokemonSel.addEventListener("change", populateMoves);
     moveSel.addEventListener("change", updateAccuracy);
-    // Pré-carrega ficha do dono do alvo quando o alvo muda
-    targetSel.addEventListener("change", () => {
+    // Pré-carrega ficha do dono do alvo quando o alvo muda, e re-popula golpes (recalcula bonus tipo)
+    targetSel.addEventListener("change", async () => {
       const opt = targetSel.selectedOptions[0];
       const owner = opt?.dataset?.owner;
-      if (owner && !this._sheets.has(owner)) this._loadSheets(owner);
+      if (owner && !this._sheets.has(owner)) await this._loadSheets(owner);
+      populateMoves();
     });
     // Dispara o pré-carregamento do alvo inicial
-    (() => {
+    (async () => {
       const opt = targetSel.selectedOptions[0];
       const owner = opt?.dataset?.owner;
-      if (owner && !this._sheets.has(owner)) this._loadSheets(owner);
+      if (owner && !this._sheets.has(owner)) await this._loadSheets(owner);
     })();
     populateMoves();
 
@@ -687,7 +716,7 @@ export class CombatUI {
       const resultMsg = hit ? "ACERTOU! ✅" : "ERROU! ❌";
       const critTxt = critBonus ? " (CRÍTICO +5)" : "";
 
-      // build move payload
+      // build move payload (usa effective stats com boosts)
       let movePayload = null;
       const moveIdx = moveSel.value;
       if (moveIdx !== "manual") {
@@ -695,16 +724,26 @@ export class CombatUI {
         const moves = sheet?.moves || [];
         const mv = moves[parseInt(moveIdx)];
         if (mv) {
-          const stats = sheet?.stats || this._getPokeStats(by, attackerPid) || {};
+          const baseStats = sheet?.stats || this._getPokeStats(by, attackerPid) || {};
+          const effectiveStats = this._getEffectiveStats(by, attackerPid);
+          const stats = Object.keys(effectiveStats).length > 0 ? effectiveStats : baseStats;
           const rank = safeInt(mv.rank);
           const [based, statVal] = moveStatValue(mv.meta || {}, stats);
+          const moveName = safeStr(mv.name) || "Golpe";
+          const moveType = getMoveType(moveName);
+          // Tipos do alvo para calcular bônus
+          const tSheet = this._getSheet(tOwner, tPid);
+          const tgtTypes = Array.isArray(tSheet?.pokemon?.types) ? tSheet.pokemon.types : [];
+          const typeBonus = moveType && tgtTypes.length > 0 ? getTypeDamageBonus(moveType, tgtTypes) : 0;
           movePayload = {
-            name: safeStr(mv.name) || "Golpe",
+            name: moveName,
             accuracy: safeInt(mv.accuracy),
-            damage: rank + statVal,
+            damage: rank + statVal + typeBonus,
             rank,
             based_stat: based,
             stat_value: statVal,
+            move_type: moveType || null,
+            type_bonus: typeBonus,
           };
         }
       }
@@ -801,7 +840,7 @@ export class CombatUI {
 
           const defType = btn.dataset.def;
           const tPid = safeStr(battle.target_pid);
-          const tStats = this._getPokeStats(by, tPid);
+          const tStats = this._getEffectiveStats(by, tPid);
           const statVal = safeInt(tStats[defType]);
 
           const roll = d20Roll();
@@ -963,7 +1002,7 @@ export class CombatUI {
 
           const defType = btn.dataset.def;
           const tPid = safeStr(battle.target_pid);
-          const tStats = this._getPokeStats(by, tPid);
+          const tStats = this._getEffectiveStats(by, tPid);
           const statVal = safeInt(tStats[defType]);
 
           const roll = d20Roll();

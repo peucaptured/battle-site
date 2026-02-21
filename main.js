@@ -1,3 +1,4 @@
+import { getMoveType, getTypeColor, getTypeDamageBonus, getSuperEffectiveAgainst, getWeakAgainst, getImmuneTo, TYPE_COLORS as TYPE_COLORS_DATA, normalizeType } from "./type-data.js";
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
 import {
   getFirestore,
@@ -2155,9 +2156,10 @@ function renderSheetsInspectorCard(wrap) {
   const statBoosts = ps.stat_boosts || {};
   const isOnBoard = (appState.pieces || []).some(p => safeStr(p.owner) === by && safeStr(p.pid) === pid && safeStr(p.status || "active") === "active");
 
-  const tp = (types || []).map((t) => `<span class="chip">${escapeHtml(t)}</span>`).join("");
+  const tp = (types || []).map((t) => _typePill(t)).join("");
   const abH = abilities.length ? `<div class="chip-row">${abilities.map((a) => `<span class="chip">${escapeHtml(a)}</span>`).join("")}</div>` : `<span class="muted">Sem abilities.</span>`;
   const condH = cond.length ? `<div class="chip-row">${cond.map((c) => `<span class="chip">${escapeHtml(c)}</span>`).join("")}</div>` : "";
+  const matchupH = _typeMatchupHtml(types);
 
   let skH = `<span class="muted">Sem skills.</span>`;
   if (skills.length) {
@@ -2178,11 +2180,17 @@ function renderSheetsInspectorCard(wrap) {
       const n = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
       const { rk, acc, area } = _mvSum(mv, st);
       const desc = safeStr(mv.description || mv.desc || mv.build || "Descrição não disponível.");
+      const mvType = getMoveType(n);
+      const mvColor = mvType ? getTypeColor(mvType) : "";
+      const isStab = _isMoveStab(n, types);
+      const stabClass = isStab ? " move-stab" : "";
+      const typeTag = mvType ? `<span class="mv-type-pill" style="background:${mvColor}33;border:1px solid ${mvColor}66;color:${mvColor}">${mvType}</span>` : "";
       mvH += `
-        <div class="move-expander open">
+        <div class="move-expander open${stabClass}"${isStab ? ` style="--stab-color:${mvColor}"` : ""}>
           <div class="move-header">
             <span class="arrow">▶</span>
-            <span class="move-h-name">${escapeHtml(n)}</span>
+            <span class="move-h-name" style="${mvColor ? `color:${mvColor}` : ""}">${escapeHtml(n)}</span>
+            ${typeTag}
             <span class="mv-pill acc">A+${acc}</span>
             <span class="mv-pill rk">R${rk}</span>
             <span class="mv-pill area">${area ? "Área" : "Alvo"}</span>
@@ -2196,18 +2204,20 @@ function renderSheetsInspectorCard(wrap) {
   }
 
   const art = _artUrlFromPidForSheets(pid, ps.shiny) || _spriteUrlFromPidForSheets(pid) || "";
+  const inspTypeBgStyle = _fichaTypeBg(types);
 
   wrap.innerHTML = `
     <div class="inspector-head">
       <div class="inspector-title">Ficha completa</div>
       <div class="inspector-sub mono">#${escapeHtml(pid)} • NP ${np}</div>
     </div>
-    <div class="inspector-card ficha-v2" style="display:block;">
+    <div class="inspector-card ficha-v2" style="display:block;${inspTypeBgStyle}">
       <div class="sheet-header">
         <div class="sheet-art-frame"><img class="sheet-art" src="${escapeAttr(art)}" alt="art" onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid))}'"/></div>
         <div style="flex:1; min-width:0;">
           <div class="sheet-name">${escapeHtml(pname)}</div>
           <div class="pill-row" style="margin-top:6px;">${tp}</div>
+          ${matchupH}
           <div class="pill-row" style="margin-top:8px;">${abilities.map((a) => `<span class="chip ability-pill">${escapeHtml(a)}</span>`).join("")}</div>${condH}
           <div style="margin-top:10px;">
             <div class="hp-row"><span>HP</span><span>${hp} / ${hpMax}</span></div>
@@ -5177,8 +5187,70 @@ function _injectSheetsStyleOnce() {
     .ficha-v2 .move-h-name { font-size: 24px; }
     .ficha-v2 .sheet-art { width: 118px; height: 118px; }
   }
+
+  /* ── Tipo dos golpes ──────────────────────────────────────── */
+  .mv-type-pill {
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: .65rem;
+    font-weight: 900;
+    font-family: monospace;
+    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    flex-shrink: 0;
+  }
+  .ficha-v2 .mv-type-pill {
+    font-size: 24px;
+    padding: 3px 12px;
+    border-width: 2px;
+  }
+
+  /* ── STAB — golpe do mesmo tipo do pokémon ───────────────── */
+  .move-stab {
+    position: relative;
+    border-color: var(--stab-color, rgba(255,220,100,.45)) !important;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--stab-color, #fbbf24) 30%, transparent);
+  }
+  .move-stab::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--stab-color, #fbbf24) 8%, transparent) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .move-stab .move-header {
+    background: color-mix(in srgb, var(--stab-color, #fbbf24) 6%, rgba(255,255,255,.04)) !important;
+  }
+  /* Animação sutil de brilho para STAB */
+  @keyframes stab-pulse {
+    0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--stab-color, #fbbf24) 30%, transparent); }
+    50% { box-shadow: 0 0 8px 2px color-mix(in srgb, var(--stab-color, #fbbf24) 50%, transparent); }
+  }
+  .move-stab {
+    animation: stab-pulse 2.5s ease-in-out infinite;
+  }
+
+  /* ── Tabela de matchups de tipo (inspector) ───────────────── */
+  .type-matchup-mini {
+    font-size: .72rem;
+  }
+  `;
+
+  /* versão ficha-v2 para type-pill colorida */
+  const stTypePill = document.createElement("style");
+  stTypePill.id = "sheets_tab_style_type_pill";
+  stTypePill.textContent = `
+  /* Override type-pill para usar cor do tipo */
+  .ficha-v2 .type-pill {
+    background: rgba(0,0,0,.3) !important;
+  }
   `;
   document.head.appendChild(stFicha);
+  if (!document.getElementById("sheets_tab_style_type_pill")) {
+    document.head.appendChild(stTypePill);
+  }
 }
 
 function ensureSheetsUI() {
@@ -5303,21 +5375,71 @@ function ensureSheetsRealtime() {
 }
 
 // ---- helpers visuais/matemática de golpes (espelha app.py/_mv_summary)
-const _TYPE_COLORS = {
-  Normal:"#A8A878",Fire:"#F08030",Water:"#6890F0",Electric:"#F8D030",
-  Grass:"#78C850",Ice:"#98D8D8",Fighting:"#C03028",Poison:"#A040A0",
-  Ground:"#E0C068",Flying:"#A890F0",Psychic:"#F85888",Bug:"#A8B820",
-  Rock:"#B8A038",Ghost:"#705898",Dragon:"#7038F8",Dark:"#705848",
-  Steel:"#B8B8D0",Fairy:"#EE99AC",
-  Fogo:"#F08030",Água:"#6890F0",Elétrico:"#F8D030",Planta:"#78C850",
-  Gelo:"#98D8D8",Lutador:"#C03028",Veneno:"#A040A0",Terra:"#E0C068",
-  Voador:"#A890F0",Psíquico:"#F85888",Inseto:"#A8B820",Pedra:"#B8A038",
-  Fantasma:"#705898",Dragão:"#7038F8",Sombrio:"#705848",Aço:"#B8B8D0",Fada:"#EE99AC",
-};
-const _tc = (t) => _TYPE_COLORS[safeStr(t)] || "#666";
+const _TYPE_COLORS = TYPE_COLORS_DATA;
+const _tc = (t) => getTypeColor(safeStr(t));
 function _typeBg(types) {
   if (!types || !types.length) return "";
   return types.length === 1 ? _tc(types[0]) : `linear-gradient(135deg,${_tc(types[0])},${_tc(types[1])})`;
+}
+
+// Retorna cor hex do tipo do golpe (pelo nome)
+function _moveTypeColor(moveName) {
+  const t = getMoveType(safeStr(moveName));
+  return t ? getTypeColor(t) : "";
+}
+
+// Checa se golpe é STAB (mesmo tipo que o pokémon)
+function _isMoveStab(moveName, pokemonTypes) {
+  const moveType = getMoveType(safeStr(moveName));
+  if (!moveType || !pokemonTypes || !pokemonTypes.length) return false;
+  const mt = normalizeType(moveType);
+  return pokemonTypes.some(pt => normalizeType(pt) === mt);
+}
+
+// Renderiza pill de tipo colorida
+function _typePill(type) {
+  const c = _tc(type);
+  return `<span class="type-pill" style="background:${c}33;border:1px solid ${c}66;color:${c};padding:2px 7px;border-radius:8px;font-size:.72rem;font-weight:700;">${escapeHtml(type)}</span>`;
+}
+
+// Mini-tabela de fraquezas/vantagens de um pokémon (por seus tipos)
+function _typeMatchupHtml(types) {
+  if (!types || !types.length) return "";
+  const strongVs = new Set();
+  const weakTo = new Set();
+  const immuneTo = new Set();
+  for (const t of types) {
+    getSuperEffectiveAgainst(t).forEach(x => strongVs.add(x));
+    getWeakAgainst(t).forEach(x => weakTo.add(x));
+    getImmuneTo(t).forEach(x => immuneTo.add(x));
+  }
+  const renderTypeList = (set, label, col) => {
+    const items = [...set];
+    if (!items.length) return "";
+    const pills = items.map(t => {
+      const c = getTypeColor(t);
+      return `<span style="display:inline-block;padding:1px 6px;border-radius:6px;font-size:.68rem;font-weight:700;background:${c}33;border:1px solid ${c}66;color:${c}">${t}</span>`;
+    }).join(" ");
+    return `<div style="margin-bottom:4px"><span style="font-size:.7rem;opacity:.7;margin-right:4px;">${label}:</span>${pills}</div>`;
+  };
+  return `
+    <div class="type-matchup-mini" style="margin-top:6px;padding:6px 8px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);">
+      ${renderTypeList(strongVs, "⚔️ SE contra", "#78C850")}
+      ${renderTypeList(weakTo, "⬇️ Fraco a", "#F08030")}
+      ${immuneTo.size ? renderTypeList(immuneTo, "🛡️ Imune a", "#A890F0") : ""}
+    </div>
+  `;
+}
+
+// Gera estilos de fundo para fichas baseado nos tipos (diagonal para 2 tipos)
+function _fichaTypeBg(types) {
+  if (!types || !types.length) return "";
+  const c1 = _tc(types[0]);
+  if (types.length === 1) {
+    return `background: linear-gradient(180deg, ${c1}18 0%, ${c1}08 40%, transparent 70%); border: 1px solid ${c1}33;`;
+  }
+  const c2 = _tc(types[1]);
+  return `background: linear-gradient(135deg, ${c1}22 0%, ${c1}12 49%, ${c2}12 51%, ${c2}22 100%); border-left: 2px solid ${c1}55; border-right: 2px solid ${c2}55; border-top: 1px solid rgba(255,255,255,.08); border-bottom: 1px solid rgba(255,255,255,.08);`;
 }
 
 function _mvStat(meta, stats) {
@@ -5507,9 +5629,11 @@ function renderSheetsTab() {
       const n = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
       const { rk, acc, label, val, area, br } = _mvSum(mv, stats);
       const brk = ((label === "Stgr" || label === "Int") && val) ? `(R${br}+${val} ${label})` : `(R${br})`;
+      const mvColor = _moveTypeColor(n);
+      const isStab = _isMoveStab(n, types);
       mvH += `
-        <div class="card-move-row">
-          <span class="card-move-name">${escapeHtml(n)}</span>
+        <div class="card-move-row${isStab ? " move-stab-card" : ""}"${isStab ? ` style="--stab-color:${mvColor}"` : ""}>
+          <span class="card-move-name" style="${mvColor ? `color:${mvColor}` : ""}">${escapeHtml(n)}${isStab ? " ★" : ""}</span>
           <span class="mv-pill acc">A+${acc}</span>
           <span class="mv-pill rk">R${rk}</span>
           <span class="mv-pill area">${area ? "Área" : "Alvo"}</span>
@@ -5519,9 +5643,7 @@ function renderSheetsTab() {
     }
     if (!mvH) mvH = `<div style="opacity:.6;font-size:.78rem;">Sem golpes nesta ficha.</div>`;
 
-    const tp = (types || []).map((t) => `
-      <span class="type-pill" style="background:${_tc(t)}33;border-color:${_tc(t)}55;color:${_tc(t)}">${escapeHtml(t)}</span>
-    `).join("");
+    const tp = (types || []).map((t) => _typePill(t)).join("");
 
     const _psCard2 = ((_partyStates && _partyStates[by]) ? _partyStates[by] : {})[pid] || {};
     const sprite = _artUrlFromPidForSheets(pid, _psCard2.shiny) || _spriteUrlFromPidForSheets(pid) || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
@@ -5642,11 +5764,19 @@ function renderSheetsTab() {
           ? `<code style="font-size:.78rem;white-space:pre-wrap;display:block;background:rgba(255,255,255,.04);padding:8px;border-radius:10px;margin-top:4px;">${escapeHtml(build)}</code>`
           : `<span>Descrição não disponível.</span>`);
 
+      // Tipo e STAB
+      const mvType = getMoveType(n);
+      const mvColor = mvType ? getTypeColor(mvType) : "";
+      const isStab = _isMoveStab(n, types);
+      const stabClass = isStab ? " move-stab" : "";
+      const typeTag = mvType ? `<span class="mv-type-pill" style="background:${mvColor}33;border:1px solid ${mvColor}66;color:${mvColor}">${mvType}</span>` : "";
+
       mvH += `
-        <div class="move-expander">
+        <div class="move-expander${stabClass}"${isStab ? ` style="--stab-color:${mvColor}"` : ""}>
           <div class="move-header">
             <span class="arrow">▶</span>
-            <span class="move-h-name">${escapeHtml(n)}</span>
+            <span class="move-h-name" style="${mvColor ? `color:${mvColor}` : ""}">${escapeHtml(n)}</span>
+            ${typeTag}
             <span class="mv-pill acc">A+${acc}</span>
             <span class="mv-pill rk">R${rk}</span>
             <span class="mv-pill area">${area ? "Área" : "Alvo"}</span>
@@ -5663,9 +5793,11 @@ function renderSheetsTab() {
   }
 
   const art = _artUrlFromPidForSheets(pid, ps.shiny) || _spriteUrlFromPidForSheets(pid) || "";
+  // Fundo tipo-estilizado para a ficha
+  const typeBgStyle = _fichaTypeBg(types);
 
   detailEl.innerHTML = `
-    <div class="sheet-panel ficha-v2">
+    <div class="sheet-panel ficha-v2" style="${typeBgStyle}">
       <div class="sheet-header">
         <div class="sheet-art-frame"><img class="sheet-art" src="${escapeAttr(art)}" alt="art"
           onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid))}'"/></div>
