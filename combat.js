@@ -68,6 +68,39 @@ function cleanCombatLog(logLine) {
   return safeStr(logLine).replace(/\*\*/g, "");
 }
 
+function normalizeStatKey(key) {
+  const k = safeStr(key).toLowerCase();
+  if (k === "fortitude") return "fort";
+  if (k === "toughness") return "thg";
+  if (k === "intel" || k === "intelligence") return "int";
+  return k;
+}
+
+function normalizeStats(stats) {
+  const raw = stats || {};
+  const norm = {
+    stgr: safeInt(raw.stgr),
+    int: safeInt(raw.int ?? raw.intel ?? raw.intelligence),
+    dodge: safeInt(raw.dodge),
+    parry: safeInt(raw.parry),
+    fort: safeInt(raw.fort ?? raw.fortitude),
+    will: safeInt(raw.will),
+    thg: safeInt(raw.thg ?? raw.toughness),
+    cap: safeInt(raw.cap ?? raw.capability),
+  };
+
+  // Mantém o mesmo fallback usado no restante do app para não zerar defesa
+  if (norm.thg <= 0 && norm.cap > 0) norm.thg = Math.round(norm.cap / 2);
+  if (norm.dodge <= 0 && norm.cap > 0 && norm.thg > 0) {
+    norm.dodge = Math.max(0, norm.cap - norm.thg);
+  }
+
+  // Compatibilidade com caminhos que ainda leem aliases antigos
+  norm.fortitude = norm.fort;
+  norm.toughness = norm.thg;
+  return { ...raw, ...norm };
+}
+
 // ─── _move_stat_value (replica do app.py) ───────────────────────────
 function moveBasedStat(meta) {
   meta = meta || {};
@@ -82,7 +115,7 @@ function moveBasedStat(meta) {
 
 function moveStatValue(meta, stats) {
   const based = moveBasedStat(meta);
-  stats = stats || {};
+  stats = normalizeStats(stats);
   if (based === "Int") return [based, safeInt(stats["int"])];
   if (based === "Stgr") return [based, safeInt(stats.stgr)];
   return [based, 0];
@@ -243,10 +276,10 @@ export class CombatUI {
   _getPokeStats(trainerName, pid) {
     const tData = this._partyStates[trainerName] || {};
     const pData = tData[safeStr(pid)] || {};
-    if (pData.stats && Object.keys(pData.stats).length > 0) return pData.stats;
+    if (pData.stats && Object.keys(pData.stats).length > 0) return normalizeStats(pData.stats);
     // Fallback: stats da ficha carregada
     const sheet = this._getSheet(trainerName, pid);
-    return sheet?.stats || {};
+    return normalizeStats(sheet?.stats || {});
   }
 
   // ─── Get effective stats (base + boosts temporários) ─────────────
@@ -258,10 +291,13 @@ export class CombatUI {
     const sheet = this._getSheet(trainerName, pid);
     const base   = (pData.stats && Object.keys(pData.stats).length > 0) ? pData.stats : (sheet?.stats || {});
     const boosts = pData.stat_boosts || {};
-    const result = { ...base };
+    const result = normalizeStats(base);
     for (const [k, v] of Object.entries(boosts)) {
-      result[k] = (safeInt(result[k]) + safeInt(v));
+      const statKey = normalizeStatKey(k);
+      result[statKey] = (safeInt(result[statKey]) + safeInt(v));
     }
+    result.fortitude = safeInt(result.fort);
+    result.toughness = safeInt(result.thg);
     return result;
   }
 
