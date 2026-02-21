@@ -900,54 +900,6 @@ function initPreprep(db, rid, by) {
   });
 }
 
-// ── Hook into roll initiative to start preprep phase ─────────────────────
-// We wrap the existing topRollBtn click by observing turn_state changes.
-// When turn_state.phase becomes "awaiting_initiative" → next roll starts preprep.
-// We intercept the Firestore write by patching appState changes via a MutationObserver
-// on the battle state, but the cleanest way is to hook after the round starts.
-//
-// Strategy: patch the existing topRollBtn to also write preprep.phase="asking"
-
-let _patchedRollBtn = false;
-function patchRollButton() {
-  if (_patchedRollBtn) return;
-  const btn = document.getElementById("top_roll_btn");
-  if (!btn) return;
-  _patchedRollBtn = true;
-
-  btn.addEventListener("click", async () => {
-    // Only inject preprep when a new round is actually being started.
-    // Snapshot the current phase BEFORE main.js writes (synchronously).
-    const phaseBefore = safeStr(window.appState?.battle?.turn_state?.phase);
-    const isStartingNewRound = phaseBefore === "awaiting_initiative" || phaseBefore === "";
-    if (!isStartingNewRound) return; // mid-round roll → do nothing
-
-    setTimeout(async () => {
-      const ref = getBattleRef();
-      if (!ref) return;
-      try {
-        const snap = await getDoc(ref);
-        const battle = snap.exists() ? snap.data() : {};
-        const turn = battle.turn_state || {};
-        // If a new round just started (phase === "active" set by main.js)
-        // We override to preprep asking
-        if (safeStr(turn.phase) === "active") {
-          await setDoc(ref, {
-            preprep: {
-              phase: "asking",
-              responses: {},
-              data: {},
-            },
-            turn_state: { phase: "preprep_asking" },
-          }, { merge: true });
-        }
-      } catch (e) {
-        console.error("[preprep] patchRollButton error", e);
-      }
-    }, 600);
-  }, { capture: false });
-}
-
 // ── Auto-init when appState connects ─────────────────────────────────────
 let _watchInterval = setInterval(() => {
   const as = window.appState;
@@ -959,7 +911,6 @@ let _watchInterval = setInterval(() => {
   _watchInterval = null;
 
   initPreprep(db, as.rid, as.by);
-  patchRollButton();
 
   // Re-patch scoreboard after renders (monkey-patch main.js render)
   const origRender = window.render;
