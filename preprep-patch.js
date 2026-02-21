@@ -237,6 +237,83 @@ if (!document.getElementById(STYLE_ID)) {
   document.head.appendChild(st);
 }
 
+// ── DOM: Nova Rodada button ───────────────────────────────────────────────
+let newRoundBtn = document.getElementById("preprep-nova-rodada-btn");
+if (!newRoundBtn) {
+  newRoundBtn = document.createElement("button");
+  newRoundBtn.id = "preprep-nova-rodada-btn";
+  newRoundBtn.className = "btn";
+  newRoundBtn.title = "Confirmar início de nova rodada";
+  newRoundBtn.textContent = "▶ Nova Rodada";
+  newRoundBtn.style.display = "none";
+  newRoundBtn.style.background = "linear-gradient(135deg,rgba(99,102,241,.85),rgba(56,189,248,.75))";
+  newRoundBtn.style.animation = "ppRevealPulse 2s ease-in-out infinite";
+  // Insert before pass_turn_btn
+  const passBtn = document.getElementById("pass_turn_btn");
+  if (passBtn) passBtn.parentNode.insertBefore(newRoundBtn, passBtn);
+}
+
+newRoundBtn.addEventListener("click", async () => {
+  const ref = getBattleRef();
+  if (!ref || !_db || !_rid) return;
+  newRoundBtn.disabled = true;
+  newRoundBtn.textContent = "⏳...";
+  try {
+    // Build a fresh turn order from current board (same as main.js does on roll)
+    const pieces = window.appState?.pieces || [];
+    const init = window.appState?.battle?.initiative || {};
+    const activePieces = pieces.filter(p => safeStr(p?.status || "active") === "active");
+    const order = activePieces.map(p => {
+      const pieceId = safeStr(p?.id);
+      const pieceKind = safeStr(p?.kind || "piece");
+      const pid = safeStr(p?.pid);
+      const owner = safeStr(p?.owner);
+      const legacyKey = `piece:${pieceId}`;
+      const keyedByKind = `${pieceKind}:${pieceId}`;
+      const savedInit = init?.[keyedByKind] ?? init?.[legacyKey] ?? null;
+      const initVal = Number(savedInit?.initiative);
+      const display = safeStr(
+        (window.dexMap && (window.dexMap[pid] || window.dexMap[String(Number(pid))])) ||
+        p?.name || p?.display_name || pid || pieceId
+      );
+      return { pieceId, pieceKind, pid, owner, display, initiative: Number.isFinite(initVal) ? initVal : 0 };
+    });
+    order.sort((a, b) => {
+      if (b.initiative !== a.initiative) return b.initiative - a.initiative;
+      const ow = a.owner.localeCompare(b.owner);
+      return ow !== 0 ? ow : a.display.localeCompare(b.display);
+    });
+
+    const currentRound = Number(window.appState?.battle?.turn_state?.round) || 1;
+    // Start preprep asking phase directly (no dice roll needed)
+    await setDoc(ref, {
+      preprep: { phase: "asking", responses: {}, data: {} },
+      turn_state: {
+        phase: "preprep_asking",
+        round: currentRound + 1,
+        index: 0,
+        order,
+        updatedAt: Date.now(),
+      },
+    }, { merge: true });
+  } catch (e) {
+    console.error("[preprep] newRoundBtn error", e);
+  }
+  newRoundBtn.disabled = false;
+  newRoundBtn.textContent = "▶ Nova Rodada";
+});
+
+// _lastTurnPhase tracks phase from latest Firestore snapshot (more reliable than appState)
+let _lastTurnPhase = "";
+
+function updateNewRoundBtn(turnPhaseOverride) {
+  const phase = turnPhaseOverride !== undefined ? turnPhaseOverride : _lastTurnPhase;
+  const role = safeStr(window.appState?.role);
+  const isOwner = role === "owner" || role === "gm";
+  const isAwaiting = phase === "awaiting_initiative";
+  newRoundBtn.style.display = (isAwaiting && isOwner) ? "" : "none";
+}
+
 // ── DOM: Revelar Preprep button ───────────────────────────────────────────
 let revealBtn = document.getElementById("preprep-reveal-btn");
 if (!revealBtn) {
@@ -753,12 +830,16 @@ function onBattleSnapshot(snap) {
   const turnState = data.turn_state || {};
   const prevPp = _preprepData;
   _preprepData = pp;
+  _lastTurnPhase = safeStr(turnState.phase);
 
   // Check newly revealed prepreps → toast
   checkNewReveals(pp);
 
   // Update reveal button
   updateRevealButton();
+
+  // Update nova rodada button
+  updateNewRoundBtn(_lastTurnPhase);
 
   // Patch scoreboard
   patchScoreboardPreprep();
@@ -768,7 +849,7 @@ function onBattleSnapshot(snap) {
   const turnPhase = safeStr(turnState.phase);
 
   // If preprep is done or turn is active → close any modal
-  if (ppPhase === "done" || turnPhase === "active") {
+  if (ppPhase === "done" || turnPhase === "active" || turnPhase === "preprep_asking") {
     closeModal();
     return;
   }
@@ -835,8 +916,12 @@ function patchRollButton() {
   _patchedRollBtn = true;
 
   btn.addEventListener("click", async () => {
-    // Only inject preprep when a new round is actually being started
-    // We check after a small delay so main.js writes turn_state first
+    // Only inject preprep when a new round is actually being started.
+    // Snapshot the current phase BEFORE main.js writes (synchronously).
+    const phaseBefore = safeStr(window.appState?.battle?.turn_state?.phase);
+    const isStartingNewRound = phaseBefore === "awaiting_initiative" || phaseBefore === "";
+    if (!isStartingNewRound) return; // mid-round roll → do nothing
+
     setTimeout(async () => {
       const ref = getBattleRef();
       if (!ref) return;
@@ -844,7 +929,7 @@ function patchRollButton() {
         const snap = await getDoc(ref);
         const battle = snap.exists() ? snap.data() : {};
         const turn = battle.turn_state || {};
-        // If a new round just started (phase === "active" already set by main.js)
+        // If a new round just started (phase === "active" set by main.js)
         // We override to preprep asking
         if (safeStr(turn.phase) === "active") {
           await setDoc(ref, {
@@ -882,6 +967,7 @@ let _watchInterval = setInterval(() => {
     window.render = function(...args) {
       const r = origRender.apply(this, args);
       patchScoreboardPreprep();
+      updateNewRoundBtn(_lastTurnPhase);
       return r;
     };
   }

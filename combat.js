@@ -413,7 +413,8 @@ export class CombatUI {
         console.log("[CombatUI]   ref =", ref);
         if (!ref) { btn.disabled = false; btn.textContent = "⚔️ Nova Batalha (Atacar)"; btn.style.opacity = ""; return; }
         this._lastRenderKey = "";
-        await setDoc(ref, { status: "setup", attacker: by, attack_move: null, logs: [] });
+        // Use merge:true to preserve turn_state, initiative, preprep, etc.
+        await setDoc(ref, { status: "setup", attacker: by, attack_move: null, logs: [] }, { merge: true });
         console.log("[CombatUI]   ✅ setDoc concluído com sucesso!");
       } catch (e) {
         console.error("[CombatUI]   ❌ ERRO no setDoc:", e);
@@ -646,7 +647,7 @@ export class CombatUI {
       cancelBtn.disabled = true; cancelBtn.textContent = "⏳...";
       this._lastRenderKey = "";
       const ref = this._battleRef(); if (!ref) return;
-      await setDoc(ref, { status: "idle", logs: [] });
+      await setDoc(ref, { status: "idle", logs: [] }, { merge: true });
     });
 
     // ─── ROLL NORMAL ATTACK ─────────────────────────────────────────

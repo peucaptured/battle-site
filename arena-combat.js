@@ -643,7 +643,25 @@ export class ArenaCombatUI {
     if (!ref) return;
     this._partyStatesUnsub = onSnapshot(ref, (snap) => {
       this._partyStates = snap.exists() ? (snap.data() || {}) : {};
+      // Eagerly load sheets for all trainers seen in party_states
+      for (const trainerName of Object.keys(this._partyStates)) {
+        if (trainerName && !this._sheets.has(trainerName)) {
+          this._loadSheets(trainerName);
+        }
+      }
     }, () => {});
+
+    // Also pre-load sheets for already-known players
+    setTimeout(() => {
+      const players = window.appState?.players || [];
+      for (const pl of players) {
+        const name = safeStr(pl?.trainer_name);
+        if (name && !this._sheets.has(name)) this._loadSheets(name);
+      }
+      // Pre-load for current user
+      const by = this.getBy?.();
+      if (by && !this._sheets.has(by)) this._loadSheets(by);
+    }, 400);
   }
   stopListening() {
     if (this._partyStatesUnsub) { try { this._partyStatesUnsub(); } catch {} }
@@ -652,7 +670,8 @@ export class ArenaCombatUI {
 
   // ─── Load sheets ───────────────────────────────────────────────
   async _loadSheets(trainerName) {
-    if (this._sheets.has(trainerName)) return;
+    // Skip if already loaded with at least one sheet; allow retry if empty
+    if (this._sheets.has(trainerName) && (this._sheets.get(trainerName) || []).length > 0) return;
     const db = this.getDb();
     if (!db) return;
     const tid = safeDocId(trainerName);
@@ -666,29 +685,60 @@ export class ArenaCombatUI {
         const s = d.data() || {};
         s._sheet_id = d.id;
         sheets.push(s);
+        // Map by pokemon.id
         const pid = safeStr(s.pokemon?.id);
         if (pid) map.set(pid, s);
+        // Map by linked_pid (piece id on the board)
         const lpid = safeStr(s.linked_pid);
         if (lpid) map.set(lpid, s);
+        // Also map by numeric form if pid is numeric
+        if (pid && /^\d+$/.test(pid)) map.set(String(Number(pid)), s);
+        // Map by pokemon name (lowercase) for fuzzy fallback
+        const pname = safeStr(s.pokemon?.name).toLowerCase();
+        if (pname) map.set(pname, s);
       });
       this._sheets.set(trainerName, sheets);
       this._sheetsMap.set(trainerName, map);
+      console.log(`[arena-combat] sheets loaded for ${trainerName}: ${sheets.length} sheets`);
     } catch (e) {
       console.warn("[arena-combat] loadSheets error", e);
-      this._sheets.set(trainerName, []);
-      this._sheetsMap.set(trainerName, new Map());
+      // Don't cache failures — allow retry next time
     }
   }
 
   _getSheet(trainerName, pid) {
     const m = this._sheetsMap.get(trainerName);
-    return m ? (m.get(safeStr(pid)) || null) : null;
+    if (!m) return null;
+    const key = safeStr(pid);
+    // Try exact match first
+    if (m.has(key)) return m.get(key);
+    // Try numeric normalization (e.g. "025" → "25")
+    if (/^\d+$/.test(key)) {
+      const num = String(Number(key));
+      if (m.has(num)) return m.get(num);
+    }
+    // Try display name lookup via dexMap
+    if (window.dexMap) {
+      const name = (window.dexMap[key] || window.dexMap[String(Number(key))] || "").toLowerCase();
+      if (name && m.has(name)) return m.get(name);
+    }
+    return null;
   }
 
   _getPokeStats(trainerName, pid) {
     const tData = this._partyStates[trainerName] || {};
-    const pData = tData[safeStr(pid)] || {};
-    return pData.stats || {};
+    const key = safeStr(pid);
+    // Try exact match
+    let pData = tData[key];
+    // Try numeric normalization
+    if (!pData && /^\d+$/.test(key)) pData = tData[String(Number(key))];
+    // Try zero-padded variants
+    if (!pData) {
+      for (const k of Object.keys(tData)) {
+        if (/^\d+$/.test(k) && Number(k) === Number(key)) { pData = tData[k]; break; }
+      }
+    }
+    return (pData || {}).stats || {};
   }
 
   // ─── Favorites ─────────────────────────────────────────────────
