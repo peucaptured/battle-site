@@ -1,4 +1,4 @@
-import { getMoveType, getTypeColor, getTypeDamageBonus, getSuperEffectiveAgainst, getWeakAgainst, getImmuneTo, TYPE_COLORS as TYPE_COLORS_DATA, normalizeType } from "./type-data.js";
+import { getMoveType, getTypeColor, getTypeDamageBonus, getSuperEffectiveAgainst, getWeakAgainst, getImmuneTo, getTypeAdvantage, TYPE_CHART, TYPE_COLORS as TYPE_COLORS_DATA, normalizeType } from "./type-data.js";
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
 import {
   getFirestore,
@@ -1984,6 +1984,13 @@ function renderInspectorCard() {
   const apiCached = slug ? _pokeApiSpeedCache.get(slug) : undefined;
   // Determine if the speed actually came from PokeAPI (sheet had no valid speed)
   const sh2 = getSheetForPiece(p);
+  const insTypes = (() => {
+    const fromSheet = sh2?.pokemon?.types;
+    if (Array.isArray(fromSheet) && fromSheet.length) return fromSheet;
+    if (Array.isArray(p?.types) && p.types.length) return p.types;
+    return [];
+  })();
+  const matchupH = revealed ? _typeMatchupHtml(insTypes) : "";
   const psOwner = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
   const sheetHasSpeed = [
     readSpeedFromStats(sh2?.stats), readSpeedFromStats(sh2?.pokemon?.stats),
@@ -2007,6 +2014,7 @@ function renderInspectorCard() {
         <div class="inspector-name">${escapeHtml(name)}</div>
         <div class="inspector-chips">${chips}</div>
         <div class="muted" style="margin-top:6px">${escapeHtml(moveSummary)}</div>
+        ${matchupH}
 
         <div class="ins-hp-section">
           <div class="ins-hp-label-row">
@@ -5405,17 +5413,28 @@ function _typePill(type) {
 // Mini-tabela de fraquezas/vantagens de um pokémon (por seus tipos)
 function _typeMatchupHtml(types) {
   if (!types || !types.length) return "";
+  const normalizedTypes = types.map(t => normalizeType(t)).filter(Boolean);
+  if (!normalizedTypes.length) return "";
+
   const strongVs = new Set();
+  normalizedTypes.forEach((t) => getSuperEffectiveAgainst(t).forEach(x => strongVs.add(x)));
+
   const weakTo = new Set();
+  const resistTo = new Set();
   const immuneTo = new Set();
-  for (const t of types) {
-    getSuperEffectiveAgainst(t).forEach(x => strongVs.add(x));
-    getWeakAgainst(t).forEach(x => weakTo.add(x));
-    getImmuneTo(t).forEach(x => immuneTo.add(x));
-  }
+  Object.keys(TYPE_CHART).forEach((atkType) => {
+    const mult = getTypeAdvantage(atkType, normalizedTypes);
+    if (mult === 0) {
+      immuneTo.add(atkType);
+      return;
+    }
+    if (mult > 1) weakTo.add(atkType);
+    else if (mult < 1) resistTo.add(atkType);
+  });
+
   const renderTypeList = (set, label, col) => {
     const items = [...set];
-    if (!items.length) return "";
+    if (!items.length) return `<div style="margin-bottom:4px"><span style="font-size:.7rem;opacity:.7;margin-right:4px;">${label}:</span><span style="opacity:.6">—</span></div>`;
     const pills = items.map(t => {
       const c = getTypeColor(t);
       return `<span style="display:inline-block;padding:1px 6px;border-radius:6px;font-size:.68rem;font-weight:700;background:${c}33;border:1px solid ${c}66;color:${c}">${t}</span>`;
@@ -5424,9 +5443,10 @@ function _typeMatchupHtml(types) {
   };
   return `
     <div class="type-matchup-mini" style="margin-top:6px;padding:6px 8px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);">
+      ${renderTypeList(resistTo, "🛡️ Resistências", "#6890F0")}
+      ${immuneTo.size ? renderTypeList(immuneTo, "🚫 Imunidades", "#A890F0") : ""}
+      ${renderTypeList(weakTo, "⬇️ Fraquezas", "#F08030")}
       ${renderTypeList(strongVs, "⚔️ SE contra", "#78C850")}
-      ${renderTypeList(weakTo, "⬇️ Fraco a", "#F08030")}
-      ${immuneTo.size ? renderTypeList(immuneTo, "🛡️ Imune a", "#A890F0") : ""}
     </div>
   `;
 }
