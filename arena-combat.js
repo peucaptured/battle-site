@@ -1076,8 +1076,14 @@ export class ArenaCombatUI {
     body.innerHTML = `
       ${atkHtml}
       ${rangeHtml}
+      <div style="display:flex;align-items:center;gap:8px;margin:8px 0 10px;padding:8px 10px;border-radius:10px;background:rgba(168,85,247,.10);border:1px solid rgba(168,85,247,.28)">
+        <input type="checkbox" id="ac-sneak-attack" style="accent-color:#a855f7;width:16px;height:16px;cursor:pointer" />
+        <label for="ac-sneak-attack" style="font-size:12px;font-weight:700;cursor:pointer;color:rgba(226,232,240,.9)">🥷 Golpe Furtivo <span style="font-weight:400;color:rgba(148,163,184,.9)">(oponente usa metade da defesa)</span></label>
+      </div>
       <div id="ac-moves-area"></div>
     `;
+
+    const getSneakAttack = () => !!body.querySelector("#ac-sneak-attack")?.checked;
 
     // Range toggle
     let currentRange = "distance";
@@ -1120,17 +1126,17 @@ export class ArenaCombatUI {
           </div>
         `;
         movesArea.querySelector("#ac-open-radial")?.addEventListener("click", () => {
-          this._openRadialMenu(targetPiece, favMoves, moves, stats, getAtkPid, currentRange);
+          this._openRadialMenu(targetPiece, favMoves, moves, stats, getAtkPid, currentRange, getSneakAttack);
         });
         movesArea.querySelector("#ac-open-list")?.addEventListener("click", () => {
-          this._renderMoveList(movesArea, moves, stats, targetPiece, getAtkPid, () => currentRange);
+          this._renderMoveList(movesArea, moves, stats, targetPiece, getAtkPid, () => currentRange, getSneakAttack);
         });
         movesArea.querySelector("#ac-open-manual")?.addEventListener("click", () => {
-          this._openManualInputDialog(targetPiece, getAtkPid(), currentRange);
+          this._openManualInputDialog(targetPiece, getAtkPid(), currentRange, getSneakAttack());
         });
       } else {
         // Show compact list directly
-        this._renderMoveList(movesArea, moves, stats, targetPiece, getAtkPid, () => currentRange);
+        this._renderMoveList(movesArea, moves, stats, targetPiece, getAtkPid, () => currentRange, getSneakAttack);
       }
     };
 
@@ -1140,7 +1146,7 @@ export class ArenaCombatUI {
   }
 
   // ─── Compact move list ─────────────────────────────────────────
-  _renderMoveList(container, moves, stats, targetPiece, getAtkPid, getRange) {
+  _renderMoveList(container, moves, stats, targetPiece, getAtkPid, getRange, getSneakAttack = () => false) {
     let html = `<input class="ac-search" placeholder="/ buscar golpe..." id="ac-move-search" />`;
     html += `<button class="ac-quick-btn" id="ac-manual-input" style="width:100%;margin-bottom:6px">✍️ Input manual</button>`;
     html += `<div class="ac-movelist" id="ac-movelist-inner">`;
@@ -1199,7 +1205,7 @@ export class ArenaCombatUI {
           });
           return;
         }
-        this._executeAttack(getAtkPid(), targetPiece, mv, stats, getRange());
+        this._executeAttack(getAtkPid(), targetPiece, mv, stats, getRange(), { sneakAttack: getSneakAttack() });
       });
     });
 
@@ -1209,7 +1215,7 @@ export class ArenaCombatUI {
     });
 
     container.querySelector("#ac-manual-input")?.addEventListener("click", () => {
-      this._openManualInputDialog(targetPiece, getAtkPid(), getRange());
+      this._openManualInputDialog(targetPiece, getAtkPid(), getRange(), getSneakAttack());
     });
   }
 
@@ -1278,7 +1284,7 @@ export class ArenaCombatUI {
     });
   }
 
-  _openManualInputDialog(targetPiece, atkPid, rangeStr) {
+  _openManualInputDialog(targetPiece, atkPid, rangeStr, sneakAttack = false) {
     this._closeOverlay();
     const pos = this._pieceScreenPos(targetPiece);
     const el = document.createElement("div");
@@ -1348,14 +1354,14 @@ export class ArenaCombatUI {
       };
 
       this._closePrompt();
-      await this._executeAttack(atkPid, targetPiece, manualMove, {}, rangeStr || "distance");
+      await this._executeAttack(atkPid, targetPiece, manualMove, {}, rangeStr || "distance", { sneakAttack });
     });
   }
 
   // ═══════════════════════════════════════════════════════════════
   // RADIAL MENU
   // ═══════════════════════════════════════════════════════════════
-  _openRadialMenu(targetPiece, favMoves, allMoves, stats, getAtkPid, currentRange) {
+  _openRadialMenu(targetPiece, favMoves, allMoves, stats, getAtkPid, currentRange, getSneakAttack = () => false) {
     this._closeRadial();
 
     const pos = this._pieceScreenPos(targetPiece);
@@ -1416,7 +1422,7 @@ export class ArenaCombatUI {
             });
             return;
           }
-          this._executeAttack(getAtkPid(), targetPiece, mv, stats, currentRange);
+          this._executeAttack(getAtkPid(), targetPiece, mv, stats, currentRange, { sneakAttack: getSneakAttack() });
         });
       } else if (i === totalSlots - 2) {
         // "+" all moves
@@ -1426,7 +1432,7 @@ export class ArenaCombatUI {
           this._closeRadial();
           if (this._currentOverlay) {
             const body = this._currentOverlay.querySelector("#ac-overlay-body #ac-moves-area");
-            if (body) this._renderMoveList(body, allMoves, stats, targetPiece, getAtkPid, () => currentRange);
+            if (body) this._renderMoveList(body, allMoves, stats, targetPiece, getAtkPid, () => currentRange, getSneakAttack);
           }
         });
       } else {
@@ -1459,7 +1465,7 @@ export class ArenaCombatUI {
   // ═══════════════════════════════════════════════════════════════
   // EXECUTE ATTACK (auto-roll + feedback)
   // ═══════════════════════════════════════════════════════════════
-  async _executeAttack(atkPid, targetPiece, move, stats, rangeStr) {
+  async _executeAttack(atkPid, targetPiece, move, stats, rangeStr, opts = {}) {
     this._closeAll();
 
     const by = this.getBy();
@@ -1470,7 +1476,9 @@ export class ArenaCombatUI {
 
     const isDistance = rangeStr === "distance";
     const defenseKey = isDistance ? "dodge" : "parry";
-    const defenseVal = safeInt(tStats[defenseKey]);
+    const isSneakAttack = !!opts.sneakAttack;
+    const baseDefenseVal = safeInt(tStats[defenseKey]);
+    const defenseVal = isSneakAttack ? Math.floor(baseDefenseVal / 2) : baseDefenseVal;
     const needed = defenseVal + 10;
 
     const atkMod = safeInt(move.accuracy);
@@ -1508,6 +1516,7 @@ export class ArenaCombatUI {
       attackerPid: atkPid,
       mode: "normal",
       rangeStr,
+      sneakAttack: isSneakAttack,
     };
     try { localStorage.setItem(LAST_MOVE_KEY, JSON.stringify(this._lastMove)); } catch {}
     this._updateRepeatBtn();
@@ -1525,6 +1534,7 @@ export class ArenaCombatUI {
 
     const atkRange = isDistance ? "Distância (Dodge)" : "Corpo-a-corpo (Parry)";
     const critTxt = critBonus ? " (CRÍTICO +5)" : "";
+    const sneakTxt = isSneakAttack ? " 🥷 Furtivo (def/2)" : "";
     const resultMsg = hit ? "ACERTOU! ✅" : "ERROU! ❌";
 
     // Write to Firestore
@@ -1548,6 +1558,7 @@ export class ArenaCombatUI {
         needed,
         total_atk: totalAtk,
         crit_bonus: critBonus,
+        sneak_attack: isSneakAttack,
         dmg_base: damage,
         is_effect: isEffect,
         pendingFor: tOwner,
@@ -1556,7 +1567,7 @@ export class ArenaCombatUI {
           options: { dc: dcTotal, isEffect, rank: damage, critBonus },
         },
         logs: [
-          `${by} rolou ${roll}+${atkMod}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${critTxt}... ${resultMsg}`,
+          `${by} rolou ${roll}+${atkMod}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${critTxt}${sneakTxt}... ${resultMsg}`,
           `Rank/Dano: ${damage}${isEffect ? " (Affliction)" : ""}. Aguardando resistência... (CD ${dcTotal})`,
         ],
       });
@@ -1579,10 +1590,11 @@ export class ArenaCombatUI {
         needed,
         total_atk: totalAtk,
         crit_bonus: 0,
+        sneak_attack: isSneakAttack,
         pendingFor: null,
         prompt: null,
         logs: [
-          `${by} rolou ${roll}+${atkMod}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])... ${resultMsg}`,
+          `${by} rolou ${roll}+${atkMod}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${sneakTxt}... ${resultMsg}`,
         ],
       });
     }
@@ -1603,7 +1615,9 @@ export class ArenaCombatUI {
       this._showFloat(targetPiece, `❌ Golpe "${this._lastMove.moveName}" não encontrado`, "miss");
       return;
     }
-    this._executeAttack(atkPid, targetPiece, mv, stats, this._lastMove.rangeStr || "distance");
+    this._executeAttack(atkPid, targetPiece, mv, stats, this._lastMove.rangeStr || "distance", {
+      sneakAttack: !!this._lastMove.sneakAttack,
+    });
   }
 
   _repeatLastMove() {
