@@ -131,7 +131,14 @@ const sbRoot = document.getElementById("scoreboard");
   overflow-x: hidden;
 }
 #scoreboard.sb-visible { display: block; }
-#scoreboard.sb-visible ~ .hud-tabs { margin-top: 0; }
+#scoreboard.sb-visible ~ .hud-tabs {
+  /*
+   * Mantém um pequeno afastamento vertical quando o scoreboard está visível.
+   * Em alguns layouts/resoluções, margin-top:0 fazia as tabs subirem e
+   * sobreporem os botões fixos do header (ex.: "Passar turno").
+   */
+  margin-top: 8px;
+}
 
 /* Container: stacks players vertically */
 .sb-bar {
