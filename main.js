@@ -5419,8 +5419,10 @@ function _typeMatchupHtml(types) {
   const strongVs = new Set();
   normalizedTypes.forEach((t) => getSuperEffectiveAgainst(t).forEach(x => strongVs.add(x)));
 
-  const weakTo = new Set();
-  const resistTo = new Set();
+  const weak2x = new Set();
+  const weak4x = new Set();
+  const resistHalf = new Set();
+  const resistQuarter = new Set();
   const immuneTo = new Set();
   Object.keys(TYPE_CHART).forEach((atkType) => {
     const mult = getTypeAdvantage(atkType, normalizedTypes);
@@ -5428,11 +5430,13 @@ function _typeMatchupHtml(types) {
       immuneTo.add(atkType);
       return;
     }
-    if (mult > 1) weakTo.add(atkType);
-    else if (mult < 1) resistTo.add(atkType);
+    if (mult >= 4) weak4x.add(atkType);
+    else if (mult > 1) weak2x.add(atkType);
+    else if (mult <= 0.25) resistQuarter.add(atkType);
+    else if (mult < 1) resistHalf.add(atkType);
   });
 
-  const renderTypeList = (set, label, col) => {
+  const renderTypeList = (set, label) => {
     const items = [...set];
     if (!items.length) return `<div style="margin-bottom:4px"><span style="font-size:.7rem;opacity:.7;margin-right:4px;">${label}:</span><span style="opacity:.6">—</span></div>`;
     const pills = items.map(t => {
@@ -5443,10 +5447,12 @@ function _typeMatchupHtml(types) {
   };
   return `
     <div class="type-matchup-mini" style="margin-top:6px;padding:6px 8px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);">
-      ${renderTypeList(resistTo, "🛡️ Resistências", "#6890F0")}
-      ${immuneTo.size ? renderTypeList(immuneTo, "🚫 Imunidades", "#A890F0") : ""}
-      ${renderTypeList(weakTo, "⬇️ Fraquezas", "#F08030")}
-      ${renderTypeList(strongVs, "⚔️ SE contra", "#78C850")}
+      ${renderTypeList(resistHalf, "🛡️ Resistência 1/2 (-2)")}
+      ${renderTypeList(resistQuarter, "🛡️ Resistência 1/4 (-4)")}
+      ${renderTypeList(immuneTo, "🚫 Imunidade (0x / -4)")}
+      ${renderTypeList(weak2x, "⬇️ Fraqueza 2x (+2)")}
+      ${renderTypeList(weak4x, "⬇️ Fraqueza 4x (+4)")}
+      ${renderTypeList(strongVs, "⚔️ SE contra")}
     </div>
   `;
 }
