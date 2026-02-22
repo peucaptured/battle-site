@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python biome_generator.py:*)",
+      "Bash(pip install:*)",
+      "Bash(python -c:*)",
+      "Bash(ls:*)"
+    ]
+  }
+}

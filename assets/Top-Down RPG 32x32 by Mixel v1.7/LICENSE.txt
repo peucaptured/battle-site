@@ -1,0 +1,27 @@
+Copyright (c) Mixel, 2025
+
+**Included Fonts**
+Adventurer font by Brian J Smith
+Licensed under the Creative Commons Attribution 3.0 License (CC BY 3.0)
+Source: https://www.pentacom.jp/pentacom/bitfontmaker2/gallery/?id=195
+
+****You MAY use this font in personal and commercial projects, but you must credit the original author.****
+
+This asset pack is free to download and use under the following terms:
+
+**You MAY:**
+
+- Use this asset pack in personal and commercial **video game projects**
+- Include the unmodified assets as part of your compiled game
+
+**You MAY NOT:**
+- Redistribute or resell the assets (modified or unmodified)
+- Include the assets in another asset pack or template
+- Modify and publish the assets under a different  name
+- Use the assets in NFTs or AI dataset training
+
+**Attribution is appreciated but not required.**
+
+By using these assets, you agree to these terms.
+
+For questions or custom licensing, please contact: mixelslime@gmail.com
