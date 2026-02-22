@@ -3665,6 +3665,33 @@ const mapCache = {
   bgRec: null,
 };
 
+// Structured map data fetched from mapDataUrl (BiomeGenerator JSON)
+const mapDataState = {
+  url: "",       // last URL successfully requested
+  data: null,    // parsed JSON: { biome, terrain_grid, grid_w, grid_h, ... }
+  loading: false,
+};
+
+async function maybeLoadMapData() {
+  const url = safeStr(appState.board?.mapDataUrl || "");
+  if (!url || url === mapDataState.url || mapDataState.loading) return;
+  mapDataState.url = url;
+  mapDataState.loading = true;
+  try {
+    const res = await fetch(url);
+    if (res.ok) {
+      mapDataState.data = await res.json();
+    } else {
+      mapDataState.data = null;
+    }
+  } catch (e) {
+    console.warn("[mapData] fetch failed:", e);
+    mapDataState.data = null;
+  } finally {
+    mapDataState.loading = false;
+  }
+}
+
 function _u32(n) {
   return (Number(n) >>> 0);
 }
@@ -3688,6 +3715,9 @@ function getActiveMapUrl() {
 }
 
 function maybeRebuildMapCache() {
+  // Fire-and-forget fetch of structured map JSON when mapDataUrl changes
+  maybeLoadMapData();
+
   const gs = appState.gridSize || 10;
   const theme = safeStr(appState.theme) || "biome_grass";
   const seed = _u32(appState.board?.seed || 0);
@@ -3737,6 +3767,68 @@ function maybeRebuildMapCache() {
 
   mapCache.tiles = tiles;
   mapCache.deco = deco;
+}
+
+/**
+ * Overlay animado de água sobre células onde terrain_grid[r][c] === 2.
+ * Deve ser chamado DEPOIS de desenhar o PNG de fundo (mapUrl), para que a
+ * animação apareça por cima do terreno já renderizado pelo Python.
+ * Não faz nada se não houver mapDataState.data com terrain_grid.
+ */
+function drawWaterCells(ctx, ox, oy, gs, tile) {
+  const md = mapDataState.data;
+  if (!md || !Array.isArray(md.terrain_grid)) return;
+
+  const grid = md.terrain_grid;
+  const gh = grid.length;
+  const gw = gh > 0 ? grid[0].length : 0;
+  if (!gh || !gw) return;
+
+  const t = Date.now() / 1000;
+
+  ctx.save();
+  // Recorta dentro do grid para não vazar nos lados
+  ctx.beginPath();
+  ctx.rect(ox, oy, gs * tile, gs * tile);
+  ctx.clip();
+
+  for (let r = 0; r < Math.min(gh, gs); r++) {
+    for (let c = 0; c < Math.min(gw, gs); c++) {
+      if (grid[r][c] !== 2) continue;
+
+      const cx = ox + c * tile;
+      const cy = oy + r * tile;
+
+      // Duas ondas de fases distintas por célula
+      const w1 = Math.sin(t * 1.8 + c * 0.9 + r * 0.6) * 0.5 + 0.5;
+      const w2 = Math.sin(t * 2.5 + c * 1.3 - r * 0.8 + 1.7) * 0.5 + 0.5;
+      const shimmer = w1 * 0.6 + w2 * 0.4;
+
+      // Camada de cor translúcida que pulsa sobre o azul já pintado
+      ctx.fillStyle = `rgba(80,180,255,${0.07 + shimmer * 0.13})`;
+      ctx.fillRect(cx, cy, tile, tile);
+
+      // Linha de highlight horizontal simulando reflexo de ondinha
+      const lineY = cy + tile * (0.35 + w1 * 0.12);
+      const lineAlpha = 0.12 + shimmer * 0.20;
+      ctx.strokeStyle = `rgba(210,245,255,${lineAlpha})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx + 3, lineY);
+      ctx.lineTo(cx + tile - 3, lineY + (w2 - 0.5) * tile * 0.07);
+      ctx.stroke();
+
+      // Segunda linha deslocada para parecer profundidade
+      const lineY2 = cy + tile * (0.62 + w2 * 0.10);
+      ctx.strokeStyle = `rgba(180,230,255,${lineAlpha * 0.55})`;
+      ctx.beginPath();
+      ctx.moveTo(cx + 5, lineY2);
+      ctx.lineTo(cx + tile - 5, lineY2 - (w1 - 0.5) * tile * 0.06);
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
 }
 
 function drawProceduralMap(ctx, ox, oy, gs, tile) {
@@ -4742,6 +4834,8 @@ function draw() {
     // leve overlay para dar contraste
     ctx.fillStyle = 'rgba(2,6,23,0.10)';
     ctx.fillRect(ox, oy, gs * tile, gs * tile);
+    // Animação de água sobre as células de terreno hídrico (terrain_grid == 2)
+    drawWaterCells(ctx, ox, oy, gs, tile);
   } else {
     drawProceduralMap(ctx, ox, oy, gs, tile);
   }
