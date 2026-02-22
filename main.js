@@ -3665,11 +3665,12 @@ const mapCache = {
   bgRec: null,
 };
 
-// Structured map data fetched from mapDataUrl (BiomeGenerator JSON)
+// ── Structured map data (BiomeGenerator JSON) ─────────────────────────────
 const mapDataState = {
   url: "",       // last URL successfully requested
-  data: null,    // parsed JSON: { biome, terrain_grid, grid_w, grid_h, ... }
+  data: null,    // parsed JSON: { biome, terrain_grid, water_border_cells, ... }
   loading: false,
+  borderSet: null,  // Set<"r,c"> built from water_border_cells for O(1) lookup
 };
 
 async function maybeLoadMapData() {
@@ -3680,17 +3681,64 @@ async function maybeLoadMapData() {
   try {
     const res = await fetch(url);
     if (res.ok) {
-      mapDataState.data = await res.json();
+      const data = await res.json();
+      mapDataState.data = data;
+      // Pre-build border Set for fast per-cell lookup
+      if (Array.isArray(data.water_border_cells)) {
+        mapDataState.borderSet = new Set(
+          data.water_border_cells.map(([r, c]) => `${r},${c}`)
+        );
+      } else {
+        mapDataState.borderSet = null;
+      }
     } else {
       mapDataState.data = null;
+      mapDataState.borderSet = null;
     }
   } catch (e) {
     console.warn("[mapData] fetch failed:", e);
     mapDataState.data = null;
+    mapDataState.borderSet = null;
   } finally {
     mapDataState.loading = false;
   }
 }
+
+// ── Ocean-autotiles-anim sprite sheet ──────────────────────────────────────
+// Loaded once; individual 32×32 frames extracted into oceanAnim.frames[].
+const oceanAnim = {
+  img: null,         // HTMLImageElement
+  ready: false,
+  frames: [],        // [{tx, ty}] – source rect per frame in the PNG
+};
+
+(function loadOceanAnim() {
+  const img = new Image();
+  img.onload = () => {
+    oceanAnim.img = img;
+    const frames = [];
+    // Scan in 32×32 steps; collect non-transparent tiles via a temporary canvas
+    const tmp = document.createElement('canvas');
+    tmp.width = 32; tmp.height = 32;
+    const tCtx = tmp.getContext('2d');
+    for (let ty = 0; ty + 32 <= img.naturalHeight; ty += 32) {
+      for (let tx = 0; tx + 32 <= img.naturalWidth; tx += 32) {
+        tCtx.clearRect(0, 0, 32, 32);
+        tCtx.drawImage(img, tx, ty, 32, 32, 0, 0, 32, 32);
+        const d = tCtx.getImageData(0, 0, 32, 32).data;
+        // Require > ~10 % visible pixels (>96 of 1024 pixels)
+        let vis = 0;
+        for (let i = 3; i < d.length; i += 4) if (d[i] > 30) vis++;
+        if (vis > 96) frames.push({ tx, ty });
+      }
+    }
+    oceanAnim.frames = frames;
+    oceanAnim.ready  = frames.length > 0;
+    console.log(`[oceanAnim] loaded ${frames.length} frames from ocean-autotiles-anim.png`);
+  };
+  img.onerror = () => console.warn('[oceanAnim] failed to load ocean-autotiles-anim.png');
+  img.src = './assets/ocean-autotiles-anim.png';
+})();
 
 function _u32(n) {
   return (Number(n) >>> 0);
@@ -3770,10 +3818,29 @@ function maybeRebuildMapCache() {
 }
 
 /**
- * Overlay animado de água sobre células onde terrain_grid[r][c] === 2.
- * Deve ser chamado DEPOIS de desenhar o PNG de fundo (mapUrl), para que a
- * animação apareça por cima do terreno já renderizado pelo Python.
- * Não faz nada se não houver mapDataState.data com terrain_grid.
+ * Retorna true se a célula (r,c) é borda de água (adjacente a terreno não-água
+ * ou a uma borda do grid).  Fallback quando water_border_cells não está no JSON.
+ */
+function _isBorderWaterCell(grid, r, c, gh, gw) {
+  if (r === 0 || r === gh - 1 || c === 0 || c === gw - 1) return true;
+  return (
+    grid[r - 1][c] !== 2 || grid[r + 1][c] !== 2 ||
+    grid[r][c - 1] !== 2 || grid[r][c + 1] !== 2
+  );
+}
+
+/**
+ * Overlay animado de água sobreposto ao PNG base (mapUrl).
+ *
+ * - Células de BORDA (water_border_cells do JSON, ou calculadas on-the-fly):
+ *   animadas em loop usando os frames da ocean-autotiles-anim.png.
+ *   A fase de cada célula é deslocada deterministicamente para eliminar o efeito
+ *   de "todos piscando juntos".
+ *
+ * - Células INTERIORES (água cercada de água em todos os lados):
+ *   shimmer suave com duas ondas de fase independente (calm water).
+ *
+ * Não faz nada se não houver terrain_grid disponível (mapDataState.data null).
  */
 function drawWaterCells(ctx, ox, oy, gs, tile) {
   const md = mapDataState.data;
@@ -3784,10 +3851,16 @@ function drawWaterCells(ctx, ox, oy, gs, tile) {
   const gw = gh > 0 ? grid[0].length : 0;
   if (!gh || !gw) return;
 
-  const t = Date.now() / 1000;
+  const t   = Date.now() / 1000;
+  // Ocean-anim: 8 fps loop; each cell starts at a different frame offset
+  const FPS        = 8;
+  const frameCount = oceanAnim.ready ? oceanAnim.frames.length : 0;
+  const baseFrame  = Math.floor(t * FPS);
+
+  const borderSet = mapDataState.borderSet;   // Set<"r,c"> or null
+  const hasPrebuilt = borderSet !== null;
 
   ctx.save();
-  // Recorta dentro do grid para não vazar nos lados
   ctx.beginPath();
   ctx.rect(ox, oy, gs * tile, gs * tile);
   ctx.clip();
@@ -3799,32 +3872,58 @@ function drawWaterCells(ctx, ox, oy, gs, tile) {
       const cx = ox + c * tile;
       const cy = oy + r * tile;
 
-      // Duas ondas de fases distintas por célula
-      const w1 = Math.sin(t * 1.8 + c * 0.9 + r * 0.6) * 0.5 + 0.5;
-      const w2 = Math.sin(t * 2.5 + c * 1.3 - r * 0.8 + 1.7) * 0.5 + 0.5;
-      const shimmer = w1 * 0.6 + w2 * 0.4;
+      const isBorder = hasPrebuilt
+        ? borderSet.has(`${r},${c}`)
+        : _isBorderWaterCell(grid, r, c, gh, gw);
 
-      // Camada de cor translúcida que pulsa sobre o azul já pintado
-      ctx.fillStyle = `rgba(80,180,255,${0.07 + shimmer * 0.13})`;
-      ctx.fillRect(cx, cy, tile, tile);
+      if (isBorder && frameCount > 0) {
+        // ── BORDA: animação com ocean-autotiles-anim ──────────────────────
+        // Offset de fase por célula para aparência natural (sem piscada síncrona)
+        const cellOffset = (r * 7 + c * 13) % frameCount;
+        const fi = (baseFrame + cellOffset) % frameCount;
+        const f  = oceanAnim.frames[fi];
 
-      // Linha de highlight horizontal simulando reflexo de ondinha
-      const lineY = cy + tile * (0.35 + w1 * 0.12);
-      const lineAlpha = 0.12 + shimmer * 0.20;
-      ctx.strokeStyle = `rgba(210,245,255,${lineAlpha})`;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(cx + 3, lineY);
-      ctx.lineTo(cx + tile - 3, lineY + (w2 - 0.5) * tile * 0.07);
-      ctx.stroke();
+        ctx.globalAlpha = 0.80;
+        ctx.drawImage(
+          oceanAnim.img,
+          f.tx, f.ty, 32, 32,   // fonte: tile 32×32 no spritesheet
+          cx, cy, tile, tile    // destino: escalado para view.scale
+        );
+        ctx.globalAlpha = 1;
 
-      // Segunda linha deslocada para parecer profundidade
-      const lineY2 = cy + tile * (0.62 + w2 * 0.10);
-      ctx.strokeStyle = `rgba(180,230,255,${lineAlpha * 0.55})`;
-      ctx.beginPath();
-      ctx.moveTo(cx + 5, lineY2);
-      ctx.lineTo(cx + tile - 5, lineY2 - (w1 - 0.5) * tile * 0.06);
-      ctx.stroke();
+        // Leve brilho de espuma nas bordas
+        const edge = Math.sin(t * 3 + c * 1.1 + r * 0.9) * 0.5 + 0.5;
+        ctx.strokeStyle = `rgba(220,245,255,${0.10 + edge * 0.14})`;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(cx + 0.5, cy + 0.5, tile - 1, tile - 1);
+
+      } else {
+        // ── INTERIOR: shimmer suave (calm water) ─────────────────────────
+        const w1 = Math.sin(t * 1.6 + c * 0.85 + r * 0.55) * 0.5 + 0.5;
+        const w2 = Math.sin(t * 2.3 + c * 1.25 - r * 0.75 + 1.7) * 0.5 + 0.5;
+        const shimmer = w1 * 0.55 + w2 * 0.45;
+
+        ctx.fillStyle = `rgba(70,170,240,${0.06 + shimmer * 0.11})`;
+        ctx.fillRect(cx, cy, tile, tile);
+
+        // Linha ondulada de reflexo
+        const lineY = cy + tile * (0.38 + w1 * 0.11);
+        const alpha = 0.10 + shimmer * 0.17;
+        ctx.strokeStyle = `rgba(200,240,255,${alpha})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx + 4, lineY);
+        ctx.lineTo(cx + tile - 4, lineY + (w2 - 0.5) * tile * 0.06);
+        ctx.stroke();
+
+        // Segunda linha mais tenue para profundidade
+        const lineY2 = cy + tile * (0.64 + w2 * 0.09);
+        ctx.strokeStyle = `rgba(180,230,255,${alpha * 0.50})`;
+        ctx.beginPath();
+        ctx.moveTo(cx + 6, lineY2);
+        ctx.lineTo(cx + tile - 6, lineY2 - (w1 - 0.5) * tile * 0.05);
+        ctx.stroke();
+      }
     }
   }
 
