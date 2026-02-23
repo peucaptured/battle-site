@@ -313,19 +313,15 @@ export class CombatUI {
     const tData = this._partyStates[trainerName] || {};
     const pData = tData[safeStr(pid)] || {};
     if (pData.stats && Object.keys(pData.stats).length > 0) return normalizeStats(pData.stats);
+  
     // Fallback: stats da ficha carregada
     const sheet = this._getSheet(trainerName, pid);
+
     const rawStats =
       (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
         ? sheet.stats
         : {};
-    const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
-    const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
-    const baseStats = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
-    const rawStats =
-      (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
-        ? sheet.stats
-        : {};
+
     const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
     const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
     const baseStats = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;

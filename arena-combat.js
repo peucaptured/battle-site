@@ -751,46 +751,45 @@ export class ArenaCombatUI {
     return null;
   }
 
-  _getPokeStats(trainerName, pid) {
-    const tData = this._partyStates[trainerName] || {};
-    const key = safeStr(pid);
-    // Try exact match
-    let pData = tData[key];
-    // Try numeric normalization
-    if (!pData && /^\d+$/.test(key)) pData = tData[String(Number(key))];
-    // Try zero-padded variants
-    if (!pData) {
-      for (const k of Object.keys(tData)) {
-        if (/^\d+$/.test(k) && Number(k) === Number(key)) { pData = tData[k]; break; }
-      }
-    }
-    const stats = (pData || {}).stats;
-    if (stats && Object.keys(stats).length > 0) return normalizeStats(stats);
-    // party_states.stats nunca é escrito → fallback para a ficha carregada
-    const sheet = this._getSheet(trainerName, pid);
-    const rawStats =
-      (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
-        ? sheet.stats
-        : {};
-    const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
-    const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
-    const baseStats = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
+_getPokeStats(trainerName, pid) {
+  const tData = this._partyStates[trainerName] || {};
+  const key = safeStr(pid);
 
-    const rawStats =
-      (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
-        ? sheet.stats
-        : {};
-    const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
-    const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
-    const baseStats = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
+  // Try exact match
+  let pData = tData[key];
 
-    // ✅ THG fallback: se vier 0, THG = 2*NP - Dodge
-    const out = normalizeStats(baseStats);
-    if (safeInt(out.thg) <= 0 && np > 0) {
-      out.thg = Math.max(0, (2 * np) - safeInt(out.dodge));
+  // Try numeric normalization
+  if (!pData && /^\d+$/.test(key)) pData = tData[String(Number(key))];
+
+  // Try zero-padded variants
+  if (!pData) {
+    for (const k of Object.keys(tData)) {
+      if (/^\d+$/.test(k) && Number(k) === Number(key)) { pData = tData[k]; break; }
     }
-    return out;
   }
+
+  const stats = (pData || {}).stats;
+  if (stats && Object.keys(stats).length > 0) return normalizeStats(stats);
+
+  // party_states.stats nunca é escrito → fallback para a ficha carregada
+  const sheet = this._getSheet(trainerName, pid);
+
+  const rawStats =
+    (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
+      ? sheet.stats
+      : {};
+
+  const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
+  const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
+  const baseStats = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
+
+  // ✅ THG fallback: se vier 0, THG = 2*NP - Dodge
+  const out = normalizeStats(baseStats);
+  if (safeInt(out.thg) <= 0 && np > 0) {
+    out.thg = Math.max(0, (2 * np) - safeInt(out.dodge));
+  }
+  return out;
+}
 
   // ─── Favorites ─────────────────────────────────────────────────
   _getFavorites(trainerName) {
