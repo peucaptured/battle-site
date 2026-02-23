@@ -3875,11 +3875,11 @@ function drawShoreOverlay(ctx, ox, oy, gs, tile) {
   ctx.rect(ox, oy, gs * tile, gs * tile);
   ctx.clip();
 
-  // Ajuste de cor: converte o azul-cyan do spritesheet (rgb≈54,143,190 / H≈201°)
-  // para o azul-periwinkle do beach.png (rgb≈139,160,213 / H≈223°).
-  // Cálculo: hue+22° / brightness×1.44 / saturate×0.84
-  // globalAlpha deixa assets abaixo transparecerem através da camada de onda.
-  ctx.filter = 'hue-rotate(22deg) brightness(1.44) saturate(0.84)';
+  // Ajuste de cor: desloca o azul-cyan do spritesheet (H≈201°)
+  // para próximo do azul-periwinkle do beach.png (H≈223°).
+  // Sem brightness para não amplificar o fundo amarelo/creme do sprite.
+  // globalAlpha deixa assets abaixo transparecerem.
+  ctx.filter = 'hue-rotate(22deg) saturate(0.65)';
   ctx.globalAlpha = 0.85;
 
   for (let ry = 0; ry < Math.min(gh, gs); ry++) {
@@ -3907,6 +3907,57 @@ function drawShoreOverlay(ctx, ox, oy, gs, tile) {
   }
 
   ctx.restore(); // restaura filter, globalAlpha e clip de uma vez
+}
+
+/**
+ * drawWaterBorderFoam — desenha o padrão de bolhas/espuma (do ocean-autotiles-anim.png)
+ * nos cells de ÁGUA (==2) que tocam cells de AREIA (==1) ou terra.
+ * Usa OCEAN_AUTOTILE_MAP com land_mask (vizinho não-água = bit ligado).
+ * Ciclo lento de 2 frames (800ms cada) sem dessincronia — espuma uniforme.
+ */
+function drawWaterBorderFoam(ctx, ox, oy, gs, tile) {
+  if (!oceanAnim.ready) return;
+  const md = mapDataState.data;
+  if (!md || !Array.isArray(md.terrain_grid)) return;
+
+  const grid = md.terrain_grid;
+  const gh   = grid.length;
+  const gw   = gh > 0 ? grid[0].length : 0;
+  if (!gh || !gw) return;
+
+  // Frame 0 = recuada, frame 1 = pico de espuma — alterna devagar
+  const fi = Math.floor(Date.now() / 700) % 2;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(ox, oy, gs * tile, gs * tile);
+  ctx.clip();
+  // Mesmo filtro da shore overlay para harmonizar cores
+  ctx.filter = 'hue-rotate(22deg) saturate(0.65)';
+  ctx.globalAlpha = 0.72;
+
+  for (let r = 0; r < Math.min(gh, gs); r++) {
+    for (let c = 0; c < Math.min(gw, gs); c++) {
+      if (grid[r][c] !== 2) continue; // só cells de água
+
+      // land_mask: bit liga se o vizinho NÃO é água (N=1,E=2,S=4,W=8)
+      let mask = 0;
+      if (r > 0      && grid[r - 1][c] !== 2) mask |= 1; // N
+      if (c < gw - 1 && grid[r][c + 1] !== 2) mask |= 2; // E
+      if (r < gh - 1 && grid[r + 1][c] !== 2) mask |= 4; // S
+      if (c > 0      && grid[r][c - 1] !== 2) mask |= 8; // W
+      if (mask === 0) continue;                            // água interior
+
+      const { sx, sy } = oceanSrcForMask(mask, fi);
+      ctx.drawImage(
+        oceanAnim.img,
+        sx, sy, OCEAN_TS, OCEAN_TS,
+        ox + c * tile, oy + r * tile, tile, tile
+      );
+    }
+  }
+
+  ctx.restore();
 }
 
 async function maybeLoadMapData() {
@@ -5188,8 +5239,10 @@ function draw() {
     ctx.fillRect(ox, oy, gs * tile, gs * tile);
     // Animação de água sobre as células de terreno hídrico (terrain_grid == 2)
     drawWaterCells(ctx, ox, oy, gs, tile);
-    // Camada de ondas batendo na areia (shore foam overlay)
+    // Camada de ondas batendo na areia (shore foam overlay — lado areia)
     drawShoreOverlay(ctx, ox, oy, gs, tile);
+    // Espuma/bolhas no lado da água que toca a animação (lado água)
+    drawWaterBorderFoam(ctx, ox, oy, gs, tile);
   } else {
     drawProceduralMap(ctx, ox, oy, gs, tile);
   }
