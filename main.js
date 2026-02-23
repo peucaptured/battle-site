@@ -3353,8 +3353,8 @@ function getStateDocRef() {
 }
 
 function isPieceMine(p) {
-  const by = safeStr(appState.by);
-  return by && safeStr(p?.owner) === by;
+  const by = safeStr(appState.by).toLowerCase();
+  return !!by && safeStr(p?.owner).toLowerCase() === by;
 }
 
 function canCurrentPlayerMovePiece(pieceId) {

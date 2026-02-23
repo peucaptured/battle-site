@@ -925,8 +925,8 @@ _getPokeStats(trainerName, pid) {
 
     if (piece) {
       const owner = safeStr(piece.owner);
-      const isEnemy = owner && owner !== by;
-      const isMine = owner && owner === by;
+      const isEnemy = owner && by && owner.toLowerCase() !== by.toLowerCase();
+      const isMine  = owner && by && owner.toLowerCase() === by.toLowerCase();
       const name = displayName(safeStr(piece.pid));
 
       if (isEnemy && isPlayer && canStartCombat) {
@@ -950,9 +950,8 @@ _getPokeStats(trainerName, pid) {
         items.push({ icon: "💔", label: "Reduzir 1 HP", action: () => { this._closeAll(); window.handlePieceMenuAction?.("hp-down", pieceId); } });
         items.push({ icon: "❌", label: "Retirar da arena", action: () => { this._closeAll(); window.removePieceFromBoard?.(pieceId); } });
         items.push({ type: "sep" });
+        items.push({ icon: "📋", label: `Ver ficha de ${name}`, action: () => { this._closeAll(); this._viewSheet(piece); } });
       }
-
-      items.push({ icon: "📋", label: `Ver ficha de ${name}`, action: () => { this._closeAll(); this._viewSheet(piece); } });
     } else if (isPlayer && window.appState?.selectedPieceId) {
       items.push({ icon: "🚶", label: `Mover para (${tile.row}, ${tile.col})`, action: () => { this._closeAll(); } });
     }
@@ -1776,14 +1775,17 @@ _getPokeStats(trainerName, pid) {
   // ─── View sheet (context menu preview) ─────────────────────────
   async _viewSheet(piece) {
     if (!piece) return;
+    // Privacidade: só o dono pode ver a ficha completa no painel lateral
+    const by    = (this.getBy() || "").toLowerCase();
+    const owner = safeStr(piece.owner).toLowerCase();
+    if (!by || owner !== by) return;
+
     if (piece?.id && typeof window.selectPiece === "function") {
       window.selectPiece(piece.id);
     }
-    // Usa o dono real da peça (pode ser o oponente) para carregar a ficha correta
-    const owner = safeStr(piece.owner) || this.getBy();
-    await this._loadSheets(owner);
-    const pid = safeStr(piece.pid);
-    const sheet = this._getSheet(owner, pid);
+    await this._loadSheets(safeStr(piece.owner) || this.getBy());
+    const pid   = safeStr(piece.pid);
+    const sheet = this._getSheet(safeStr(piece.owner) || this.getBy(), pid);
     this._renderSidebarSheet(piece, sheet);
   }
 
