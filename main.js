@@ -2042,15 +2042,22 @@ function renderInspectorCard() {
   const apiCached = (isMine && slug) ? _pokeApiSpeedCache.get(slug) : undefined;
 
   // ✅ Tipos/matchups: só mostra se for meu (ou se você quiser permitir tipos públicos, troque a regra aqui)
+  const apiTypesCached = (isMine && slug) ? getCachedPokeApiTypes(pid) : [];
+
   const insTypes = (() => {
     if (!isMine) return [];
     const fromSheet = sh2?.pokemon?.types;
     if (Array.isArray(fromSheet) && fromSheet.length) return fromSheet;
     if (Array.isArray(p?.types) && p.types.length) return p.types;
+    if (Array.isArray(apiTypesCached) && apiTypesCached.length) return apiTypesCached;
     return [];
   })();
 
   const matchupH = (isMine && revealed) ? _typeMatchupHtml(insTypes) : "";
+
+  if (isMine && revealed && (!insTypes || !insTypes.length) && slug) {
+    fetchPokeApiTypes(pid);
+  }
 
 const psOwner = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
 const sheetHasSpeed = isMine ? [
@@ -2879,8 +2886,9 @@ function readSpeedFromStats(statsObj) {
   return 0;
 }
 
-// ── PokeAPI Speed cache & fetcher ────────────────────────────────
+// ── PokeAPI caches & fetchers ────────────────────────────────────
 const _pokeApiSpeedCache = new Map(); // slug → speed value or "pending"
+const _pokeApiTypesCache = new Map(); // slug → string[] or "pending"
 
 function _pokeApiSlugFromPid(pid) {
   const k = safeStr(pid);
@@ -2918,6 +2926,47 @@ async function fetchPokeApiSpeed(pid) {
     _pokeApiSpeedCache.set(slug, 0);
     return 0;
   }
+}
+
+async function fetchPokeApiTypes(pid) {
+  const slug = _pokeApiSlugFromPid(pid);
+  if (!slug) return [];
+  if (_pokeApiTypesCache.has(slug)) {
+    const cached = _pokeApiTypesCache.get(slug);
+    return cached === "pending" ? [] : cached;
+  }
+
+  _pokeApiTypesCache.set(slug, "pending");
+  try {
+    const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${slug}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const types = (Array.isArray(data?.types) ? data.types : [])
+      .slice()
+      .sort((a, b) => Number(a?.slot || 0) - Number(b?.slot || 0))
+      .map((entry) => {
+        const nm = safeStr(entry?.type?.name).toLowerCase();
+        if (!nm) return "";
+        return nm.charAt(0).toUpperCase() + nm.slice(1);
+      })
+      .filter(Boolean);
+
+    _pokeApiTypesCache.set(slug, types);
+    if (typeof updateSidePanels === "function") updateSidePanels();
+    return types;
+  } catch {
+    _pokeApiTypesCache.set(slug, []);
+    return [];
+  }
+}
+
+function getCachedPokeApiTypes(pid) {
+  const slug = _pokeApiSlugFromPid(pid);
+  if (!slug) return [];
+  const cached = _pokeApiTypesCache.get(slug);
+  if (Array.isArray(cached)) return cached;
+  if (cached !== "pending") fetchPokeApiTypes(pid); // fire-and-forget
+  return [];
 }
 
 function getPieceSpeed(piece) {
