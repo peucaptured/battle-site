@@ -3868,8 +3868,6 @@ function drawShoreOverlay(ctx, ox, oy, gs, tile) {
   const gw   = gh > 0 ? grid[0].length : 0;
   if (!gh || !gw) return;
 
-  const nowMs = Date.now();
-
   ctx.save();
   ctx.beginPath();
   ctx.rect(ox, oy, gs * tile, gs * tile);
@@ -3892,8 +3890,7 @@ function drawShoreOverlay(ctx, ox, oy, gs, tile) {
       const entry = SHORE[mask];
       if (!entry) continue;              // mask combo not in table
 
-      const frame = animFrame(nowMs, cx, ry);
-      const sx    = entry.x + frame * SHORE_TILE;
+      const sx    = entry.x; // frame 0 fixo — sem animação
       const sy    = entry.y;
       const dx    = ox + cx * tile;
       const dy    = oy + ry * tile;
@@ -3925,8 +3922,8 @@ function drawWaterBorderFoam(ctx, ox, oy, gs, tile) {
   const gw   = gh > 0 ? grid[0].length : 0;
   if (!gh || !gw) return;
 
-  // Frame 0 = recuada, frame 1 = pico de espuma — alterna devagar
-  const fi = Math.floor(Date.now() / 700) % 2;
+  // Frame fixo 0 — sem animação
+  const fi = 0;
 
   ctx.save();
   ctx.beginPath();
