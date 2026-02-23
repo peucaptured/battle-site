@@ -2014,8 +2014,10 @@ function renderInspectorCard() {
 
   const owner = safeStr(p?.owner) || "—";
   const pid = safeStr(p?.pid) || "—";
-  const revealed = !!p?.revealed;
-  const name = revealed ? (dexNameFromPid(pid) || pid) : "???";
+  const isMine = isPieceMine(p);
+  const revealed = (p?.revealed != null) ? !!p.revealed : true; // default compat: sem flag = revelado
+  const canSeeIdentity = isMine || revealed;
+  const name = canSeeIdentity ? (dexNameFromPid(pid) || pid) : "???";
   const _psInspector = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
   const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!_psInspector.shiny });
 
@@ -2029,8 +2031,6 @@ function renderInspectorCard() {
     `<span class="chip mono">${escapeHtml(pid)}</span>`,
     `<span class="chip ${revealed ? "ok" : "warn"}">${revealed ? "revelado" : "oculto"}</span>`,
   ].join("");
-
-  const isMine = isPieceMine(p);
 
   // ✅ Dono-only: só o dono pode puxar/usar a ficha completa
   const sh2 = isMine ? getSheetForPiece(p) : null;
@@ -2049,7 +2049,7 @@ function renderInspectorCard() {
       if (Array.isArray(p?.types) && p.types.length) return p.types;
     }
     // Inspector público: qualquer peça revelada — lê cache e dispara fetch se necessário
-    if (revealed && slug) {
+    if (canSeeIdentity && slug) {
       const cached = _pokeApiTypeCache.get(slug);
       if (Array.isArray(cached)) return cached;
       if (cached !== "pending") fetchPokeApiTypes(slug); // fire-and-forget
@@ -2058,7 +2058,8 @@ function renderInspectorCard() {
   })();
 
   // Tabela de fraquezas visível para todos os jogadores (Inspector público)
-  const matchupH = revealed ? _typeMatchupHtml(insTypes) : "";
+  const offenseH = canSeeIdentity ? _typeOffenseHtml(insTypes) : "";
+  const matchupH = canSeeIdentity ? _typeMatchupHtml(insTypes) : "";
 
 const psOwner = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
 const sheetHasSpeed = isMine ? [
@@ -2085,6 +2086,7 @@ const sheetHasSpeed = isMine ? [
         <div class="inspector-name">${escapeHtml(name)}</div>
         <div class="inspector-chips">${chips}</div>
         <div class="muted" style="margin-top:6px">${escapeHtml(moveSummary)}</div>
+        ${offenseH}
         ${matchupH}
 
         <div class="ins-hp-section">
@@ -2258,6 +2260,8 @@ function renderSheetsInspectorCard(wrap) {
     if (!selId) return { types: [], name: "" };
     const tp = (appState.pieces || []).find(p => p.id === selId);
     if (!tp) return { types: [], name: "" };
+    const tpRevealed = (tp?.revealed != null) ? !!tp.revealed : true;
+    if (!isPieceMine(tp) && !tpRevealed) return { types: [], name: "" };
     const tsh = getSheetForPiece(tp);
     if (tsh && Array.isArray(tsh?.pokemon?.types) && tsh.pokemon.types.length)
       return { types: tsh.pokemon.types, name: safeStr(tsh?.pokemon?.name || tp.pid) };
@@ -2555,7 +2559,7 @@ function renderPieceCard(p, isMine) {
   const { pid, id } = pieceDisplayName(p);
   const row = Number(p?.row);
   const col = Number(p?.col);
-  const revealed = !!p?.revealed;
+  const revealed = (p?.revealed != null) ? !!p.revealed : true; // default compat: sem flag = revelado
   const selected = safeStr(appState.selectedPieceId) && safeStr(appState.selectedPieceId) === safeStr(id);
 
   const card = document.createElement("div");
@@ -2593,7 +2597,7 @@ function renderPieceMiniRow(p) {
   const { pid, id } = pieceDisplayName(p);
   const row = Number(p?.row);
   const col = Number(p?.col);
-  const revealed = !!p?.revealed;
+  const revealed = (p?.revealed != null) ? !!p.revealed : true; // default compat: sem flag = revelado
   const _psMini = ((_partyStates && _partyStates[safeStr(p?.owner)]) ? _partyStates[safeStr(p?.owner)] : {})[safeStr(p?.pid)] || {};
   const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!_psMini.shiny });
 
@@ -2869,11 +2873,14 @@ function clampDirection(dr, dc) {
 
 function getSheetForPiece(piece) {
   const pid = safePidValue(piece?.pid);
-  if (!pid) return null;
+  const pk = pidKey(pid);
+  if (!pk) return null;
   for (const sh of (_allSheetsLatest || [])) {
     const sid = safePidValue(sh?.pokemon?.id);
     const linked = safePidValue(sh?.linked_pid);
-    if ((sid && sid === pid) || (linked && linked === pid)) return sh;
+    const sk = pidKey(sid);
+    const lk = pidKey(linked);
+    if ((sk && sk === pk) || (lk && lk === pk)) return sh;
   }
   return null;
 }
@@ -3496,6 +3503,11 @@ async function handlePieceMenuAction(action, pieceId) {
     setStatus("warn", "peça não encontrada");
     return;
   }
+  const mine = isPieceMine(piece);
+  if (!mine && (action === "toggle" || action === "remove" || action === "hp-down")) {
+    setStatus("err", "você só pode usar ações do menu em peças suas");
+    return;
+  }
   if (action === "toggle") {
     await togglePieceRevealed(id);
     return;
@@ -3646,7 +3658,12 @@ function bindArenaInteractionsCanvas() {
     if (!tile) return;
     const p = getPieceAt(tile.row, tile.col);
     if (!p) return;
+    // ✅ Menu de contexto só para peças do próprio jogador (evita vazar ficha/ações do oponente)
     ev.preventDefault();
+    if (!isPieceMine(p)) {
+      // peças do oponente: não abre menu de contexto (use clique esquerdo para inspecionar)
+      return;
+    }
     openPieceContextMenu(p, ev.clientX, ev.clientY);
   });
 }
@@ -3704,7 +3721,12 @@ function bindArenaInteractionsDom() {
     const col = Number(cell.dataset.col);
     const p = getPieceAt(row, col);
     if (!p) return;
+    // ✅ Menu de contexto só para peças do próprio jogador (evita vazar ficha/ações do oponente)
     ev.preventDefault();
+    if (!isPieceMine(p)) {
+      // peças do oponente: não abre menu de contexto (use clique esquerdo para inspecionar)
+      return;
+    }
     openPieceContextMenu(p, ev.clientX, ev.clientY);
   });
 }
@@ -5680,6 +5702,14 @@ function safePidValue(x) {
   return v;
 }
 
+// Normaliza PID para matching (EXT: case-insensitive)
+function pidKey(x) {
+  const v = safePidValue(x);
+  if (!v) return "";
+  if (/^EXT:/i.test(v)) return "ext:" + v.slice(4).trim().toLowerCase();
+  return v;
+}
+
 function _injectSheetsStyleOnce() {
   if (document.getElementById("sheets_tab_style")) return;
   const st = document.createElement("style");
@@ -6049,6 +6079,42 @@ function _typeMatchupHtml(types) {
     <div class="type-matchup-table">
       <div class="tmt-header">⚔️ Fraquezas &amp; Resistências</div>
       ${hasAny ? rows : `<div class="tmt-empty">Nenhuma fraqueza ou resistência especial.</div>`}
+    </div>`;
+}
+
+
+
+// Tabela de ofensiva: tipos que o pokémon acerta super efetivo (considerando STAB pelos próprios tipos)
+function _typeOffenseHtml(types) {
+  if (!types || !types.length) return "";
+  const atkTypes = Array.from(new Set(types.map(t => normalizeType(t)).filter(Boolean)));
+  if (!atkTypes.length) return "";
+
+  const rows = atkTypes.map(atk => {
+    const se = (getSuperEffectiveAgainst(atk) || []).map(t => normalizeType(t)).filter(Boolean);
+    if (!se.length) return "";
+    const pills = se.map(t => {
+      const c = getTypeColor(t);
+      return `<span class="tmt-pill" style="background:${c}28;border:1px solid ${c}55;color:${c}">${t}</span>`;
+    }).join("");
+    const cAtk = getTypeColor(atk);
+    return `
+      <div class="tmt-row" style="background:${cAtk}12;border-left:3px solid ${cAtk}55;">
+        <div class="tmt-row-head">
+          <span class="tmt-icon">🎯</span>
+          <span class="tmt-label" style="color:${cAtk}">${atk} (STAB)</span>
+          <span class="tmt-bonus" style="background:${cAtk}55;color:#0a0f1e">2×</span>
+        </div>
+        <div class="tmt-pills">${pills}</div>
+      </div>`;
+  }).filter(Boolean).join("");
+
+  if (!rows) return "";
+
+  return `
+    <div class="type-matchup-table type-offense-table">
+      <div class="tmt-header">🎯 Superefetivo (por tipo)</div>
+      ${rows}
     </div>`;
 }
 
