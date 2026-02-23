@@ -40,6 +40,25 @@ function d20Roll() { return Math.floor(Math.random() * 20) + 1; }
 function escHtml(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 function uid() { return `ac_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`; }
 
+function normalizeStats(stats) {
+  const raw = stats || {};
+  const norm = {
+    stgr: safeInt(raw.stgr),
+    int:  safeInt(raw.int ?? raw.intel ?? raw.intelligence),
+    dodge: safeInt(raw.dodge),
+    parry: safeInt(raw.parry),
+    fort:  safeInt(raw.fort ?? raw.fortitude),
+    will:  safeInt(raw.will),
+    thg:   safeInt(raw.thg ?? raw.toughness),
+    cap:   safeInt(raw.cap ?? raw.capability),
+  };
+  if (norm.thg <= 0 && norm.cap > 0) norm.thg = Math.round(norm.cap / 2);
+  if (norm.dodge <= 0 && norm.cap > 0 && norm.thg > 0) norm.dodge = Math.max(0, norm.cap - norm.thg);
+  norm.fortitude = norm.fort;
+  norm.toughness = norm.thg;
+  return { ...raw, ...norm };
+}
+
 function moveBasedStat(meta) {
   meta = meta || {};
   const cat = safeStr(meta.category).toLowerCase();
@@ -738,7 +757,11 @@ export class ArenaCombatUI {
         if (/^\d+$/.test(k) && Number(k) === Number(key)) { pData = tData[k]; break; }
       }
     }
-    return (pData || {}).stats || {};
+    const stats = (pData || {}).stats;
+    if (stats && Object.keys(stats).length > 0) return normalizeStats(stats);
+    // party_states.stats nunca é escrito → fallback para a ficha carregada
+    const sheet = this._getSheet(trainerName, pid);
+    return normalizeStats(sheet?.stats || {});
   }
 
   // ─── Favorites ─────────────────────────────────────────────────
@@ -1665,9 +1688,10 @@ export class ArenaCombatUI {
     const np = safeInt(sheet.np || pkm.np || 0, 0);
     const types = Array.isArray(pkm.types) ? pkm.types : [];
     const abilities = Array.isArray(pkm.abilities) ? pkm.abilities : [];
-    const st = sheet.stats || this._getPokeStats(by, pid) || {};
+    const owner = safeStr(piece.owner) || by;
+    const st = normalizeStats(sheet?.stats || this._getPokeStats(owner, pid));
     const stgr = safeInt(st.stgr), intel = safeInt(st.int), thg = safeInt(st.thg), dodge = safeInt(st.dodge);
-    const parry = safeInt(st.parry), fort = safeInt(st.fortitude), will = safeInt(st.will);
+    const parry = safeInt(st.parry), fort = safeInt(st.fort), will = safeInt(st.will);
 
     const tData = this._partyStates[by] || {};
     const pData = tData[pid] || {};
@@ -1725,10 +1749,11 @@ export class ArenaCombatUI {
     if (piece?.id && typeof window.selectPiece === "function") {
       window.selectPiece(piece.id);
     }
-    const by = this.getBy();
-    await this._loadSheets(by);
+    // Usa o dono real da peça (pode ser o oponente) para carregar a ficha correta
+    const owner = safeStr(piece.owner) || this.getBy();
+    await this._loadSheets(owner);
     const pid = safeStr(piece.pid);
-    const sheet = this._getSheet(by, pid);
+    const sheet = this._getSheet(owner, pid);
     this._renderSidebarSheet(piece, sheet);
   }
 

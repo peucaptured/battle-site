@@ -257,9 +257,16 @@ export class CombatUI {
           s._sheet_id = d.id;
           sheets.push(s);
           const pid = safeStr(s.pokemon?.id);
-          if (pid) map.set(pid, s);
+          if (pid) {
+            map.set(pid, s);
+            // Normaliza "009" → "9" e "9" → "9" para evitar mismatch
+            if (/^\d+$/.test(pid)) map.set(String(Number(pid)), s);
+          }
           const lpid = safeStr(s.linked_pid);
-          if (lpid) map.set(lpid, s);
+          if (lpid) {
+            map.set(lpid, s);
+            if (/^\d+$/.test(lpid)) map.set(String(Number(lpid)), s);
+          }
         });
         sheets.sort((a, b) => {
           const ta = a?.updated_at?.toMillis?.() ?? 0;
@@ -281,7 +288,15 @@ export class CombatUI {
 
   _getSheet(trainerName, pid) {
     const m = this._sheetsMap.get(trainerName);
-    return m ? (m.get(safeStr(pid)) || null) : null;
+    if (!m) return null;
+    const key = safeStr(pid);
+    if (m.has(key)) return m.get(key);
+    // Normalização numérica: "009" → "9" para não falhar por zero-padding
+    if (/^\d+$/.test(key)) {
+      const num = String(Number(key));
+      if (m.has(num)) return m.get(num);
+    }
+    return null;
   }
 
   // ─── Get stats from party_states (mirror of get_poke_data) ───────
