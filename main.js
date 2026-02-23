@@ -3737,9 +3737,13 @@ async function maybeLoadMapData() {
       const data = await res.json();
       mapDataState.data = data;
       // Pre-build border Set for fast per-cell lookup
-      if (Array.isArray(data.water_border_cells)) {
+      // Python exports "water_cells" as [{grid_x, grid_y, kind, land_mask}].
+      // Build a Set of "row,col" strings for O(1) border-cell lookup.
+      if (Array.isArray(data.water_cells)) {
         mapDataState.borderSet = new Set(
-          data.water_border_cells.map(([r, c]) => `${r},${c}`)
+          data.water_cells
+            .filter(c => c.kind === 'border')
+            .map(c => `${c.grid_y},${c.grid_x}`)
         );
       } else {
         mapDataState.borderSet = null;
@@ -3779,10 +3783,15 @@ const oceanAnim = {
         tCtx.clearRect(0, 0, 32, 32);
         tCtx.drawImage(img, tx, ty, 32, 32, 0, 0, 32, 32);
         const d = tCtx.getImageData(0, 0, 32, 32).data;
-        // Require > ~10 % visible pixels (>96 of 1024 pixels)
-        let vis = 0;
-        for (let i = 3; i < d.length; i += 4) if (d[i] > 30) vis++;
-        if (vis > 96) frames.push({ tx, ty });
+        // Only keep frames that have visible sand/warm content (R > B+20),
+        // matching Python's warm_frac > 0.04 filter. Pure-water tiles are
+        // excluded so they never appear on beach border cells.
+        let vis = 0, warm = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i + 3] > 30) { vis++; if (d[i] > d[i + 2] + 20) warm++; }
+        }
+        const warmFrac = vis > 0 ? warm / vis : 0;
+        if (vis > 96 && warmFrac > 0.04) frames.push({ tx, ty });
       }
     }
     oceanAnim.frames = frames;
@@ -3875,11 +3884,14 @@ function maybeRebuildMapCache() {
  * ou a uma borda do grid).  Fallback quando water_border_cells não está no JSON.
  */
 function _isBorderWaterCell(grid, r, c, gh, gw) {
-  if (r === 0 || r === gh - 1 || c === 0 || c === gw - 1) return true;
-  return (
-    grid[r - 1][c] !== 2 || grid[r + 1][c] !== 2 ||
-    grid[r][c - 1] !== 2 || grid[r][c + 1] !== 2
-  );
+  // A water cell is a border only if it is adjacent to a non-water (land/sand)
+  // cell.  Map edges are NOT treated as borders — outer-ocean cells far from
+  // shore must not show the beach animation.
+  if (r > 0      && grid[r - 1][c] !== 2) return true;
+  if (r < gh - 1 && grid[r + 1][c] !== 2) return true;
+  if (c > 0      && grid[r][c - 1] !== 2) return true;
+  if (c < gw - 1 && grid[r][c + 1] !== 2) return true;
+  return false;
 }
 
 /**
