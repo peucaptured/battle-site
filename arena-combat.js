@@ -608,6 +608,8 @@ export class ArenaCombatUI {
 
     injectCSS();
     this._init();
+    // ✅ garante cache populado pro combate em arena
+    this.startListening();
   }
 
   // ─── Init ──────────────────────────────────────────────────────
@@ -700,23 +702,28 @@ export class ArenaCombatUI {
       const snap = await getDocs(q);
       const sheets = [];
       const map = new Map();
-      snap.forEach(d => {
+
+      // snap já vem do mais recente → mais antigo
+      snap.forEach((d) => {
         const s = d.data() || {};
         s._sheet_id = d.id;
         sheets.push(s);
-        // Map by pokemon.id
+
         const pid = safeStr(s.pokemon?.id);
-        if (pid) map.set(pid, s);
-        // Map by linked_pid (piece id on the board)
         const lpid = safeStr(s.linked_pid);
-        if (lpid) map.set(lpid, s);
-        // Also map by numeric form if pid is numeric
-        if (pid && /^\d+$/.test(pid)) map.set(String(Number(pid)), s);
-        // Map by pokemon name (lowercase) for fuzzy fallback
         const pname = safeStr(s.pokemon?.name).toLowerCase();
-        if (pname) map.set(pname, s);
-      });
-      this._sheets.set(trainerName, sheets);
+
+        // ✅ FIRST WINS: mantém a primeira (mais recente)
+        if (pid && !map.has(pid)) map.set(pid, s);
+        if (pid && /^\d+$/.test(pid)) {
+          const num = String(Number(pid));
+          if (!map.has(num)) map.set(num, s);
+        }
+
+        if (lpid && !map.has(lpid)) map.set(lpid, s);
+
+        if (pname && !map.has(pname)) map.set(pname, s);
+      });      this._sheets.set(trainerName, sheets);
       this._sheetsMap.set(trainerName, map);
       console.log(`[arena-combat] sheets loaded for ${trainerName}: ${sheets.length} sheets`);
     } catch (e) {
@@ -761,6 +768,13 @@ export class ArenaCombatUI {
     if (stats && Object.keys(stats).length > 0) return normalizeStats(stats);
     // party_states.stats nunca é escrito → fallback para a ficha carregada
     const sheet = this._getSheet(trainerName, pid);
+    const rawStats =
+      (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
+        ? sheet.stats
+        : {};
+    const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
+    const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
+    const baseStats = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
     return normalizeStats(sheet?.stats || {});
   }
 
@@ -1495,6 +1509,9 @@ export class ArenaCombatUI {
     const tId = safeStr(targetPiece.id);
     const tOwner = safeStr(targetPiece.owner);
     const tPid = safeStr(targetPiece.pid);
+    // ✅ FIX 2: garante sheets carregadas antes de usar stats do alvo/atacante
+    if (by) await this._loadSheets(by);
+    if (tOwner) await this._loadSheets(tOwner);
     const tStats = this._getPokeStats(tOwner, tPid);
 
     const isDistance = rangeStr === "distance";

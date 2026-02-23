@@ -147,7 +147,7 @@ export class CombatUI {
    * @param {function} opts.getRole      — () => "owner"|"challenger"|"spectator"
    * @param {function} opts.getBattle    — () => appState.battle object
    * @param {function} opts.getPieces    — () => appState.pieces array
-   * @param {function} opts.getPlayers   — () => appState.players array
+   * @param {function} opts.getPlayers   — () => appState.players arrayf
    */
   constructor(opts) {
     this.container = opts.container;
@@ -168,6 +168,8 @@ export class CombatUI {
 
     // build static shell
     this._buildShell();
+    this.startListening();
+	
   }
 
   // ─── Firestore refs ───────────────────────────────────────────────
@@ -248,36 +250,42 @@ export class CombatUI {
     }
     const tid = safeDocId(trainerName);
     try {
-      const col = collection(db, "trainers", tid, "sheets");
-      const unsub = onSnapshot(col, (snap) => {
+      const colRef = collection(db, "trainers", tid, "sheets");
+      const q = query(colRef, orderBy("updated_at", "desc"), limit(200));
+
+      const unsub = onSnapshot(q, (snap) => {
         const sheets = [];
         const map = new Map();
-        snap.forEach(d => {
+
+        // snap já vem do mais recente → mais antigo
+        snap.forEach((d) => {
           const s = d.data() || {};
           s._sheet_id = d.id;
           sheets.push(s);
+
           const pid = safeStr(s.pokemon?.id);
-          if (pid) {
-            map.set(pid, s);
-            // Normaliza "009" → "9" e "9" → "9" para evitar mismatch
-            if (/^\d+$/.test(pid)) map.set(String(Number(pid)), s);
-          }
           const lpid = safeStr(s.linked_pid);
-          if (lpid) {
-            map.set(lpid, s);
-            if (/^\d+$/.test(lpid)) map.set(String(Number(lpid)), s);
+
+          // ✅ FIRST WINS: não sobrescreve chave já mapeada (mantém a ficha mais recente)
+          if (pid && !map.has(pid)) map.set(pid, s);
+          if (pid && /^\d+$/.test(pid)) {
+            const num = String(Number(pid));
+            if (!map.has(num)) map.set(num, s);
+          }
+
+          if (lpid && !map.has(lpid)) map.set(lpid, s);
+          if (lpid && /^\d+$/.test(lpid)) {
+            const num = String(Number(lpid));
+            if (!map.has(num)) map.set(num, s);
           }
         });
-        sheets.sort((a, b) => {
-          const ta = a?.updated_at?.toMillis?.() ?? 0;
-          const tb = b?.updated_at?.toMillis?.() ?? 0;
-          return tb - ta;
-        });
+
         this._sheets.set(trainerName, sheets);
         this._sheetsMap.set(trainerName, map);
       }, (e) => {
         console.warn("combat: sheets realtime error", trainerName, e);
       });
+
       this._sheetUnsubs.set(trainerName, unsub);
     } catch (e) {
       console.warn("combat: loadSheets error", e);
@@ -307,6 +315,13 @@ export class CombatUI {
     if (pData.stats && Object.keys(pData.stats).length > 0) return normalizeStats(pData.stats);
     // Fallback: stats da ficha carregada
     const sheet = this._getSheet(trainerName, pid);
+    const rawStats =
+      (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
+        ? sheet.stats
+        : {};
+    const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
+    const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
+    const baseStats = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
     return normalizeStats(sheet?.stats || {});
   }
 
@@ -318,6 +333,18 @@ export class CombatUI {
     const pData = tData[safeStr(pid)] || {};
     const sheet = this._getSheet(trainerName, pid);
     const base   = (pData.stats && Object.keys(pData.stats).length > 0) ? pData.stats : (sheet?.stats || {});
+    // ✅ FIX 3: se base veio da ficha e não tem cap em stats, derive cap = 2*np
+    let baseFixed = base;
+    if (!(pData.stats && Object.keys(pData.stats).length > 0)) {
+      const rawStats =
+        (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
+          ? sheet.stats
+          : {};
+      const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
+      const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
+      baseFixed = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
+    }
+
     const boosts = pData.stat_boosts || {};
     const result = normalizeStats(base);
     for (const [k, v] of Object.entries(boosts)) {
@@ -835,6 +862,10 @@ export class CombatUI {
       const atkRange = this._body.querySelector("#cb_atk_range").value;
       const atkMod = safeInt(accInput.value);
       const isSneakAttack = !!this._body.querySelector("#cb_sneak_attack")?.checked;
+      // ✅ FIX 2: garante que as fichas do atacante e do alvo estejam carregadas
+      const by = this.getBy();
+      if (by && !this._sheetUnsubs.has(by)) await this._loadSheets(by);
+      if (tOwner && !this._sheetUnsubs.has(tOwner)) await this._loadSheets(tOwner);
 
       // get target stats (aplica boosts temporários se existirem)
       const tStats = this._getEffectiveStats(tOwner, tPid);
