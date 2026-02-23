@@ -29,7 +29,7 @@ import {
   onSnapshot,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
-import { getMoveType, getTypeColor, getTypeDamageBonus } from "./type-data.js";
+import { getMoveType, getTypeColor, getTypeDamageBonus, getSuperEffectiveAgainst, getTypeAdvantage, normalizeType } from "./type-data.js";
 
 // ─── helpers ────────────────────────────────────────────────────────
 function safeStr(x) { return (x == null ? "" : String(x)).trim(); }
@@ -506,6 +506,70 @@ export class CombatUI {
     }
   }
 
+  // ─── Type matchup table ───────────────────────────────────────────
+  _renderTypeTable(pid, trainerName, container) {
+    if (!container) return;
+    const sheet = this._getSheet(trainerName, pid);
+    const pokTypes = Array.isArray(sheet?.pokemon?.types) ? sheet.pokemon.types : [];
+    if (pokTypes.length === 0) { container.innerHTML = ""; return; }
+
+    const allTypes = ["Normal","Fire","Water","Electric","Grass","Ice","Fighting","Poison",
+      "Ground","Flying","Psychic","Bug","Rock","Ghost","Dragon","Dark","Steel","Fairy"];
+
+    // Offensive: what types does each pokemon type hit super effectively? (merged, deduplicated)
+    const atkAdvSet = new Set();
+    for (const t of pokTypes) {
+      getSuperEffectiveAgainst(normalizeType(t)).forEach(x => atkAdvSet.add(x));
+    }
+    const atkAdv = [...atkAdvSet];
+
+    // Defensive: calculate multipliers for each attacking type (dual-type aware)
+    const weakTo4 = [], weakTo2 = [], resistHalf = [], resistQuarter = [], immuneTo = [];
+    for (const atkType of allTypes) {
+      const mult = getTypeAdvantage(atkType, pokTypes);
+      if (mult === 0) immuneTo.push(atkType);
+      else if (mult >= 4) weakTo4.push(atkType);
+      else if (mult >= 2) weakTo2.push(atkType);
+      else if (mult <= 0.25) resistQuarter.push(atkType);
+      else if (mult < 1) resistHalf.push(atkType);
+    }
+
+    const badge = (type, extra = "") => {
+      const color = getTypeColor(normalizeType(type) || type);
+      return `<span class="cb-type-badge" style="background:${color}22;border-color:${color}66;color:${color}">${type}${extra}</span>`;
+    };
+
+    let html = `<div class="cb-type-table">`;
+
+    // Header: the pokemon's own types
+    html += `<div class="cb-type-table-header">`;
+    html += pokTypes.map(t => {
+      const color = getTypeColor(normalizeType(t) || t);
+      return `<span class="cb-type-badge-self" style="background:${color}28;border-color:${color}80;color:${color}">${t}</span>`;
+    }).join(" ");
+    html += `</div>`;
+
+    if (atkAdv.length > 0) {
+      html += `<div class="cb-type-row"><div class="cb-type-row-label advantage">⚔️ Vantagem</div><div class="cb-type-badges">${atkAdv.map(t => badge(t, " +2")).join("")}</div></div>`;
+    }
+    if (weakTo4.length > 0) {
+      html += `<div class="cb-type-row"><div class="cb-type-row-label weakness">💥 Fraqueza ×4</div><div class="cb-type-badges">${weakTo4.map(t => badge(t, " ×4")).join("")}</div></div>`;
+    }
+    if (weakTo2.length > 0) {
+      html += `<div class="cb-type-row"><div class="cb-type-row-label weakness">⚠️ Fraqueza ×2</div><div class="cb-type-badges">${weakTo2.map(t => badge(t, " ×2")).join("")}</div></div>`;
+    }
+    if (resistQuarter.length > 0 || resistHalf.length > 0) {
+      const all = [...resistQuarter.map(t => badge(t, " ¼")), ...resistHalf.map(t => badge(t, " ½"))];
+      html += `<div class="cb-type-row"><div class="cb-type-row-label resist">🛡️ Resistência</div><div class="cb-type-badges">${all.join("")}</div></div>`;
+    }
+    if (immuneTo.length > 0) {
+      html += `<div class="cb-type-row"><div class="cb-type-row-label immune">🚫 Imune</div><div class="cb-type-badges">${immuneTo.map(t => badge(t, " ×0")).join("")}</div></div>`;
+    }
+
+    html += `</div>`;
+    container.innerHTML = html;
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // FASE 1 — SETUP (configurar ataque)
   // ═══════════════════════════════════════════════════════════════════
@@ -546,6 +610,7 @@ export class CombatUI {
       html += `<option value="${escHtml(pid)}">${escHtml(name)} (${escHtml(pid)})</option>`;
     }
     html += `</select>`;
+    html += `<div id="cb_type_table" style="margin-bottom:10px"></div>`;
 
     // Select target
     html += `<label class="label">Alvo</label>
@@ -656,6 +721,15 @@ export class CombatUI {
     // Populate moves when attacker pokemon changes
     const populateMoves = async () => {
       const pid = atkPokemonSel.value;
+
+      // Update type matchup table for the selected attacker pokemon
+      const typeTableContainer = this._body.querySelector("#cb_type_table");
+      if (pid && typeTableContainer) {
+        this._renderTypeTable(pid, by, typeTableContainer);
+      } else if (typeTableContainer) {
+        typeTableContainer.innerHTML = "";
+      }
+
       if (!pid) { moveSel.innerHTML = `<option value="manual">Manual (sem golpe)</option>`; return; }
 
       await this._loadSheets(by);
@@ -675,9 +749,11 @@ export class CombatUI {
         const [based, statVal] = moveStatValue(mv.meta || {}, stats);
         const moveType = getMoveType(name);
         const typeBonus = tgtTypes.length > 0 && moveType ? getTypeDamageBonus(moveType, tgtTypes) : 0;
-        const damage = rank + statVal + typeBonus;
+        // STAB: +2 se o tipo do golpe é igual ao tipo do pokémon atacante
+        const isStab = moveType && atkTypes.some(t => normalizeType(t) === moveType);
+        const stabBonus = isStab ? 2 : 0;
+        const damage = rank + statVal + typeBonus + stabBonus;
         const acc = safeInt(mv.accuracy);
-        const isStab = moveType && atkTypes.some(t => t === moveType || t.toLowerCase() === moveType.toLowerCase());
         const bonusTxt = typeBonus !== 0 ? ` [${typeBonus > 0 ? '+' : ''}${typeBonus} tipo]` : '';
         const stabTxt = isStab ? " ★" : "";
         opts += `<option value="${i}">${escHtml(name)}${stabTxt}. A:${acc} D:${damage}${bonusTxt}</option>`;
@@ -779,19 +855,23 @@ export class CombatUI {
           const [based, statVal] = moveStatValue(mv.meta || {}, stats);
           const moveName = safeStr(mv.name) || "Golpe";
           const moveType = getMoveType(moveName);
-          // Tipos do alvo para calcular bônus
+          // Tipos do alvo para calcular bônus de tipo
           const tSheet = this._getSheet(tOwner, tPid);
           const tgtTypes = Array.isArray(tSheet?.pokemon?.types) ? tSheet.pokemon.types : [];
           const typeBonus = moveType && tgtTypes.length > 0 ? getTypeDamageBonus(moveType, tgtTypes) : 0;
+          // STAB: +2 se o tipo do golpe = tipo do pokémon atacante
+          const atkTypes = Array.isArray(sheet?.pokemon?.types) ? sheet.pokemon.types : [];
+          const stabBonus = (moveType && atkTypes.some(t => normalizeType(t) === moveType)) ? 2 : 0;
           movePayload = {
             name: moveName,
             accuracy: safeInt(mv.accuracy),
-            damage: rank + statVal + typeBonus,
+            damage: rank + statVal + typeBonus + stabBonus,
             rank,
             based_stat: based,
             stat_value: statVal,
             move_type: moveType || null,
             type_bonus: typeBonus,
+            stab_bonus: stabBonus,
           };
         }
       }
