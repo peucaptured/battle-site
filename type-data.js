@@ -111,12 +111,12 @@ export function getTypeAdvantage(attackType, defenderTypes) {
  *   vantagem 4x  -> +4
  *   resistência /2 -> -2
  *   resistência /4 -> -4
- *   imunidade 0x -> -4
+ *   imunidade 0x -> -6
  *   neutro -> 0
  */
 export function getTypeDamageBonus(attackType, defenderTypes) {
   const mult = getTypeAdvantage(attackType, defenderTypes);
-  if (mult === 0) return -4;
+  if (mult === 0) return -6;
   if (mult >= 4) return +4;
   if (mult >= 2) return +2;
   if (mult <= 0.25) return -4;

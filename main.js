@@ -2246,19 +2246,44 @@ function renderSheetsInspectorCard(wrap) {
   const advChips = advantages.filter((a) => safeStr(a)).map((a) => `<span class="chip">${escapeHtml(a)}</span>`);
   const advH = advChips.length ? `<div class="chip-row">${advChips.join("")}</div>` : `<span class="muted">Sem advantages.</span>`;
 
+  // Tenta obter tipos do alvo selecionado na arena para cálculo de tipo automático
+  const _calcTarget = (() => {
+    const selId = safeStr(appState.selectedPieceId);
+    if (!selId) return { types: [], name: "" };
+    const tp = (appState.pieces || []).find(p => p.id === selId);
+    if (!tp) return { types: [], name: "" };
+    const tsh = getSheetForPiece(tp);
+    if (tsh && Array.isArray(tsh?.pokemon?.types) && tsh.pokemon.types.length)
+      return { types: tsh.pokemon.types, name: safeStr(tsh?.pokemon?.name || tp.pid) };
+    if (Array.isArray(tp.types) && tp.types.length)
+      return { types: tp.types, name: safeStr(tp.pid) };
+    return { types: [], name: safeStr(tp.pid || "") };
+  })();
+
   let mvH = "";
   if (!moves.length) {
     mvH = `<span class="muted">Sem golpes nesta ficha.</span>`;
   } else {
     for (const mv of moves) {
       const n = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
-      const { rk, acc, area } = _mvSum(mv, st);
+      const sum = _mvSum(mv, st);
+      const { rk, acc, area, br, val, label: statLabel } = sum;
       const desc = safeStr(mv.description || mv.desc || mv.build || "Descrição não disponível.");
       const mvType = getMoveType(n);
       const mvColor = mvType ? getTypeColor(mvType) : "";
       const isStab = _isMoveStab(n, types);
+      const stabBonus = isStab ? 2 : 0;
       const stabClass = isStab ? " move-stab" : "";
       const typeTag = mvType ? `<span class="mv-type-pill" style="background:${mvColor}33;border:1px solid ${mvColor}66;color:${mvColor}">${mvType}</span>` : "";
+
+      // Bônus de tipo automático vs alvo selecionado
+      const typeBonus = (_calcTarget.types.length && mvType) ? getTypeDamageBonus(mvType, _calcTarget.types) : 0;
+      const targetBonusHtml = (_calcTarget.types.length && mvType)
+        ? `<div class="dmg-row dmg-type-row"><span class="dmg-row-lbl">Tipo vs <em>${escapeHtml(_calcTarget.name)}</em></span><span class="dmg-row-val ${typeBonus > 0 ? 'dmg-pos' : typeBonus < 0 ? 'dmg-neg' : ''}">${typeBonus >= 0 ? '+' : ''}${typeBonus}</span></div>`
+        : `<div class="dmg-row dmg-muted-row"><span class="dmg-row-lbl">Tipo <span class="muted">(selecione alvo na arena)</span></span><span class="dmg-row-val muted">±?</span></div>`;
+
+      const autoTotal = rk + stabBonus + typeBonus;
+
       mvH += `
         <div class="move-expander open${stabClass}"${isStab ? ` style="--stab-color:${mvColor}"` : ""}>
           <div class="move-header">
@@ -2270,7 +2295,37 @@ function renderSheetsInspectorCard(wrap) {
             <span class="mv-pill area">${area ? "Área" : "Alvo"}</span>
           </div>
           <div class="move-body" style="display:block;">
-            <div>${escapeHtml(desc)}</div>
+            <div class="mv-desc-text">${escapeHtml(desc)}</div>
+            <div class="dmg-calc"
+              data-dmg-calc
+              data-base-rk="${rk}"
+              data-base-acc="${acc}"
+              data-stab="${stabBonus}"
+              data-type-bonus="${typeBonus}">
+              <div class="dmg-calc-header">⚔️ Calcular Ação</div>
+              <div class="dmg-breakdown">
+                <div class="dmg-row dmg-base-row">
+                  <span class="dmg-row-lbl">R${br} + ${escapeHtml(statLabel || "—")} ${val}</span>
+                  <span class="dmg-row-val">= ${rk}</span>
+                </div>
+                ${isStab ? `<div class="dmg-row dmg-stab-row"><span class="dmg-row-lbl">STAB (mesmo tipo)</span><span class="dmg-row-val dmg-pos">+2</span></div>` : ""}
+                ${targetBonusHtml}
+              </div>
+              <div class="dmg-modifiers">
+                <label class="dmg-mod-lbl">
+                  <span>Mod. Acerto</span>
+                  <input class="dmg-mod-input" type="number" value="0" data-mod="acc" step="1" placeholder="0">
+                </label>
+                <label class="dmg-mod-lbl">
+                  <span>Mod. Dano</span>
+                  <input class="dmg-mod-input" type="number" value="0" data-mod="dmg" step="1" placeholder="0">
+                </label>
+              </div>
+              <div class="dmg-result">
+                <span class="dmg-res-chip dmg-acc-chip">Acerto: <strong class="dmg-live-acc">A+${acc}</strong></span>
+                <span class="dmg-res-chip dmg-dmg-chip">Dano: <strong class="dmg-live-dmg">R${autoTotal}</strong></span>
+              </div>
+            </div>
           </div>
         </div>
       `;
@@ -2338,6 +2393,24 @@ function renderSheetsInspectorCard(wrap) {
       if (parent) parent.classList.toggle("open");
     });
   });
+
+  // ── Calculadora de dano — atualização ao vivo ──────────────────────
+  wrap.querySelectorAll("[data-dmg-calc]").forEach((calcDiv) => {
+    const baseRk   = parseInt(calcDiv.dataset.baseRk)    || 0;
+    const baseAcc  = parseInt(calcDiv.dataset.baseAcc)   || 0;
+    const stab     = parseInt(calcDiv.dataset.stab)      || 0;
+    const typeB    = parseInt(calcDiv.dataset.typeBonus) || 0;
+    const liveAcc  = calcDiv.querySelector(".dmg-live-acc");
+    const liveDmg  = calcDiv.querySelector(".dmg-live-dmg");
+    const update = () => {
+      const modAcc = parseInt(calcDiv.querySelector('[data-mod="acc"]')?.value) || 0;
+      const modDmg = parseInt(calcDiv.querySelector('[data-mod="dmg"]')?.value) || 0;
+      if (liveAcc) liveAcc.textContent = `A+${baseAcc + modAcc}`;
+      if (liveDmg) liveDmg.textContent = `R${baseRk + stab + typeB + modDmg}`;
+    };
+    calcDiv.querySelectorAll(".dmg-mod-input").forEach(inp => inp.addEventListener("input", update));
+  });
+  // ──────────────────────────────────────────────────────────────────
 
   // ── Handlers de boost temporário ──────────────────────────────────
   const boostPanel = wrap.querySelector(".stat-boost-panel");
@@ -5724,51 +5797,53 @@ function _typePill(type) {
   return `<span class="type-pill" style="background:${c}33;border:1px solid ${c}66;color:${c};padding:2px 7px;border-radius:8px;font-size:.72rem;font-weight:700;">${escapeHtml(type)}</span>`;
 }
 
-// Mini-tabela de fraquezas/vantagens de um pokémon (por seus tipos)
+// Tabela moderna de fraquezas/resistências de um pokémon (por seus tipos)
 function _typeMatchupHtml(types) {
   if (!types || !types.length) return "";
   const normalizedTypes = types.map(t => normalizeType(t)).filter(Boolean);
   if (!normalizedTypes.length) return "";
 
-  const strongVs = new Set();
-  normalizedTypes.forEach((t) => getSuperEffectiveAgainst(t).forEach(x => strongVs.add(x)));
+  const groups = {
+    4:    { label: "Fraqueza 4×",    bonus: "+4", icon: "💀", bg: "rgba(239,68,68,.14)",   border: "rgba(239,68,68,.50)",   text: "#f87171", types: [] },
+    2:    { label: "Fraqueza 2×",    bonus: "+2", icon: "⚠️",  bg: "rgba(251,146,60,.12)",  border: "rgba(251,146,60,.45)",  text: "#fb923c", types: [] },
+    0.5:  { label: "Resistência ½",  bonus: "−2", icon: "🛡",  bg: "rgba(74,222,128,.10)",  border: "rgba(74,222,128,.40)",  text: "#4ade80", types: [] },
+    0.25: { label: "Resistência ¼",  bonus: "−4", icon: "🛡🛡", bg: "rgba(34,197,94,.12)",   border: "rgba(34,197,94,.50)",   text: "#22c55e", types: [] },
+    0:    { label: "Imunidade 0×",   bonus: "−6", icon: "🚫",  bg: "rgba(100,116,139,.12)", border: "rgba(100,116,139,.40)", text: "#94a3b8", types: [] },
+  };
 
-  const weak2x = new Set();
-  const weak4x = new Set();
-  const resistHalf = new Set();
-  const resistQuarter = new Set();
-  const immuneTo = new Set();
   Object.keys(TYPE_CHART).forEach((atkType) => {
     const mult = getTypeAdvantage(atkType, normalizedTypes);
-    if (mult === 0) {
-      immuneTo.add(atkType);
-      return;
-    }
-    if (mult >= 4) weak4x.add(atkType);
-    else if (mult > 1) weak2x.add(atkType);
-    else if (mult <= 0.25) resistQuarter.add(atkType);
-    else if (mult < 1) resistHalf.add(atkType);
+    if (mult === 0)         groups[0].types.push(atkType);
+    else if (mult >= 4)     groups[4].types.push(atkType);
+    else if (mult >= 2)     groups[2].types.push(atkType);
+    else if (mult <= 0.25)  groups[0.25].types.push(atkType);
+    else if (mult < 1)      groups[0.5].types.push(atkType);
   });
 
-  const renderTypeList = (set, label) => {
-    const items = [...set];
-    if (!items.length) return `<div style="margin-bottom:4px"><span style="font-size:.7rem;opacity:.7;margin-right:4px;">${label}:</span><span style="opacity:.6">—</span></div>`;
-    const pills = items.map(t => {
+  const rows = [4, 2, 0.5, 0.25, 0].map(key => {
+    const g = groups[key];
+    if (!g.types.length) return "";
+    const pills = g.types.map(t => {
       const c = getTypeColor(t);
-      return `<span style="display:inline-block;padding:1px 6px;border-radius:6px;font-size:.68rem;font-weight:700;background:${c}33;border:1px solid ${c}66;color:${c}">${t}</span>`;
-    }).join(" ");
-    return `<div style="margin-bottom:4px"><span style="font-size:.7rem;opacity:.7;margin-right:4px;">${label}:</span>${pills}</div>`;
-  };
+      return `<span class="tmt-pill" style="background:${c}28;border:1px solid ${c}55;color:${c}">${t}</span>`;
+    }).join("");
+    return `
+      <div class="tmt-row" style="background:${g.bg};border-left:3px solid ${g.border};">
+        <div class="tmt-row-head">
+          <span class="tmt-icon">${g.icon}</span>
+          <span class="tmt-label" style="color:${g.text}">${g.label}</span>
+          <span class="tmt-bonus" style="background:${g.border};color:#0a0f1e">${g.bonus}</span>
+        </div>
+        <div class="tmt-pills">${pills}</div>
+      </div>`;
+  }).filter(Boolean).join("");
+
+  const hasAny = rows.length > 0;
   return `
-    <div class="type-matchup-mini" style="margin-top:6px;padding:6px 8px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);">
-      ${renderTypeList(resistHalf, "🛡️ Resistência (-2)")}
-      ${renderTypeList(resistQuarter, "🛡️ Resistência forte (-4)")}
-      ${renderTypeList(immuneTo, "🚫 Imunidade (-4)")}
-      ${renderTypeList(weak2x, "⬇️ Fraqueza (+2)")}
-      ${renderTypeList(weak4x, "⬇️ Fraqueza forte (+4)")}
-      ${renderTypeList(strongVs, "⚔️ SE contra")}
-    </div>
-  `;
+    <div class="type-matchup-table">
+      <div class="tmt-header">⚔️ Fraquezas &amp; Resistências</div>
+      ${hasAny ? rows : `<div class="tmt-empty">Nenhuma fraqueza ou resistência especial.</div>`}
+    </div>`;
 }
 
 // Gera estilos de fundo para fichas baseado nos tipos (diagonal para 2 tipos)
