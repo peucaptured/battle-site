@@ -3721,9 +3721,19 @@ const mapCache = {
 // ── Structured map data (BiomeGenerator JSON) ─────────────────────────────
 const mapDataState = {
   url: "",       // last URL successfully requested
-  data: null,    // parsed JSON: { biome, terrain_grid, water_border_cells, ... }
+  data: null,    // parsed JSON: { biome, terrain_grid, water_cells, ... }
   loading: false,
-  borderSet: null,  // Set<"r,c"> built from water_border_cells for O(1) lookup
+  borderMap: null, // Map<"row,col", land_mask> for O(1) border-cell lookup
+};
+
+// Autotile coordinate lookup: land_mask (0-15) → {r, c} within one 5×3 frame block.
+// Mirrors Python's _BLOCK_3X3 + _BLOCK_EXT layout (N=1,E=2,S=4,W=8).
+// The ocean-autotiles-anim.png has 3 animation frames side by side, each 5 cols wide.
+const OCEAN_AUTOTILE_MAP = {
+   0: {r:1, c:1},  1: {r:0, c:1},  2: {r:1, c:2},  3: {r:0, c:2},
+   4: {r:2, c:1},  5: {r:0, c:4},  6: {r:2, c:2},  8: {r:1, c:0},
+   9: {r:0, c:0}, 10: {r:1, c:3}, 11: {r:0, c:3}, 12: {r:2, c:0},
+  13: {r:2, c:4}, 14: {r:2, c:3}, 15: {r:1, c:4},
 };
 
 async function maybeLoadMapData() {
@@ -3738,19 +3748,19 @@ async function maybeLoadMapData() {
       mapDataState.data = data;
       // Pre-build border Set for fast per-cell lookup
       // Python exports "water_cells" as [{grid_x, grid_y, kind, land_mask}].
-      // Build a Set of "row,col" strings for O(1) border-cell lookup.
+      // Build a Map "row,col" → land_mask for direction-aware tile selection.
       if (Array.isArray(data.water_cells)) {
-        mapDataState.borderSet = new Set(
+        mapDataState.borderMap = new Map(
           data.water_cells
             .filter(c => c.kind === 'border')
-            .map(c => `${c.grid_y},${c.grid_x}`)
+            .map(c => [`${c.grid_y},${c.grid_x}`, c.land_mask || 0])
         );
       } else {
-        mapDataState.borderSet = null;
+        mapDataState.borderMap = null;
       }
     } else {
       mapDataState.data = null;
-      mapDataState.borderSet = null;
+      mapDataState.borderMap = null;
     }
   } catch (e) {
     console.warn("[mapData] fetch failed:", e);
@@ -3762,41 +3772,19 @@ async function maybeLoadMapData() {
 }
 
 // ── Ocean-autotiles-anim sprite sheet ──────────────────────────────────────
-// Loaded once; individual 32×32 frames extracted into oceanAnim.frames[].
+// Layout: 3 animation frames side-by-side, each frame is 5 cols × 3 rows.
+// Tile coordinates are computed via OCEAN_AUTOTILE_MAP + frame offset (fi * 5).
 const oceanAnim = {
-  img: null,         // HTMLImageElement
+  img: null,
   ready: false,
-  frames: [],        // [{tx, ty}] – source rect per frame in the PNG
 };
 
 (function loadOceanAnim() {
   const img = new Image();
   img.onload = () => {
     oceanAnim.img = img;
-    const frames = [];
-    // Scan in 32×32 steps; collect non-transparent tiles via a temporary canvas
-    const tmp = document.createElement('canvas');
-    tmp.width = 32; tmp.height = 32;
-    const tCtx = tmp.getContext('2d');
-    for (let ty = 0; ty + 32 <= img.naturalHeight; ty += 32) {
-      for (let tx = 0; tx + 32 <= img.naturalWidth; tx += 32) {
-        tCtx.clearRect(0, 0, 32, 32);
-        tCtx.drawImage(img, tx, ty, 32, 32, 0, 0, 32, 32);
-        const d = tCtx.getImageData(0, 0, 32, 32).data;
-        // Only keep frames that have visible sand/warm content (R > B+20),
-        // matching Python's warm_frac > 0.04 filter. Pure-water tiles are
-        // excluded so they never appear on beach border cells.
-        let vis = 0, warm = 0;
-        for (let i = 0; i < d.length; i += 4) {
-          if (d[i + 3] > 30) { vis++; if (d[i] > d[i + 2] + 20) warm++; }
-        }
-        const warmFrac = vis > 0 ? warm / vis : 0;
-        if (vis > 96 && warmFrac > 0.04) frames.push({ tx, ty });
-      }
-    }
-    oceanAnim.frames = frames;
-    oceanAnim.ready  = frames.length > 0;
-    console.log(`[oceanAnim] loaded ${frames.length} frames from ocean-autotiles-anim.png`);
+    oceanAnim.ready = true;
+    console.log('[oceanAnim] ocean-autotiles-anim.png loaded.');
   };
   img.onerror = () => console.warn('[oceanAnim] failed to load ocean-autotiles-anim.png');
   img.src = './assets/ocean-autotiles-anim.png';
@@ -3917,13 +3905,12 @@ function drawWaterCells(ctx, ox, oy, gs, tile) {
   if (!gh || !gw) return;
 
   const t   = Date.now() / 1000;
-  // Ocean-anim: 8 fps loop; each cell starts at a different frame offset
-  const FPS        = 8;
-  const frameCount = oceanAnim.ready ? oceanAnim.frames.length : 0;
-  const baseFrame  = Math.floor(t * FPS);
+  // 3 animation frames, each 5 cols wide in the spritesheet; ~4 fps
+  const ANIM_FRAMES = 3;
+  const fi = Math.floor(t * 4) % ANIM_FRAMES;
 
-  const borderSet = mapDataState.borderSet;   // Set<"r,c"> or null
-  const hasPrebuilt = borderSet !== null;
+  const borderMap = mapDataState.borderMap;  // Map<"r,c", land_mask> or null
+  const hasPrebuilt = borderMap !== null;
 
   ctx.save();
   ctx.beginPath();
@@ -3937,22 +3924,35 @@ function drawWaterCells(ctx, ox, oy, gs, tile) {
       const cx = ox + c * tile;
       const cy = oy + r * tile;
 
-      const isBorder = hasPrebuilt
-        ? borderSet.has(`${r},${c}`)
-        : _isBorderWaterCell(grid, r, c, gh, gw);
+      let isBorder = false;
+      let mask = 0;
+      if (hasPrebuilt) {
+        const key = `${r},${c}`;
+        if (borderMap.has(key)) {
+          isBorder = true;
+          mask = borderMap.get(key) || 0;
+        }
+      } else {
+        // Fallback: compute mask on-the-fly (N=1,E=2,S=4,W=8)
+        if (r > 0      && grid[r - 1][c] !== 2) { mask |= 1; isBorder = true; }
+        if (c < gw - 1 && grid[r][c + 1] !== 2) { mask |= 2; isBorder = true; }
+        if (r < gh - 1 && grid[r + 1][c] !== 2) { mask |= 4; isBorder = true; }
+        if (c > 0      && grid[r][c - 1] !== 2) { mask |= 8; isBorder = true; }
+      }
 
-      if (isBorder && frameCount > 0) {
-        // ── BORDA: animação com ocean-autotiles-anim ──────────────────────
-        // Offset de fase por célula para aparência natural (sem piscada síncrona)
-        const cellOffset = (r * 7 + c * 13) % frameCount;
-        const fi = (baseFrame + cellOffset) % frameCount;
-        const f  = oceanAnim.frames[fi];
+      if (isBorder && oceanAnim.ready) {
+        // ── BORDA: tile do spritesheet selecionado pelo land_mask ─────────
+        // OCEAN_AUTOTILE_MAP dá a posição {r,c} dentro do bloco 5×3.
+        // Cada frame de animação desloca +5 colunas no spritesheet.
+        const tc = OCEAN_AUTOTILE_MAP[mask] || {r: 1, c: 1};
+        const sheetCol = tc.c + fi * 5;
+        const sheetRow = tc.r;
 
-        ctx.globalAlpha = 0.80;
+        ctx.globalAlpha = 0.85;
         ctx.drawImage(
           oceanAnim.img,
-          f.tx, f.ty, 32, 32,   // fonte: tile 32×32 no spritesheet
-          cx, cy, tile, tile    // destino: escalado para view.scale
+          sheetCol * 32, sheetRow * 32, 32, 32,   // fonte exata no spritesheet
+          cx, cy, tile, tile                       // destino: escalado para view.scale
         );
         ctx.globalAlpha = 1;
 
