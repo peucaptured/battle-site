@@ -3868,8 +3868,6 @@ function drawShoreOverlay(ctx, ox, oy, gs, tile) {
   const gw   = gh > 0 ? grid[0].length : 0;
   if (!gh || !gw) return;
 
-  const nowMs = Date.now();
-
   ctx.save();
   ctx.beginPath();
   ctx.rect(ox, oy, gs * tile, gs * tile);
@@ -3892,8 +3890,8 @@ function drawShoreOverlay(ctx, ox, oy, gs, tile) {
       const entry = SHORE[mask];
       if (!entry) continue;              // mask combo not in table
 
-      const frame = animFrame(nowMs, cx, ry);
-      const sx    = entry.x + frame * SHORE_TILE;
+      const fi = animFrame(Date.now(), cx, ry);
+      const sx    = entry.x + fi * SHORE_TILE;
       const sy    = entry.y;
       const dx    = ox + cx * tile;
       const dy    = oy + ry * tile;
@@ -3925,40 +3923,85 @@ function drawWaterBorderFoam(ctx, ox, oy, gs, tile) {
   const gw   = gh > 0 ? grid[0].length : 0;
   if (!gh || !gw) return;
 
-  // Frame 0 = recuada, frame 1 = pico de espuma — alterna devagar
-  const fi = Math.floor(Date.now() / 700) % 2;
+  const nowMs = Date.now();
+
+  // helper: desenha só 1 quadrante (16×16 source -> tile/2 destino) de um tile de máscara
+  const drawQuad = (dstX, dstY, corner, srcMask, cx, ry) => {
+    // corner: "nw" | "ne" | "sw" | "se"
+    const fi = animFrame(nowMs, cx, ry);
+    const { sx: baseX, sy: baseY } = oceanSrcForMask(srcMask, fi);
+
+    const halfS = OCEAN_TS / 2;          // 16
+    const halfD = tile / 2;
+
+    const offX = (corner === "ne" || corner === "se") ? halfS : 0;
+    const offY = (corner === "sw" || corner === "se") ? halfS : 0;
+
+    const dx = dstX + ((corner === "ne" || corner === "se") ? halfD : 0);
+    const dy = dstY + ((corner === "sw" || corner === "se") ? halfD : 0);
+
+    ctx.drawImage(
+      oceanAnim.img,
+      baseX + offX, baseY + offY, halfS, halfS,
+      dx, dy, halfD, halfD
+    );
+  };
 
   ctx.save();
   ctx.beginPath();
   ctx.rect(ox, oy, gs * tile, gs * tile);
   ctx.clip();
-  // Mesmo filtro da shore overlay para harmonizar cores
+
+  // Harmoniza com beach.png
   ctx.filter = 'hue-rotate(22deg) saturate(0.65)';
-  ctx.globalAlpha = 0.72;
+  ctx.globalAlpha = 0.78;
 
   for (let r = 0; r < Math.min(gh, gs); r++) {
     for (let c = 0; c < Math.min(gw, gs); c++) {
-      if (grid[r][c] !== 2) continue; // só cells de água
+      if (grid[r][c] !== 2) continue; // água
+
+      const dx = ox + c * tile;
+      const dy = oy + r * tile;
 
       // land_mask: bit liga se o vizinho NÃO é água (N=1,E=2,S=4,W=8)
       let mask = 0;
-      if (r > 0      && grid[r - 1][c] !== 2) mask |= 1; // N
-      if (c < gw - 1 && grid[r][c + 1] !== 2) mask |= 2; // E
-      if (r < gh - 1 && grid[r + 1][c] !== 2) mask |= 4; // S
-      if (c > 0      && grid[r][c - 1] !== 2) mask |= 8; // W
-      if (mask === 0) continue;                            // água interior
+      const nWater = !(r > 0)      ? true : (grid[r - 1][c] === 2);
+      const eWater = !(c < gw - 1) ? true : (grid[r][c + 1] === 2);
+      const sWater = !(r < gh - 1) ? true : (grid[r + 1][c] === 2);
+      const wWater = !(c > 0)      ? true : (grid[r][c - 1] === 2);
 
-      const { sx, sy } = oceanSrcForMask(mask, fi);
-      ctx.drawImage(
-        oceanAnim.img,
-        sx, sy, OCEAN_TS, OCEAN_TS,
-        ox + c * tile, oy + r * tile, tile, tile
-      );
+      if (!nWater) mask |= 1;
+      if (!eWater) mask |= 2;
+      if (!sWater) mask |= 4;
+      if (!wWater) mask |= 8;
+
+      // 1) Célula de água de BORDA (toque cardinal com terra): desenha tile inteiro animado
+      if (mask !== 0) {
+        const fi = animFrame(nowMs, c, r);
+        const { sx, sy } = oceanSrcForMask(mask, fi);
+        ctx.drawImage(oceanAnim.img, sx, sy, OCEAN_TS, OCEAN_TS, dx, dy, tile, tile);
+        continue;
+      }
+
+      // 2) Célula de água INTERIOR: normalmente não desenha nada aqui.
+      // Mas: se existir terra apenas na diagonal, precisamos desenhar SÓ o quadradinho de quina.
+      // Isso corrige o "buraco" de quina (como no print do Malamar).
+      const nwLand = (r > 0 && c > 0) && (grid[r - 1][c - 1] !== 2);
+      const neLand = (r > 0 && c < gw - 1) && (grid[r - 1][c + 1] !== 2);
+      const swLand = (r < gh - 1 && c > 0) && (grid[r + 1][c - 1] !== 2);
+      const seLand = (r < gh - 1 && c < gw - 1) && (grid[r + 1][c + 1] !== 2);
+
+      // Só aplica se os dois cardinais adjacentes forem água (diagonal "pura")
+      if (nwLand && nWater && wWater) drawQuad(dx, dy, "nw", 9,  c, r);   // N+W
+      if (neLand && nWater && eWater) drawQuad(dx, dy, "ne", 3,  c, r);   // N+E
+      if (swLand && sWater && wWater) drawQuad(dx, dy, "sw", 12, c, r);   // S+W
+      if (seLand && sWater && eWater) drawQuad(dx, dy, "se", 6,  c, r);   // S+E
     }
   }
 
   ctx.restore();
 }
+
 
 async function maybeLoadMapData() {
   const url = safeStr(appState.board?.mapDataUrl || "");
@@ -4006,18 +4049,30 @@ const oceanAnim = {
 };
 
 // Source slicing params for ./assets/ocean-autotiles-anim.png
-// (matches the actual PNG you uploaded)
+// Layout real do PNG:
+// - 3 linhas de *blocos* (r=0..2), espaçados por 16px no eixo Y
+// - 5 colunas de *blocos* (c=0..4), espaçados por 16px no eixo X
+// - cada bloco tem 4 frames horizontais (4×32px = 128px) e altura 32px
+// Portanto: para um land_mask -> {r,c}, pegamos o bloco e escolhemos o frame (0..3).
 const OCEAN_TS = 32;
-const OCEAN_SHEET_X0 = 7;
-const OCEAN_SHEET_Y0 = 9;
-const OCEAN_FRAME_GAP_Y = 16;
-const OCEAN_FRAME_STRIDE_Y = OCEAN_TS + OCEAN_FRAME_GAP_Y;
+const OCEAN_FRAME_COUNT = 4;
+
+const OCEAN_BLOCK_W = OCEAN_TS * OCEAN_FRAME_COUNT; // 128
+const OCEAN_BLOCK_H = OCEAN_TS;                      // 32
+const OCEAN_GAP_X   = 16;
+const OCEAN_GAP_Y   = 16;
+
+const OCEAN_BLOCK_X0 = 7;  // primeiro bloco começa em x=7
+const OCEAN_BLOCK_Y0 = 9;  // primeiro bloco começa em y=9
+const OCEAN_BLOCK_STRIDE_X = OCEAN_BLOCK_W + OCEAN_GAP_X; // 144
+const OCEAN_BLOCK_STRIDE_Y = OCEAN_BLOCK_H + OCEAN_GAP_Y; // 48
 
 function oceanSrcForMask(mask, frameIndex) {
   const tc = OCEAN_AUTOTILE_MAP[mask] || { r: 1, c: 1 };
-  const col = (tc.r * 5) + tc.c; // flatten 5×3 to single row index
-  const sx = OCEAN_SHEET_X0 + col * OCEAN_TS;
-  const sy = OCEAN_SHEET_Y0 + frameIndex * OCEAN_FRAME_STRIDE_Y;
+  const fi = ((frameIndex % OCEAN_FRAME_COUNT) + OCEAN_FRAME_COUNT) % OCEAN_FRAME_COUNT;
+
+  const sx = OCEAN_BLOCK_X0 + tc.c * OCEAN_BLOCK_STRIDE_X + fi * OCEAN_TS;
+  const sy = OCEAN_BLOCK_Y0 + tc.r * OCEAN_BLOCK_STRIDE_Y;
   return { sx, sy };
 }
 
@@ -5240,7 +5295,7 @@ function draw() {
     // Animação de água sobre as células de terreno hídrico (terrain_grid == 2)
     drawWaterCells(ctx, ox, oy, gs, tile);
     // Camada de ondas batendo na areia (shore foam overlay — lado areia)
-    drawShoreOverlay(ctx, ox, oy, gs, tile);
+    // drawShoreOverlay(ctx, ox, oy, gs, tile); // DESATIVADO: evita 2ª faixa (seam). Use só a borda na água.
     // Espuma/bolhas no lado da água que toca a animação (lado água)
     drawWaterBorderFoam(ctx, ox, oy, gs, tile);
   } else {
