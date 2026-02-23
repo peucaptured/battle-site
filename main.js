@@ -3819,6 +3819,96 @@ const OCEAN_AUTOTILE_MAP = {
   13: {r:2, c:4}, 14: {r:2, c:3}, 15: {r:1, c:4},
 };
 
+// ── Shore-foam overlay (sand tiles bordering water) ───────────────────────
+// Each entry maps water_mask → top-left pixel of the 4-frame strip (128×32)
+// in ocean-autotiles-anim.png. N=1, E=2, S=4, W=8.
+const SHORE = {
+  4:  { x: 151, y: 9   },  // water south
+  2:  { x: 7,   y: 57  },  // water east
+  8:  { x: 439, y: 57  },  // water west
+  1:  { x: 151, y: 105 },  // water north
+  3:  { x: 7,   y: 105 },  // N+E
+  9:  { x: 295, y: 105 },  // N+W
+  6:  { x: 7,   y: 9   },  // S+E
+  12: { x: 295, y: 9   },  // S+W
+};
+const SHORE_FPS  = 6;
+const SHORE_TILE = 32;
+
+/** 4-dir water mask for a SAND cell at grid column cx, row ry. */
+function waterMask(grid, cx, ry) {
+  const gh = grid.length;
+  const gw = grid[0]?.length ?? 0;
+  let mask = 0;
+  if (ry > 0      && grid[ry - 1][cx] === 2) mask |= 1; // N
+  if (cx < gw - 1 && grid[ry][cx + 1] === 2) mask |= 2; // E
+  if (ry < gh - 1 && grid[ry + 1][cx] === 2) mask |= 4; // S
+  if (cx > 0      && grid[ry][cx - 1] === 2) mask |= 8; // W
+  return mask;
+}
+
+/** Frame index for tile at (cx, ry) at time nowMs, with per-tile phase desync. */
+function animFrame(nowMs, cx, ry) {
+  const globalFrame = Math.floor((nowMs / 1000) * SHORE_FPS) % 4;
+  const phase       = (((cx * 73856093) ^ (ry * 19349663)) >>> 0) % 4;
+  return (globalFrame + phase) % 4;
+}
+
+/**
+ * drawShoreOverlay — renders animated shore-foam on SAND tiles (==1) that
+ * border WATER tiles (==2). Call this AFTER drawWaterCells.
+ */
+function drawShoreOverlay(ctx, ox, oy, gs, tile) {
+  if (!oceanAnim.ready) return;
+  const md = mapDataState.data;
+  if (!md || !Array.isArray(md.terrain_grid)) return;
+
+  const grid = md.terrain_grid;
+  const gh   = grid.length;
+  const gw   = gh > 0 ? grid[0].length : 0;
+  if (!gh || !gw) return;
+
+  const nowMs = Date.now();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(ox, oy, gs * tile, gs * tile);
+  ctx.clip();
+
+  // Ajuste de cor: converte o azul-cyan do spritesheet (rgb≈54,143,190 / H≈201°)
+  // para o azul-periwinkle do beach.png (rgb≈139,160,213 / H≈223°).
+  // Cálculo: hue+22° / brightness×1.44 / saturate×0.84
+  // globalAlpha deixa assets abaixo transparecerem através da camada de onda.
+  ctx.filter = 'hue-rotate(22deg) brightness(1.44) saturate(0.84)';
+  ctx.globalAlpha = 0.85;
+
+  for (let ry = 0; ry < Math.min(gh, gs); ry++) {
+    for (let cx = 0; cx < Math.min(gw, gs); cx++) {
+      if (grid[ry][cx] !== 1) continue; // only sand cells
+
+      const mask = waterMask(grid, cx, ry);
+      if (mask === 0) continue;          // no water neighbor
+
+      const entry = SHORE[mask];
+      if (!entry) continue;              // mask combo not in table
+
+      const frame = animFrame(nowMs, cx, ry);
+      const sx    = entry.x + frame * SHORE_TILE;
+      const sy    = entry.y;
+      const dx    = ox + cx * tile;
+      const dy    = oy + ry * tile;
+
+      ctx.drawImage(
+        oceanAnim.img,
+        sx, sy, SHORE_TILE, SHORE_TILE,
+        dx, dy, tile, tile
+      );
+    }
+  }
+
+  ctx.restore(); // restaura filter, globalAlpha e clip de uma vez
+}
+
 async function maybeLoadMapData() {
   const url = safeStr(appState.board?.mapDataUrl || "");
   if (!url || url === mapDataState.url || mapDataState.loading) return;
@@ -4055,54 +4145,10 @@ function drawWaterCells(ctx, ox, oy, gs, tile) {
       const sinVal   = Math.sin(rawT * Math.PI * 2);
       const wavePeak = sinVal > 0 ? sinVal * sinVal : 0;
 
-      if (isBorder && oceanAnim.ready) {
-        // ── BORDA: crash-and-recede wave animation ────────────────────────
-        // Alpha raised so the autotile is clearly visible even at low tide.
-        let fi, waveAlpha;
-        if (wavePeak < 0.12) {
-          fi = 0; waveAlpha = 0.70 + wavePeak * 1.5;   // receded — still clearly visible
-        } else if (wavePeak < 0.55) {
-          fi = 2; waveAlpha = 0.80 + wavePeak * 0.30;  // wave rising / receding
-        } else {
-          fi = 1; waveAlpha = 0.92 + wavePeak * 0.08;  // wave at peak — full foam
-        }
-
-        // Look up the correctly-shaped tile for this cell's shore direction
-        const { sx, sy } = oceanSrcForMask(mask, fi);
-ctx.globalAlpha = Math.min(waveAlpha, 1.0);
-        ctx.drawImage(
-          oceanAnim.img,
-          sx, sy, OCEAN_TS, OCEAN_TS,   // exact source tile
-          cx, cy, tile, tile                       // dest: scaled to view
-        );
-        ctx.globalAlpha = 1;
-
-        // Foam strip on every land-facing edge to reinforce the border feel
-        const foamW = Math.max(2, tile * 0.12);
-        const foamA = 0.30 + wavePeak * 0.55;
-        ctx.fillStyle = `rgba(210,245,255,${foamA})`;
-        if (mask & 1) ctx.fillRect(cx,               cy,               tile,  foamW); // N
-        if (mask & 2) ctx.fillRect(cx + tile - foamW, cy,               foamW, tile);  // E
-        if (mask & 4) ctx.fillRect(cx,               cy + tile - foamW, tile,  foamW); // S
-        if (mask & 8) ctx.fillRect(cx,               cy,               foamW, tile);  // W
-
-        // White-foam sparkle at the very peak of the crash
-        if (fi === 1 && wavePeak > 0.65) {
-          const sparkle = (wavePeak - 0.65) / 0.35;
-          ctx.strokeStyle = `rgba(240,255,255,${sparkle * 0.45})`;
-          ctx.lineWidth   = 1.5;
-          ctx.strokeRect(cx + 1, cy + 1, tile - 2, tile - 2);
-        }
-
-      } else if (isBorder) {
-        // ── BORDA FALLBACK: sem sprite — desenha highlight manual ─────────
-        const foamW = Math.max(2, tile * 0.14);
-        const foamA = 0.35 + wavePeak * 0.55;
-        ctx.fillStyle = `rgba(200, 235, 255, ${foamA})`;
-        if (mask & 1) ctx.fillRect(cx,               cy,               tile,  foamW);
-        if (mask & 2) ctx.fillRect(cx + tile - foamW, cy,               foamW, tile);
-        if (mask & 4) ctx.fillRect(cx,               cy + tile - foamW, tile,  foamW);
-        if (mask & 8) ctx.fillRect(cx,               cy,               foamW, tile);
+      if (isBorder) {
+        // ── BORDA: animação removida — drawShoreOverlay cuida do lado areia ──
+        // Cells de água na borda apenas deixam o background (beach.png) aparecer.
+        continue;
 
       } else {
         // ── INTERIOR: shimmer suave (calm water) ─────────────────────────
@@ -5142,6 +5188,8 @@ function draw() {
     ctx.fillRect(ox, oy, gs * tile, gs * tile);
     // Animação de água sobre as células de terreno hídrico (terrain_grid == 2)
     drawWaterCells(ctx, ox, oy, gs, tile);
+    // Camada de ondas batendo na areia (shore foam overlay)
+    drawShoreOverlay(ctx, ox, oy, gs, tile);
   } else {
     drawProceduralMap(ctx, ox, oy, gs, tile);
   }
