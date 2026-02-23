@@ -1,52 +1,243 @@
 /**
- * combat-inspector-patch.js
+ * combat-inspector-patch.js  (v3 — busca por nome com PokeAPI)
  *
- * Patch aplicado APÓS o carregamento do combat.js e combat-patch.js.
- * Não modifica os arquivos originais.
+ * O que faz:
+ *  1. Exibe tabela de Fraquezas & Resistências do alvo selecionado.
+ *     Resolve os tipos pelo NOME do Pokémon, na seguinte ordem:
+ *       a) Ficha Firestore (tSheet.pokemon.types)  — mais rápido, se disponível
+ *       b) PokeAPI buscando pelo nome normalizado  — fallback online robusto
  *
- * O que este patch faz:
- *  1. Substitui a mensagem "Ficha Privada" do alvo por uma tabela visual de
- *     fraquezas/resistências gerada a partir dos tipos do Pokémon alvo.
- *  2. Injeta campos "Mod. Acerto" e "Mod. Dano" na fase Setup, antes do botão
- *     ⚔️ Rolar Ataque, para que o jogador possa adicionar bônus/prejuízos
- *     manuais antes de confirmar.
- *  3. Aplica esses modificadores ao calcular o payload do ataque (soma ao
- *     accuracy e ao damage final).
+ *     Normalização de nomes (mesma lógica do main.js):
+ *       -a → Alola  |  -g → Galar  |  -h → Hisui  |  -p → Paldea
+ *       Muk-A, A-Muk, Alolan Muk, Muk (Alola) → todos viram "muk-alola"
+ *
+ *  2. Injeta campos "Bônus de Acerto" e "Bônus de Dano" antes do botão Rolar.
+ *
+ *  3. Aplica os modificadores: acerto → somado ao input antes do d20;
+ *     dano → pré-preenchido no campo de Rank na fase hit_confirmed.
  *
  * Instalação:
- *   Adicione ao final do <body> do index.html, DEPOIS dos outros scripts:
+ *   No final do <body> do index.html, DEPOIS de combat-patch.js:
  *   <script type="module" src="./combat-inspector-patch.js"></script>
  */
 
 import {
   getTypeColor,
-  getTypeDamageBonus,
   getTypeAdvantage,
   TYPE_CHART,
   normalizeType,
 } from "./type-data.js";
 
-// ─── Aguarda o CombatUI estar pronto ──────────────────────────────────────────
-function waitForCombatUI(cb, tries = 0) {
-  const ui = window._combatUI;
-  if (ui && typeof ui._renderSetup === "function") {
-    cb(ui);
-  } else if (tries < 60) {
-    setTimeout(() => waitForCombatUI(cb, tries + 1), 300);
-  } else {
-    console.warn("[combat-inspector-patch] CombatUI não encontrado após 18s.");
+// ═══════════════════════════════════════════════════════════════════
+// NORMALIZAÇÃO DE NOME → SLUG POKEAPI
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Normaliza variações regionais para o sufixo padrão.
+ * Suporta todas as convenções usadas no sistema:
+ *   "Muk-A"       → "Muk-Alola"
+ *   "A-Muk"       → "Muk-Alola"
+ *   "Alolan Muk"  → "Muk-Alola"
+ *   "Muk (Alola)" → "Muk-Alola"
+ *   "Ponyta-G"    → "Ponyta-Galar"
+ *   "Sneasel-H"   → "Sneasel-Hisui"
+ */
+function normalizeName(raw) {
+  let n = String(raw || "").trim();
+  if (!n) return "";
+
+  // Remove prefixo EXT:
+  n = n.replace(/^EXT:/i, "").trim();
+
+  // Remove sufixo " - Delta", " - Mega", etc. (apenas forma regional nos atalhos abaixo)
+  // NÃO removemos aqui pois podem ser formas válidas
+
+  // Formato "(Região)"
+  n = n.replace(/\s*\(\s*alola\s*\)\s*/ig,  "-Alola");
+  n = n.replace(/\s*\(\s*galar\s*\)\s*/ig,  "-Galar");
+  n = n.replace(/\s*\(\s*hisui\s*\)\s*/ig,  "-Hisui");
+  n = n.replace(/\s*\(\s*paldea\s*\)\s*/ig, "-Paldea");
+
+  // Adjetivos no início: "Alolan X", "Galarian X", "Hisuian X", "Paldean X"
+  if (/\balolan\b/i.test(n))   n = n.replace(/\balolan\b\s*/ig,   "") + "-Alola";
+  if (/\bgalarian\b/i.test(n)) n = n.replace(/\bgalarian\b\s*/ig, "") + "-Galar";
+  if (/\bhisuian\b/i.test(n))  n = n.replace(/\bhisuian\b\s*/ig,  "") + "-Hisui";
+  if (/\bpaldean\b/i.test(n))  n = n.replace(/\bpaldean\b\s*/ig,  "") + "-Paldea";
+
+  // Sufixos curtos no FIM da string: "Nome-A", "Nome-G", "Nome-H", "Nome-P"
+  // Usa \b para não capturar "-Alakazam" como "-A"
+  n = n.replace(/-\bA\b$/i, "-Alola");
+  n = n.replace(/-\bG\b$/i, "-Galar");
+  n = n.replace(/-\bH\b$/i, "-Hisui");
+  n = n.replace(/-\bP\b$/i, "-Paldea");
+
+  // Prefixos curtos no INÍCIO: "A-Nome", "G-Nome", "H-Nome", "P-Nome"
+  n = n.replace(/^\bA\b-/i, "").replace(/(.+)$/, "$1-Alola");  // complexo, melhor fazer split
+  // Reescreve de forma mais segura:
+  n = _applyPrefixForm(n);
+
+  return n.trim();
+}
+
+function _applyPrefixForm(n) {
+  const PREFIX_MAP = [
+    [/^a-(.+)/i, "$1-Alola"],
+    [/^g-(.+)/i, "$1-Galar"],
+    [/^h-(.+)/i, "$1-Hisui"],
+    [/^p-(.+)/i, "$1-Paldea"],
+  ];
+  for (const [re, rep] of PREFIX_MAP) {
+    if (re.test(n)) return n.replace(re, rep);
+  }
+  return n;
+}
+
+/**
+ * Converte nome normalizado em slug PokeAPI lowercase-hyphenated.
+ * Ex: "Muk-Alola" → "muk-alola"
+ *     "Mr. Mime"  → "mr-mime"
+ */
+function nameToPokeAPISlug(name) {
+  let slug = normalizeName(name)
+    .toLowerCase()
+    .replace(/♀/g, "f")
+    .replace(/♂/g, "m")
+    .replace(/[''‛′'`\.]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  // Garante convenção PokeAPI (não PokemonDB)
+  slug = slug
+    .replace(/-alolan$/, "-alola")
+    .replace(/-galarian$/, "-galar")
+    .replace(/-hisuian$/, "-hisui")
+    .replace(/-paldean$/, "-paldea");
+
+  // Formas padrão que a PokeAPI exige com sufixo específico
+  const DEFAULTS = {
+    "mimikyu":     "mimikyu-disguised",
+    "aegislash":   "aegislash-blade",
+    "giratina":    "giratina-altered",
+    "wishiwashi":  "wishiwashi-solo",
+    "lycanroc":    "lycanroc-midday",
+    "deoxys":      "deoxys-normal",
+    "shaymin":     "shaymin-land",
+    "keldeo":      "keldeo-ordinary",
+    "meloetta":    "meloetta-aria",
+    "darmanitan":  "darmanitan-standard",
+    "eiscue":      "eiscue-ice",
+    "morpeko":     "morpeko-full-belly",
+    "urshifu":     "urshifu-single-strike",
+    "toxtricity":  "toxtricity-amped",
+    "minior":      "minior-red-meteor",
+    "indeedee":    "indeedee-male",
+    "basculegion": "basculegion-male",
+    "enamorus":    "enamorus-incarnate",
+    "wormadam":    "wormadam-plant",
+    "pumpkaboo":   "pumpkaboo-average",
+    "gourgeist":   "gourgeist-average",
+  };
+  return DEFAULTS[slug] || slug;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CACHE + FETCH POKEAPI
+// ═══════════════════════════════════════════════════════════════════
+const _typeCache = new Map(); // slug → string[] | "pending" | "error"
+
+async function fetchTypesFromAPI(slug) {
+  if (!slug) return [];
+
+  if (_typeCache.has(slug)) {
+    const v = _typeCache.get(slug);
+    return (v === "pending" || v === "error") ? [] : v;
+  }
+
+  _typeCache.set(slug, "pending");
+
+  try {
+    const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(slug)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    // PokeAPI retorna lowercase; capitalize para bater com TYPE_CHART
+    const types = (data.types || [])
+      .sort((a, b) => a.slot - b.slot)
+      .map(t => {
+        const n = String(t.type?.name || "");
+        return n.charAt(0).toUpperCase() + n.slice(1);
+      })
+      .filter(Boolean);
+
+    _typeCache.set(slug, types);
+    return types;
+  } catch (err) {
+    console.warn(`[combat-inspector-patch] PokeAPI falhou para "${slug}":`, err.message);
+    _typeCache.set(slug, "error");
+    return [];
   }
 }
 
-// ─── Helper: gera HTML da tabela de tipo do alvo ──────────────────────────────
-function buildTargetTypeTable(types) {
-  if (!types || !types.length) return "";
-  const normalizedTypes = types.map((t) => normalizeType(t)).filter(Boolean);
-  if (!normalizedTypes.length) return "";
+/**
+ * Resolve tipos do alvo.
+ * 1. Tenta ficha Firestore
+ * 2. Resolve nome do Pokémon → slug → PokeAPI
+ */
+async function resolveTypes(ui, tOwner, tPid) {
+  // 1) Ficha Firestore
+  if (typeof ui._getSheet === "function") {
+    const sheet = ui._getSheet(tOwner, tPid);
+    const fromSheet = sheet?.pokemon?.types;
+    if (Array.isArray(fromSheet) && fromSheet.length) {
+      return { types: fromSheet, source: "ficha" };
+    }
+  }
 
+  // 2) Obtém o NOME do Pokémon a partir do pid
+  //    Reutiliza o dexMap global que o main.js carrega
+  let pokemonName = "";
+
+  if (window.dexMap) {
+    pokemonName =
+      window.dexMap[String(tPid)] ||
+      window.dexMap[String(Number(tPid))] ||   // remove zero-padding
+      "";
+  }
+
+  // pid com prefixo EXT: já carrega o nome embutido
+  if (!pokemonName && String(tPid).startsWith("EXT:")) {
+    pokemonName = String(tPid).slice(4).trim();
+  }
+
+  // Último recurso: usa o próprio pid como nome (ex: "Gallade", "Muk-A")
+  if (!pokemonName) pokemonName = String(tPid);
+
+  const slug = nameToPokeAPISlug(pokemonName);
+  if (!slug) return { types: [], source: "—" };
+
+  const types = await fetchTypesFromAPI(slug);
+  return {
+    types,
+    source: types.length ? `PokeAPI (${slug})` : `não encontrado (${slug})`,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// HTML DA TABELA DE TIPOS
+// ═══════════════════════════════════════════════════════════════════
+function buildTypeTable(types, source) {
+  if (!types || !types.length) {
+    return `<div style="font-size:11px;color:rgba(148,163,184,.4);padding:5px 8px;
+      border-radius:8px;background:rgba(0,0,0,.18);margin-bottom:10px">
+      ⚠️ Tipos não encontrados — tabela indisponível.
+    </div>`;
+  }
+
+  const normalized = types.map(t => normalizeType(t)).filter(Boolean);
   const ALL_TYPES = Object.keys(TYPE_CHART);
 
-  const groups = {
+  const GROUPS = {
     4:    { label: "Fraqueza 4×", bonus: "+4", icon: "💀", color: "#ef4444" },
     2:    { label: "Fraqueza 2×", bonus: "+2", icon: "⚠️", color: "#fb923c" },
     0.5:  { label: "Resist. ½",   bonus: "−2", icon: "🛡️", color: "#4ade80" },
@@ -55,78 +246,77 @@ function buildTargetTypeTable(types) {
   };
 
   const buckets = { 4: [], 2: [], 0.5: [], 0.25: [], 0: [] };
-
-  for (const atkType of ALL_TYPES) {
-    const mult = getTypeAdvantage(atkType, normalizedTypes);
-    if (mult === 0)        buckets[0].push(atkType);
-    else if (mult >= 4)   buckets[4].push(atkType);
-    else if (mult >= 2)   buckets[2].push(atkType);
-    else if (mult <= 0.25) buckets[0.25].push(atkType);
-    else if (mult < 1)    buckets[0.5].push(atkType);
+  for (const atk of ALL_TYPES) {
+    const mult = getTypeAdvantage(atk, normalized);
+    if      (mult === 0)   buckets[0].push(atk);
+    else if (mult >= 4)    buckets[4].push(atk);
+    else if (mult >= 2)    buckets[2].push(atk);
+    else if (mult <= 0.25) buckets[0.25].push(atk);
+    else if (mult < 1)     buckets[0.5].push(atk);
   }
 
   const pill = (type) => {
     const c = getTypeColor(type);
-    return `<span style="
-      display:inline-block;padding:1px 7px;border-radius:8px;font-size:11px;font-weight:700;
-      background:${c}28;border:1px solid ${c}55;color:${c};margin:2px 2px;white-space:nowrap">${type}</span>`;
+    return `<span style="display:inline-block;padding:1px 7px;border-radius:8px;font-size:11px;
+      font-weight:700;background:${c}28;border:1px solid ${c}55;color:${c};
+      margin:2px 2px;white-space:nowrap">${type}</span>`;
   };
 
   let rows = "";
   for (const key of [4, 2, 0.5, 0.25, 0]) {
-    const list = buckets[key];
-    if (!list.length) continue;
-    const g = groups[key];
-    rows += `<div style="
-        display:flex;align-items:flex-start;gap:8px;padding:5px 8px;border-radius:8px;margin-bottom:4px;
-        background:${g.color}14;border-left:3px solid ${g.color}66">
-      <span style="font-size:13px;min-width:18px">${g.icon}</span>
-      <div style="flex:1;min-width:0">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
-          <span style="font-size:11px;font-weight:800;color:${g.color}">${g.label}</span>
-          <span style="font-size:10px;font-weight:900;padding:1px 5px;border-radius:5px;
-            background:${g.color}33;color:${g.color}">${g.bonus}</span>
+    if (!buckets[key].length) continue;
+    const g = GROUPS[key];
+    rows += `
+      <div style="display:flex;align-items:flex-start;gap:8px;padding:5px 8px;border-radius:8px;
+        margin-bottom:4px;background:${g.color}14;border-left:3px solid ${g.color}66">
+        <span style="font-size:13px;min-width:18px;margin-top:1px">${g.icon}</span>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+            <span style="font-size:11px;font-weight:800;color:${g.color}">${g.label}</span>
+            <span style="font-size:10px;font-weight:900;padding:1px 5px;border-radius:5px;
+              background:${g.color}33;color:${g.color}">${g.bonus}</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap">${buckets[key].map(pill).join("")}</div>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:0">${list.map(pill).join("")}</div>
-      </div>
-    </div>`;
+      </div>`;
   }
 
   if (!rows) {
-    rows = `<div style="font-size:11px;color:rgba(148,163,184,.6);padding:4px 8px">
+    rows = `<div style="font-size:11px;color:rgba(148,163,184,.5);padding:4px 8px">
       Sem fraquezas ou resistências especiais.</div>`;
   }
 
-  // Header com os tipos do alvo
-  const typePills = types
-    .map((t) => {
-      const c = getTypeColor(normalizeType(t));
-      return `<span style="
-        padding:2px 9px;border-radius:10px;font-size:12px;font-weight:800;
-        background:${c}28;border:1px solid ${c}66;color:${c}">${t}</span>`;
-    })
-    .join(" ");
+  const typePills = types.map(t => {
+    const c = getTypeColor(normalizeType(t));
+    return `<span style="padding:2px 9px;border-radius:10px;font-size:12px;font-weight:800;
+      background:${c}28;border:1px solid ${c}66;color:${c}">${t}</span>`;
+  }).join(" ");
 
   return `
-    <div class="cb-target-type-table" style="
-      border-radius:12px;border:1px solid rgba(56,189,248,.25);
+    <div style="border-radius:12px;border:1px solid rgba(56,189,248,.22);
       background:rgba(3,8,29,.55);padding:10px;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">
-        <span style="font-size:12px;font-weight:900;color:rgba(148,163,184,.8)">⚔️ Fraquezas &amp; Resistências</span>
+        <span style="font-size:12px;font-weight:900;color:rgba(148,163,184,.8)">
+          ⚔️ Fraquezas &amp; Resistências
+        </span>
         <span style="flex:1"></span>
         ${typePills}
       </div>
       ${rows}
+      <div style="font-size:10px;color:rgba(148,163,184,.28);margin-top:5px;text-align:right">
+        via ${source}
+      </div>
     </div>`;
 }
 
-// ─── Helper: campos de modificadores manuais ─────────────────────────────────
-const MOD_PANEL_ID = "cb_manual_mods_panel";
+// ═══════════════════════════════════════════════════════════════════
+// PAINEL DE MODIFICADORES MANUAIS
+// ═══════════════════════════════════════════════════════════════════
+const MOD_ID = "cb_manual_mods_panel";
 
 function buildModPanel() {
   return `
-    <div id="${MOD_PANEL_ID}" style="
-      border-radius:12px;border:1px solid rgba(251,191,36,.28);
+    <div id="${MOD_ID}" style="border-radius:12px;border:1px solid rgba(251,191,36,.28);
       background:rgba(251,191,36,.06);padding:10px;margin-bottom:10px">
       <div style="font-size:12px;font-weight:900;color:rgba(251,191,36,.9);margin-bottom:8px">
         🎛️ Modificadores Manuais
@@ -136,171 +326,142 @@ function buildModPanel() {
           <span style="font-size:11px;font-weight:700;color:rgba(148,163,184,.8)">Bônus de Acerto</span>
           <input id="cb_mod_acc" class="input" type="number" value="0" placeholder="0"
             style="font-size:13px;padding:6px 8px;border-radius:8px" />
-          <span style="font-size:10px;color:rgba(148,163,184,.55)">Soma ao modificador de acerto</span>
+          <span style="font-size:10px;color:rgba(148,163,184,.4)">Soma ao modificador do golpe</span>
         </label>
         <label style="display:flex;flex-direction:column;gap:3px">
           <span style="font-size:11px;font-weight:700;color:rgba(148,163,184,.8)">Bônus de Dano</span>
           <input id="cb_mod_dmg" class="input" type="number" value="0" placeholder="0"
             style="font-size:13px;padding:6px 8px;border-radius:8px" />
-          <span style="font-size:10px;color:rgba(148,163,184,.55)">Soma ao rank do golpe</span>
+          <span style="font-size:10px;color:rgba(148,163,184,.4)">Soma ao rank do golpe</span>
         </label>
       </div>
     </div>`;
 }
 
-// ─── Aplica o patch ───────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// INICIALIZAÇÃO — aguarda CombatUI e aplica os patches
+// ═══════════════════════════════════════════════════════════════════
+function waitForCombatUI(cb, tries = 0) {
+  const ui = window._combatUI;
+  if (ui && typeof ui._renderSetup === "function") {
+    cb(ui);
+  } else if (tries < 80) {
+    setTimeout(() => waitForCombatUI(cb, tries + 1), 250);
+  } else {
+    console.warn("[combat-inspector-patch] ⚠️ CombatUI não encontrado após 20s.");
+  }
+}
+
 waitForCombatUI((ui) => {
-  // ── 1. Guarda o método original de renderSetup ──────────────────────────
-  const _origRenderSetup = ui._renderSetup.bind(ui);
+
+  // ── PATCH 1: _renderSetup ────────────────────────────────────────
+  const _origSetup = ui._renderSetup.bind(ui);
 
   ui._renderSetup = async function (battle, isPlayer, by) {
-    // Chama o render original
-    await _origRenderSetup(battle, isPlayer, by);
+    await _origSetup(battle, isPlayer, by);
 
-    // Só modifica se sou o atacante (setup panel estará visível)
-    const attacker = (battle && battle.attacker) ? String(battle.attacker).trim() : "";
-    if (attacker !== by) return;
+    // Só o atacante enxerga os painéis extras
+    if (String(battle?.attacker || "").trim() !== by) return;
 
     const body = this._body;
     if (!body) return;
 
+    // Painel de modificadores — insere antes do botão Rolar
     const normalPanel = body.querySelector("#cb_normal_panel");
-    if (!normalPanel) return;
-
-    // ── 2. Injeta painel de modificadores manuais antes do botão Rolar ────
-    const rollBtn = body.querySelector("#cb_roll_attack");
-    if (rollBtn && !body.querySelector(`#${MOD_PANEL_ID}`)) {
-      const modDiv = document.createElement("div");
-      modDiv.innerHTML = buildModPanel();
-      normalPanel.insertBefore(modDiv.firstElementChild, rollBtn);
+    const rollBtn = normalPanel?.querySelector("#cb_roll_attack");
+    if (rollBtn && !body.querySelector(`#${MOD_ID}`)) {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = buildModPanel();
+      normalPanel.insertBefore(wrap.firstElementChild, rollBtn);
     }
 
-    // ── 3. Injeta tabela de tipo do alvo abaixo do select de alvo ──────────
+    // Tabela de tipos — insere logo após o select de alvo
     const targetSel = body.querySelector("#cb_atk_target");
     if (!targetSel) return;
 
-    // Cria container para a tabela do alvo (apenas uma vez)
-    let targetTypeDiv = body.querySelector("#cb_target_type_table_wrap");
-    if (!targetTypeDiv) {
-      targetTypeDiv = document.createElement("div");
-      targetTypeDiv.id = "cb_target_type_table_wrap";
-      targetSel.parentNode.insertBefore(targetTypeDiv, targetSel.nextSibling);
+    let typeWrap = body.querySelector("#cb_target_type_wrap");
+    if (!typeWrap) {
+      typeWrap = document.createElement("div");
+      typeWrap.id = "cb_target_type_wrap";
+      targetSel.parentNode.insertBefore(typeWrap, targetSel.nextSibling);
     }
 
-    const renderTargetTable = async () => {
+    const renderTypeTable = async () => {
       const opt = targetSel.selectedOptions[0];
-      if (!opt || !opt.value) { targetTypeDiv.innerHTML = ""; return; }
-      const tOwner = opt.dataset.owner;
-      const tPid = opt.dataset.pid;
-      if (!tOwner || !tPid) { targetTypeDiv.innerHTML = ""; return; }
+      if (!opt?.value) { typeWrap.innerHTML = ""; return; }
 
-      // Garante que a ficha do alvo esteja carregada
-      if (this._loadSheets && !this._sheetUnsubs?.has(tOwner)) {
-        await this._loadSheets(tOwner);
+      const tOwner = opt.dataset.owner;
+      const tPid   = opt.dataset.pid;
+      if (!tOwner || !tPid) { typeWrap.innerHTML = ""; return; }
+
+      typeWrap.innerHTML = `<div style="font-size:11px;color:rgba(148,163,184,.4);
+        padding:4px 8px;margin-bottom:6px">🔍 Buscando tipos…</div>`;
+
+      // Tenta carregar ficha do alvo no Firestore antes de ir à PokeAPI
+      if (this._loadSheets && this._sheetUnsubs && !this._sheetUnsubs.has(tOwner)) {
+        try { await this._loadSheets(tOwner); } catch {}
       }
 
-      const tSheet = this._getSheet ? this._getSheet(tOwner, tPid) : null;
-      const types = Array.isArray(tSheet?.pokemon?.types) ? tSheet.pokemon.types : [];
-      targetTypeDiv.innerHTML = buildTargetTypeTable(types);
+      const { types, source } = await resolveTypes(this, tOwner, tPid);
+      typeWrap.innerHTML = buildTypeTable(types, source);
     };
 
-    // Renderiza para o alvo já selecionado
-    await renderTargetTable();
+    // Carrega para o alvo já selecionado
+    await renderTypeTable();
 
-    // Escuta mudanças no alvo
-    // Evita listener duplicado com uma flag
-    if (!targetSel._patchListenerAdded) {
-      targetSel._patchListenerAdded = true;
-      targetSel.addEventListener("change", renderTargetTable);
+    // Atualiza ao mudar de alvo (sem listener duplicado)
+    if (!targetSel._patchListener) {
+      targetSel._patchListener = renderTypeTable;
+      targetSel.addEventListener("change", renderTypeTable);
     }
   };
 
-  // ── 4. Intercepta o clique do botão Rolar Ataque para aplicar os mods ──
-  // Fazemos isso com event delegation no _body, que é recriado a cada render
-  const _origBody_set = Object.getOwnPropertyDescriptor(ui.__proto__, "_body")
-    || Object.getOwnPropertyDescriptor(ui, "_body");
+  // ── PATCH 2: intercepta clique em Rolar Ataque (capture) ────────
+  let _lastBody = null;
 
-  // Usa um MutationObserver para detectar quando o botão de ataque aparece
-  // e injeta um listener que captura os modificadores
-  const observer = new MutationObserver(() => {
-    const rollBtn = ui._body && ui._body.querySelector("#cb_roll_attack");
-    if (!rollBtn || rollBtn._patchHooked) return;
-    rollBtn._patchHooked = true;
+  const hookBody = (body) => {
+    if (!body || body === _lastBody) return;
+    _lastBody = body;
 
-    rollBtn.addEventListener(
-      "click",
-      () => {
-        // Quando o botão é clicado, lê os modificadores e ajusta os inputs
-        // O combat.js já lê #cb_atk_accuracy — sobrescrevemos o valor com o mod somado
-        const accInput = ui._body && ui._body.querySelector("#cb_atk_accuracy");
-        const modAccInput = ui._body && ui._body.querySelector("#cb_mod_acc");
-        const modDmgInput = ui._body && ui._body.querySelector("#cb_mod_dmg");
+    body.addEventListener("click", (e) => {
+      if (!e.target.closest("#cb_roll_attack")) return;
 
-        if (accInput && modAccInput) {
-          const baseAcc = parseInt(accInput.value, 10) || 0;
-          const modAcc = parseInt(modAccInput.value, 10) || 0;
-          // Guarda para uso na interceptação do payload
-          accInput._modApplied = modAcc;
-          accInput.value = String(baseAcc + modAcc);
-        }
+      const accInput = body.querySelector("#cb_atk_accuracy");
+      const modAcc   = parseInt(body.querySelector("#cb_mod_acc")?.value || "0", 10) || 0;
+      const modDmg   = parseInt(body.querySelector("#cb_mod_dmg")?.value || "0", 10) || 0;
 
-        if (modDmgInput) {
-          // Guardamos o mod de dano numa variável acessível ao patch de payload
-          ui._pendingDmgMod = parseInt(modDmgInput.value, 10) || 0;
-        }
-      },
-      true // capture: roda ANTES do listener do combat.js
-    );
-  });
+      if (accInput && modAcc !== 0) {
+        accInput.value = String((parseInt(accInput.value, 10) || 0) + modAcc);
+      }
 
-  if (ui._body) {
-    observer.observe(ui._body, { childList: true, subtree: false });
-  }
+      ui._pendingDmgMod = modDmg;
 
-  // Reaplica o observer toda vez que _body é substituído
-  // (combat.js substitui this._body ao mudar de fase)
-  let _lastBody = ui._body;
+    }, true); // capture: antes do listener do combat.js
+  };
+
+  // Roda periodicamente para pegar novos _body (troca de fase)
   setInterval(() => {
-    if (ui._body && ui._body !== _lastBody) {
-      _lastBody = ui._body;
-      observer.disconnect();
-      observer.observe(ui._body, { childList: true, subtree: false });
-    }
-  }, 400);
+    const body = ui._body;
+    if (body && body !== _lastBody) hookBody(body);
+  }, 300);
 
-  // ── 5. Patch no movePayload: adiciona _pendingDmgMod ao damage ───────────
-  // Interceptamos updateDoc / setDoc de forma cirúrgica:
-  // O combat.js monta o movePayload e logo chama updateDoc.
-  // Após o roll, o damage já está calculado em movePayload.damage.
-  // Aplicamos o mod de dano ajustando o objeto ANTES do Firestore receber.
+  // ── PATCH 3: _renderHitConfirmed — aplica mod de dano no Rank ───
+  const _origHitConfirmed = ui._renderHitConfirmed.bind(ui);
 
-  // A abordagem mais segura é interceptar o método _battleRef e wrappear o
-  // resultado. Mas como o combat.js usa o import direto de updateDoc, a forma
-  // prática é: after the roll, o dano é salvo em battle.attack_move.damage.
-  // Ao invés de monkey-patchar o Firestore, injetamos o mod diretamente no
-  // estado local do combat.js via sua própria lógica de render.
-
-  // O truque: antes de o botão ser clicado (capture=true acima), já somamos
-  // o mod de acerto ao input de acerto. Para o dano, o combat.js usa o valor
-  // do golpe selecionado — então precisamos interceptar _depois_ do cálculo.
-
-  // Wrapper alternativo mais limpo: sobreescrever _renderHitConfirmed para
-  // pré-preencher o campo de Rank com (battle.attack_move.damage + _pendingDmgMod).
-  const _origRenderHitConfirmed = ui._renderHitConfirmed.bind(ui);
   ui._renderHitConfirmed = function (battle, by) {
-    // Aplica mod de dano ao campo antes de renderizar
-    if (this._pendingDmgMod && this._pendingDmgMod !== 0 && battle.attack_move) {
+    const mod = this._pendingDmgMod || 0;
+    if (mod !== 0 && battle?.attack_move) {
       battle = {
         ...battle,
         attack_move: {
           ...battle.attack_move,
-          damage: (battle.attack_move.damage || 0) + this._pendingDmgMod,
+          damage: (battle.attack_move.damage || 0) + mod,
         },
       };
       this._pendingDmgMod = 0;
     }
-    return _origRenderHitConfirmed(battle, by);
+    return _origHitConfirmed(battle, by);
   };
 
-  console.log("[combat-inspector-patch] ✅ Patch aplicado com sucesso.");
+  console.log("[combat-inspector-patch] ✅ v3 ativo — busca por nome + PokeAPI.");
 });
