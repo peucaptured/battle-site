@@ -3943,31 +3943,26 @@ function drawWaterCells(ctx, ox, oy, gs, tile) {
         if (c > 0      && grid[r][c - 1] !== 2) { mask |= 8; isBorder = true; }
       }
 
+      // Stagger with smaller coefficients so neighbouring cells share a
+      // nearly-identical phase → wave appears to travel smoothly rather
+      // than each tile flickering independently.
+      // At 0.15/0.20 step, cells adjacent in the same row differ by only
+      // 0.20 s (≈6 % of the 3.2 s cycle), creating a clear rolling front.
+      const stagger  = ((r * 0.15 + c * 0.20) % WAVE_PERIOD + WAVE_PERIOD) % WAVE_PERIOD;
+      const rawT     = ((t + stagger) % WAVE_PERIOD) / WAVE_PERIOD; // 0→1
+      const sinVal   = Math.sin(rawT * Math.PI * 2);
+      const wavePeak = sinVal > 0 ? sinVal * sinVal : 0;
+
       if (isBorder && oceanAnim.ready) {
         // ── BORDA: crash-and-recede wave animation ────────────────────────
-        //
-        // Stagger: each cell has a fixed phase offset so waves appear to roll
-        // diagonally along the shoreline instead of all crashing in sync.
-        // The coefficient mix (r*0.45, c*0.55) creates a gentle diagonal roll.
-        const stagger = ((r * 0.45 + c * 0.55) % WAVE_PERIOD + WAVE_PERIOD) % WAVE_PERIOD;
-        const rawT    = ((t + stagger) % WAVE_PERIOD) / WAVE_PERIOD; // 0→1
-
-        // sin²: positive only for first half of cycle (0→0.5), zero for second half.
-        // Squaring sharpens the peak → brief crash, long calm.
-        const sinVal  = Math.sin(rawT * Math.PI * 2);
-        const wavePeak = sinVal > 0 ? sinVal * sinVal : 0;   // 0 when wave receded
-
-        // Frame + alpha based on wave phase:
-        //   wavePeak = 0      → receded: sandy tile (F0), low alpha
-        //   wavePeak = 0–0.5  → approaching/receding: mid tile (F2), mid alpha
-        //   wavePeak > 0.5    → crashed: foam/water tile (F1), high alpha
+        // Alpha raised so the autotile is clearly visible even at low tide.
         let fi, waveAlpha;
         if (wavePeak < 0.12) {
-          fi = 0; waveAlpha = 0.38 + wavePeak * 1.2;   // receded — subtle wet overlay
+          fi = 0; waveAlpha = 0.70 + wavePeak * 1.5;   // receded — still clearly visible
         } else if (wavePeak < 0.55) {
-          fi = 2; waveAlpha = 0.55 + wavePeak * 0.45;  // wave rising / receding
+          fi = 2; waveAlpha = 0.80 + wavePeak * 0.30;  // wave rising / receding
         } else {
-          fi = 1; waveAlpha = 0.82 + wavePeak * 0.10;  // wave at peak — max foam
+          fi = 1; waveAlpha = 0.92 + wavePeak * 0.08;  // wave at peak — full foam
         }
 
         // Look up the correctly-shaped tile for this cell's shore direction
@@ -3975,7 +3970,7 @@ function drawWaterCells(ctx, ox, oy, gs, tile) {
         const sheetCol = tc.c + fi * 5;   // each frame is 5 cols wide
         const sheetRow = tc.r;
 
-        ctx.globalAlpha = Math.min(waveAlpha, 0.92);
+        ctx.globalAlpha = Math.min(waveAlpha, 1.0);
         ctx.drawImage(
           oceanAnim.img,
           sheetCol * 32, sheetRow * 32, 32, 32,   // exact source tile
@@ -3983,18 +3978,37 @@ function drawWaterCells(ctx, ox, oy, gs, tile) {
         );
         ctx.globalAlpha = 1;
 
-        // Brief white-foam sparkle at the very peak of the crash
-        if (fi === 1 && wavePeak > 0.70) {
-          const sparkle = (wavePeak - 0.70) / 0.30;
-          ctx.strokeStyle = `rgba(230,250,255,${sparkle * 0.28})`;
-          ctx.lineWidth   = 1;
-          ctx.strokeRect(cx + 0.5, cy + 0.5, tile - 1, tile - 1);
+        // Foam strip on every land-facing edge to reinforce the border feel
+        const foamW = Math.max(2, tile * 0.12);
+        const foamA = 0.30 + wavePeak * 0.55;
+        ctx.fillStyle = `rgba(210,245,255,${foamA})`;
+        if (mask & 1) ctx.fillRect(cx,               cy,               tile,  foamW); // N
+        if (mask & 2) ctx.fillRect(cx + tile - foamW, cy,               foamW, tile);  // E
+        if (mask & 4) ctx.fillRect(cx,               cy + tile - foamW, tile,  foamW); // S
+        if (mask & 8) ctx.fillRect(cx,               cy,               foamW, tile);  // W
+
+        // White-foam sparkle at the very peak of the crash
+        if (fi === 1 && wavePeak > 0.65) {
+          const sparkle = (wavePeak - 0.65) / 0.35;
+          ctx.strokeStyle = `rgba(240,255,255,${sparkle * 0.45})`;
+          ctx.lineWidth   = 1.5;
+          ctx.strokeRect(cx + 1, cy + 1, tile - 2, tile - 2);
         }
+
+      } else if (isBorder) {
+        // ── BORDA FALLBACK: sem sprite — desenha highlight manual ─────────
+        const foamW = Math.max(2, tile * 0.14);
+        const foamA = 0.35 + wavePeak * 0.55;
+        ctx.fillStyle = `rgba(200, 235, 255, ${foamA})`;
+        if (mask & 1) ctx.fillRect(cx,               cy,               tile,  foamW);
+        if (mask & 2) ctx.fillRect(cx + tile - foamW, cy,               foamW, tile);
+        if (mask & 4) ctx.fillRect(cx,               cy + tile - foamW, tile,  foamW);
+        if (mask & 8) ctx.fillRect(cx,               cy,               foamW, tile);
 
       } else {
         // ── INTERIOR: shimmer suave (calm water) ─────────────────────────
-        const w1 = Math.sin(t * 1.6 + c * 0.85 + r * 0.55) * 0.5 + 0.5;
-        const w2 = Math.sin(t * 2.3 + c * 1.25 - r * 0.75 + 1.7) * 0.5 + 0.5;
+        const w1 = Math.sin(t * 1.6 + c * 0.85 + r * 0.55 + stagger * 0.5) * 0.5 + 0.5;
+        const w2 = Math.sin(t * 2.3 + c * 1.25 - r * 0.75 + 1.7 + stagger * 0.35) * 0.5 + 0.5;
         const shimmer = w1 * 0.55 + w2 * 0.45;
 
         ctx.fillStyle = `rgba(70,170,240,${0.06 + shimmer * 0.11})`;
