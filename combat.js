@@ -28,6 +28,7 @@ import {
   collection,
   onSnapshot,
   serverTimestamp,
+  arrayUnion,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 import { getMoveType, getTypeColor, getTypeDamageBonus, getSuperEffectiveAgainst, getTypeAdvantage, normalizeType } from "./type-data.js";
 
@@ -1104,14 +1105,17 @@ export class CombatUI {
     `;
 
     if (isDefender) {
+      const tPid = safeStr(battle.target_pid);
+      const tStats = this._getEffectiveStats(by, tPid);
+      const sv = (k) => { const v = safeInt(tStats[k]); return v ? ` <span style="font-size:11px;opacity:.7">(+${v})</span>` : ""; };
       html += `
         <div style="margin-top:12px;font-weight:900;font-size:13px">🛡️ Resistir com:</div>
         <div class="cb-defense-grid">
-          <button class="btn secondary" data-def="dodge">Dodge</button>
-          <button class="btn secondary" data-def="parry">Parry</button>
-          <button class="btn secondary" data-def="fort">Fort</button>
-          <button class="btn secondary" data-def="will">Will</button>
-          <button class="btn secondary" data-def="thg" style="grid-column:span 2">THG (Toughness)</button>
+          <button class="btn secondary" data-def="dodge">Dodge${sv("dodge")}</button>
+          <button class="btn secondary" data-def="parry">Parry${sv("parry")}</button>
+          <button class="btn secondary" data-def="fort">Fort${sv("fort")}</button>
+          <button class="btn secondary" data-def="will">Will${sv("will")}</button>
+          <button class="btn secondary" data-def="thg" style="grid-column:span 2">THG (Toughness)${sv("thg")}</button>
         </div>
       `;
     } else {
