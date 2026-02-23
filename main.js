@@ -2041,19 +2041,20 @@ function renderInspectorCard() {
   const slug = _pokeApiSlugFromPid(pid);
   const apiCached = (isMine && slug) ? _pokeApiSpeedCache.get(slug) : undefined;
 
-  // Tipos: dono usa ficha → p.types → cache API; adversário usa só cache API (ficha privada)
+  // Tipos: ficha → peça → cache PokeAPI (mesma lógica para dono e adversário)
+  const _hasValidTypes = (arr) => Array.isArray(arr) && arr.length && arr.some(t => normalizeType(t));
   const insTypes = (() => {
+    // Tenta ficha local (só disponível para peças próprias)
     if (isMine) {
       const fromSheet = sh2?.pokemon?.types;
-      if (Array.isArray(fromSheet) && fromSheet.length) return fromSheet;
-      if (Array.isArray(p?.types) && p.types.length) return p.types;
+      if (_hasValidTypes(fromSheet)) return fromSheet;
+      if (_hasValidTypes(p?.types)) return p.types;
     }
-    // Inspector público: qualquer peça revelada — lê cache e dispara fetch se necessário
+    // Inspector público: qualquer peça (própria ou revelada) — busca PokeAPI
     if (canSeeIdentity) {
-      // Tenta pelo slug do pid
       if (slug) {
         const cached = _pokeApiTypeCache.get(slug);
-        if (Array.isArray(cached)) return cached;
+        if (Array.isArray(cached) && cached.length) return cached;
         if (cached !== "pending") fetchPokeApiTypes(slug); // fire-and-forget
       }
       // Fallback: tenta pelo nome de exibição (ex: "Charizard" → "charizard")
@@ -2061,7 +2062,7 @@ function renderInspectorCard() {
         const nameSlug = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
         if (nameSlug) {
           const cached = _pokeApiTypeCache.get(nameSlug);
-          if (Array.isArray(cached)) return cached;
+          if (Array.isArray(cached) && cached.length) return cached;
           if (cached !== "pending") fetchPokeApiTypes(nameSlug);
         }
       }
