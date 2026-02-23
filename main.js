@@ -5705,11 +5705,11 @@ function _typeMatchupHtml(types) {
   };
   return `
     <div class="type-matchup-mini" style="margin-top:6px;padding:6px 8px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);">
-      ${renderTypeList(resistHalf, "🛡️ Resistência 1/2 (-2)")}
-      ${renderTypeList(resistQuarter, "🛡️ Resistência 1/4 (-4)")}
-      ${renderTypeList(immuneTo, "🚫 Imunidade (0x / -4)")}
-      ${renderTypeList(weak2x, "⬇️ Fraqueza 2x (+2)")}
-      ${renderTypeList(weak4x, "⬇️ Fraqueza 4x (+4)")}
+      ${renderTypeList(resistHalf, "🛡️ Resistência (-2)")}
+      ${renderTypeList(resistQuarter, "🛡️ Resistência forte (-4)")}
+      ${renderTypeList(immuneTo, "🚫 Imunidade (-4)")}
+      ${renderTypeList(weak2x, "⬇️ Fraqueza (+2)")}
+      ${renderTypeList(weak4x, "⬇️ Fraqueza forte (+4)")}
       ${renderTypeList(strongVs, "⚔️ SE contra")}
     </div>
   `;

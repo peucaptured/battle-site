@@ -553,17 +553,17 @@ export class CombatUI {
       html += `<div class="cb-type-row"><div class="cb-type-row-label advantage">⚔️ Vantagem</div><div class="cb-type-badges">${atkAdv.map(t => badge(t, " +2")).join("")}</div></div>`;
     }
     if (weakTo4.length > 0) {
-      html += `<div class="cb-type-row"><div class="cb-type-row-label weakness">💥 Fraqueza ×4</div><div class="cb-type-badges">${weakTo4.map(t => badge(t, " ×4")).join("")}</div></div>`;
+      html += `<div class="cb-type-row"><div class="cb-type-row-label weakness">💥 Fraqueza (+4)</div><div class="cb-type-badges">${weakTo4.map(t => badge(t, " +4")).join("")}</div></div>`;
     }
     if (weakTo2.length > 0) {
-      html += `<div class="cb-type-row"><div class="cb-type-row-label weakness">⚠️ Fraqueza ×2</div><div class="cb-type-badges">${weakTo2.map(t => badge(t, " ×2")).join("")}</div></div>`;
+      html += `<div class="cb-type-row"><div class="cb-type-row-label weakness">⚠️ Fraqueza (+2)</div><div class="cb-type-badges">${weakTo2.map(t => badge(t, " +2")).join("")}</div></div>`;
     }
     if (resistQuarter.length > 0 || resistHalf.length > 0) {
-      const all = [...resistQuarter.map(t => badge(t, " ¼")), ...resistHalf.map(t => badge(t, " ½"))];
+      const all = [...resistQuarter.map(t => badge(t, " -4")), ...resistHalf.map(t => badge(t, " -2"))];
       html += `<div class="cb-type-row"><div class="cb-type-row-label resist">🛡️ Resistência</div><div class="cb-type-badges">${all.join("")}</div></div>`;
     }
     if (immuneTo.length > 0) {
-      html += `<div class="cb-type-row"><div class="cb-type-row-label immune">🚫 Imune</div><div class="cb-type-badges">${immuneTo.map(t => badge(t, " ×0")).join("")}</div></div>`;
+      html += `<div class="cb-type-row"><div class="cb-type-row-label immune">🚫 Imunidade (-4)</div><div class="cb-type-badges">${immuneTo.map(t => badge(t, " -4")).join("")}</div></div>`;
     }
 
     html += `</div>`;
