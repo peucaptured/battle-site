@@ -2041,16 +2041,24 @@ function renderInspectorCard() {
   const slug = _pokeApiSlugFromPid(pid);
   const apiCached = (isMine && slug) ? _pokeApiSpeedCache.get(slug) : undefined;
 
-  // ✅ Tipos/matchups: só mostra se for meu (ou se você quiser permitir tipos públicos, troque a regra aqui)
+  // Tipos: dono usa ficha → p.types → cache API; adversário usa só cache API (ficha privada)
   const insTypes = (() => {
-    if (!isMine) return [];
-    const fromSheet = sh2?.pokemon?.types;
-    if (Array.isArray(fromSheet) && fromSheet.length) return fromSheet;
-    if (Array.isArray(p?.types) && p.types.length) return p.types;
+    if (isMine) {
+      const fromSheet = sh2?.pokemon?.types;
+      if (Array.isArray(fromSheet) && fromSheet.length) return fromSheet;
+      if (Array.isArray(p?.types) && p.types.length) return p.types;
+    }
+    // Inspector público: qualquer peça revelada — lê cache e dispara fetch se necessário
+    if (revealed && slug) {
+      const cached = _pokeApiTypeCache.get(slug);
+      if (Array.isArray(cached)) return cached;
+      if (cached !== "pending") fetchPokeApiTypes(slug); // fire-and-forget
+    }
     return [];
   })();
 
-  const matchupH = (isMine && revealed) ? _typeMatchupHtml(insTypes) : "";
+  // Tabela de fraquezas visível para todos os jogadores (Inspector público)
+  const matchupH = revealed ? _typeMatchupHtml(insTypes) : "";
 
 const psOwner = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
 const sheetHasSpeed = isMine ? [
@@ -2141,8 +2149,9 @@ const sheetHasSpeed = isMine ? [
   wrap.querySelector('[data-ins-act="remove"]')?.addEventListener("click", async () => {
     await removePieceFromBoard(selId);
   });
-  // HP segment bars — click sets HP to that segment value
+  // HP segment bars — click sets HP to that segment value (dono only)
   wrap.querySelector('[data-ins-hpbars]')?.addEventListener("click", async (ev) => {
+    if (!isMine) return; // apenas o dono pode alterar o HP
     const seg = ev.target.closest('[data-ins-act="hp-seg"]');
     if (!seg) return;
     const newHp = Number(seg.dataset.seg);
@@ -2877,6 +2886,34 @@ function readSpeedFromStats(statsObj) {
     if (Number.isFinite(n) && n > 0) return n;
   }
   return 0;
+}
+
+// ── PokeAPI Types cache & fetcher (Inspector público) ─────────────
+const _pokeApiTypeCache = new Map(); // slug → string[] | "pending" | "error"
+
+async function fetchPokeApiTypes(slug) {
+  if (!slug) return [];
+  if (_pokeApiTypeCache.has(slug)) {
+    const v = _pokeApiTypeCache.get(slug);
+    return (v === "pending" || v === "error") ? [] : v;
+  }
+  _pokeApiTypeCache.set(slug, "pending");
+  try {
+    const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(slug)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const types = (data.types || [])
+      .sort((a, b) => a.slot - b.slot)
+      .map(t => { const n = String(t.type?.name || ""); return n.charAt(0).toUpperCase() + n.slice(1); })
+      .filter(Boolean);
+    _pokeApiTypeCache.set(slug, types);
+    // Re-renderiza o inspector para mostrar a tabela recém-carregada
+    if (typeof updateSidePanels === "function") updateSidePanels();
+    return types;
+  } catch {
+    _pokeApiTypeCache.set(slug, "error");
+    return [];
+  }
 }
 
 // ── PokeAPI Speed cache & fetcher ────────────────────────────────
