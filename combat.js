@@ -337,47 +337,47 @@ export class CombatUI {
   // ─── Get effective stats (base + boosts temporários) ─────────────
   // boosts ficam em party_states[trainer][pid].stat_boosts = { dodge:+2, parry:-1, ... }
   // Fallback para stats da ficha se party_states estiver vazio
-  _getEffectiveStats(trainerName, pid) {
-    const tData = this._partyStates[trainerName] || {};
-    const pData = tData[safeStr(pid)] || {};
-    const sheet = this._getSheet(trainerName, pid);
-    const base   = (pData.stats && Object.keys(pData.stats).length > 0) ? pData.stats : (sheet?.stats || {});
-    // ✅ FIX 3: se base veio da ficha e não tem cap em stats, derive cap = 2*np
-    let baseFixed = base;
-    if (!(pData.stats && Object.keys(pData.stats).length > 0)) {
-      const rawStats =
-        (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
-          ? sheet.stats
-          : {};
-      const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
-      const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
-      baseFixed = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
-    }
+_getEffectiveStats(trainerName, pid) {
+  const tData = this._partyStates[trainerName] || {};
+  const pData = tData[safeStr(pid)] || {};
+  const sheet = this._getSheet(trainerName, pid);
 
-    const boosts = pData.stat_boosts || {};
-    const result = normalizeStats(base);
-    for (const [k, v] of Object.entries(boosts)) {
-      const statKey = normalizeStatKey(k);
-      result[statKey] = (safeInt(result[statKey]) + safeInt(v));
-    }
-    result.fortitude = safeInt(result.fort);
-    result.toughness = safeInt(result.thg);
-    const boosts = pData.stat_boosts || {};
-    const result = normalizeStats(baseFixed);
-    for (const [k, v] of Object.entries(boosts)) {
-      const statKey = normalizeStatKey(k);
-      result[statKey] = (safeInt(result[statKey]) + safeInt(v));
-    }
+  const hasPartyStats = (pData.stats && Object.keys(pData.stats).length > 0);
+  const base = hasPartyStats ? pData.stats : (sheet?.stats || {});
 
-    // ✅ THG fallback: se vier 0, THG = 2*NP - Dodge (usa Dodge já boostado)
+  // Se base veio da ficha e não tem cap, derive cap = 2*np
+  let baseFixed = base;
+  if (!hasPartyStats) {
+    const rawStats =
+      (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
+        ? sheet.stats
+        : {};
     const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
-    if (safeInt(result.thg) <= 0 && np > 0) {
-      result.thg = Math.max(0, (2 * np) - safeInt(result.dodge));
-    }
-    return result;
-    return result;
+    const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
+    baseFixed = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
   }
 
+  const boosts = pData.stat_boosts || {};
+  const result = normalizeStats(baseFixed);
+
+  for (const [k, v] of Object.entries(boosts)) {
+    const statKey = normalizeStatKey(k);
+    result[statKey] = (safeInt(result[statKey]) + safeInt(v));
+  }
+
+  // Aliases compat
+  result.fortitude = safeInt(result.fort);
+  result.toughness = safeInt(result.thg);
+
+  // THG fallback: se vier 0, THG = 2*NP - Dodge (usa Dodge já boostado)
+  const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
+  if (safeInt(result.thg) <= 0 && np > 0) {
+    result.thg = Math.max(0, (2 * np) - safeInt(result.dodge));
+    result.toughness = safeInt(result.thg);
+  }
+
+  return result;
+}
   _getDisplayName(pid) {
     // try dexMap from main
     if (window.dexMap) {
