@@ -865,24 +865,20 @@ _getPokeStats(trainerName, pid) {
       }
     }, true);
 
-    // Intercept click on enemy pieces
+    // Left-click on enemy pieces → open Inspector (combat via right-click context menu)
     canvas.addEventListener("click", (ev) => {
       if (window.appState?.drag?.justDropped) return;
       const piece = _getEnemyPiece(ev);
       if (!piece) return;
 
-      // Prevent main.js handler
+      // Prevent main.js handler (we handle selection ourselves)
       ev.stopImmediatePropagation();
 
       // Close existing overlays
       this._closeAll();
 
-      // Position relative to arena-wrap
-      const wrapRect = this.container.getBoundingClientRect();
-      const overlayX = ev.clientX - wrapRect.left;
-      const overlayY = ev.clientY - wrapRect.top;
-
-      this._openAttackOverlay(piece, overlayX, overlayY);
+      // Select the enemy piece to open the Inspector
+      window.selectPiece?.(safeStr(piece.id));
     }, true); // capture phase
   }
 

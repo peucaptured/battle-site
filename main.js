@@ -2049,10 +2049,22 @@ function renderInspectorCard() {
       if (Array.isArray(p?.types) && p.types.length) return p.types;
     }
     // Inspector público: qualquer peça revelada — lê cache e dispara fetch se necessário
-    if (canSeeIdentity && slug) {
-      const cached = _pokeApiTypeCache.get(slug);
-      if (Array.isArray(cached)) return cached;
-      if (cached !== "pending") fetchPokeApiTypes(slug); // fire-and-forget
+    if (canSeeIdentity) {
+      // Tenta pelo slug do pid
+      if (slug) {
+        const cached = _pokeApiTypeCache.get(slug);
+        if (Array.isArray(cached)) return cached;
+        if (cached !== "pending") fetchPokeApiTypes(slug); // fire-and-forget
+      }
+      // Fallback: tenta pelo nome de exibição (ex: "Charizard" → "charizard")
+      if (!slug && name && name !== "???" && name !== "—") {
+        const nameSlug = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+        if (nameSlug) {
+          const cached = _pokeApiTypeCache.get(nameSlug);
+          if (Array.isArray(cached)) return cached;
+          if (cached !== "pending") fetchPokeApiTypes(nameSlug);
+        }
+      }
     }
     return [];
   })();
@@ -2933,7 +2945,8 @@ function _pokeApiSlugFromPid(pid) {
   if (k.startsWith("EXT:")) {
     name = k.slice(4).trim();
   } else {
-    name = dexNameFromPid(k) || (!isNaN(Number(k)) ? "" : k);
+    // PokeAPI aceita tanto nomes quanto IDs numéricos (ex: /pokemon/25 → Pikachu)
+    name = dexNameFromPid(k) || k;
   }
   if (!name) return "";
   // Convert to PokeAPI slug: lowercase, spaces→hyphens, strip special chars
