@@ -2058,8 +2058,7 @@ const sheetHasSpeed = isMine ? [
   readSpeedFromStats(sh2?.poke_stats), Number(sh2?.speed), Number(sh2?.pokemon?.speed),
   readSpeedFromStats(psOwner?.stats), readSpeedFromStats(p?.stats), Number(p?.speed),
 ].some(c => Number.isFinite(Number(c)) && Number(c) > 0) : false;
-
-const speedSource = apiCached === "pending" ? "buscando…" : (!sheetHasSpeed && apiCached > 0) ? "PokeAPI" : "sheet";
+  const speedSource = apiCached === "pending" ? "buscando…" : (!sheetHasSpeed && apiCached > 0) ? "PokeAPI" : "sheet";
   const moveSummary = isMine
     ? `Speed ${mvBudget.speed} (${speedSource}) • deslocamento ${mvBudget.maxTiles % 1 ? "1/2" : mvBudget.maxTiles} quadrado(s)`
     : `🔒 Ficha privada — apenas o dono pode ver stats/golpes.`;
@@ -3783,12 +3782,31 @@ async function maybeLoadMapData() {
 }
 
 // ── Ocean-autotiles-anim sprite sheet ──────────────────────────────────────
-// Layout: 3 animation frames side-by-side, each frame is 5 cols × 3 rows.
-// Tile coordinates are computed via OCEAN_AUTOTILE_MAP + frame offset (fi * 5).
+// Layout (this PNG): 3 animation frames stacked vertically.
+// Each frame is a single row of 22 tiles (32px). There is 7px left padding, 9px top padding,
+// and a 16px vertical gap between frames. We keep using OCEAN_AUTOTILE_MAP (5×3 coords),
+// but flatten it to a single row index: col = r*5 + c (0..14).
 const oceanAnim = {
   img: null,
   ready: false,
 };
+
+// Source slicing params for ./assets/ocean-autotiles-anim.png
+// (matches the actual PNG you uploaded)
+const OCEAN_TS = 32;
+const OCEAN_SHEET_X0 = 7;
+const OCEAN_SHEET_Y0 = 9;
+const OCEAN_FRAME_GAP_Y = 16;
+const OCEAN_FRAME_STRIDE_Y = OCEAN_TS + OCEAN_FRAME_GAP_Y;
+
+function oceanSrcForMask(mask, frameIndex) {
+  const tc = OCEAN_AUTOTILE_MAP[mask] || { r: 1, c: 1 };
+  const col = (tc.r * 5) + tc.c; // flatten 5×3 to single row index
+  const sx = OCEAN_SHEET_X0 + col * OCEAN_TS;
+  const sy = OCEAN_SHEET_Y0 + frameIndex * OCEAN_FRAME_STRIDE_Y;
+  return { sx, sy };
+}
+
 
 (function loadOceanAnim() {
   const img = new Image();
@@ -3977,14 +3995,11 @@ function drawWaterCells(ctx, ox, oy, gs, tile) {
         }
 
         // Look up the correctly-shaped tile for this cell's shore direction
-        const tc       = OCEAN_AUTOTILE_MAP[mask] || {r: 1, c: 1};
-        const sheetCol = tc.c + fi * 5;   // each frame is 5 cols wide
-        const sheetRow = tc.r;
-
-        ctx.globalAlpha = Math.min(waveAlpha, 1.0);
+        const { sx, sy } = oceanSrcForMask(mask, fi);
+ctx.globalAlpha = Math.min(waveAlpha, 1.0);
         ctx.drawImage(
           oceanAnim.img,
-          sheetCol * 32, sheetRow * 32, 32, 32,   // exact source tile
+          sx, sy, OCEAN_TS, OCEAN_TS,   // exact source tile
           cx, cy, tile, tile                       // dest: scaled to view
         );
         ctx.globalAlpha = 1;
