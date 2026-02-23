@@ -2282,18 +2282,26 @@ function renderSheetsInspectorCard(wrap) {
     return { types: [], name: safeStr(tp.pid || "") };
   })();
 
+  // Aplica boosts de stats ao cálculo de dano da ficha
+  const boostedSt = { ...st };
+  for (const [k, v] of Object.entries(statBoosts)) {
+    boostedSt[k] = (parseInt(boostedSt[k] || 0) || 0) + (parseInt(v || 0) || 0);
+  }
+
   let mvH = "";
   if (!moves.length) {
     mvH = `<span class="muted">Sem golpes nesta ficha.</span>`;
   } else {
     for (const mv of moves) {
       const n = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
-      const sum = _mvSum(mv, st);
+      // Usa stats com boosts ativos (se boost de Stgr/Int ativo, reflete no dano)
+      const sum = _mvSum(mv, boostedSt);
       const { rk, acc, area, br, val, label: statLabel } = sum;
       const desc = safeStr(mv.description || mv.desc || mv.build || "Descrição não disponível.");
-      const mvType = getMoveType(n);
+      // Resolve tipo do golpe: nome + fallback mv.meta.type / mv.type
+      const mvType = getMoveType(n) || safeStr(mv?.meta?.type) || safeStr(mv?.type) || "";
       const mvColor = mvType ? getTypeColor(mvType) : "";
-      const isStab = _isMoveStab(n, types);
+      const isStab = _isMoveStab(n, types) || (mvType && types.some(t => normalizeType(t) === normalizeType(mvType)));
       const stabBonus = isStab ? 2 : 0;
       const stabClass = isStab ? " move-stab" : "";
       const typeTag = mvType ? `<span class="mv-type-pill" style="background:${mvColor}33;border:1px solid ${mvColor}66;color:${mvColor}">${mvType}</span>` : "";
@@ -2323,15 +2331,17 @@ function renderSheetsInspectorCard(wrap) {
               data-base-rk="${rk}"
               data-base-acc="${acc}"
               data-stab="${stabBonus}"
-              data-type-bonus="${typeBonus}">
+              data-type-bonus="${typeBonus}"
+              data-aceiro-boost="${statBoosts.acerto||0}">
               <div class="dmg-calc-header">⚔️ Calcular Ação</div>
               <div class="dmg-breakdown">
                 <div class="dmg-row dmg-base-row">
-                  <span class="dmg-row-lbl">R${br} + ${escapeHtml(statLabel || "—")} ${val}</span>
+                  <span class="dmg-row-lbl">R${br} + ${escapeHtml(statLabel || "—")} ${val}${(statLabel === 'Stgr' && (statBoosts.stgr||0) !== 0) ? ` <span style="color:#4ade80;font-size:10px">(+${statBoosts.stgr} boost)</span>` : (statLabel === 'Int' && (statBoosts.int||0) !== 0) ? ` <span style="color:#4ade80;font-size:10px">(+${statBoosts.int} boost)</span>` : ''}</span>
                   <span class="dmg-row-val">= ${rk}</span>
                 </div>
                 ${isStab ? `<div class="dmg-row dmg-stab-row"><span class="dmg-row-lbl">STAB (mesmo tipo)</span><span class="dmg-row-val dmg-pos">+2</span></div>` : ""}
                 ${targetBonusHtml}
+                ${(statBoosts.acerto||0) !== 0 ? `<div class="dmg-row" style="opacity:.8"><span class="dmg-row-lbl">Boost Acerto</span><span class="dmg-row-val dmg-pos">${(statBoosts.acerto||0) > 0 ? '+' : ''}${statBoosts.acerto||0}</span></div>` : ""}
               </div>
               <div class="dmg-modifiers">
                 <label class="dmg-mod-lbl">
@@ -2344,7 +2354,7 @@ function renderSheetsInspectorCard(wrap) {
                 </label>
               </div>
               <div class="dmg-result">
-                <span class="dmg-res-chip dmg-acc-chip">Acerto: <strong class="dmg-live-acc">A+${acc}</strong></span>
+                <span class="dmg-res-chip dmg-acc-chip">Acerto: <strong class="dmg-live-acc">A+${acc + (statBoosts.acerto||0)}</strong></span>
                 <span class="dmg-res-chip dmg-dmg-chip">Dano: <strong class="dmg-live-dmg">R${autoTotal}</strong></span>
               </div>
             </div>
@@ -2390,9 +2400,9 @@ function renderSheetsInspectorCard(wrap) {
       <div class="stat-boost-panel" data-boost-owner="${escapeAttr(by)}" data-boost-pid="${escapeAttr(pid)}">
         <div class="stat-boost-title">⚡ Boost Temporário <span class="muted" style="font-weight:400;font-size:11px">(zera ao recolher)</span></div>
         <div class="stat-boost-grid">
-          ${['dodge','parry','fort','will','thg','stgr'].map(s => `
+          ${['dodge','parry','fort','will','thg','stgr','int','acerto'].map(s => `
             <div class="stat-boost-row">
-              <span class="stat-boost-name">${s.charAt(0).toUpperCase()+s.slice(1)}</span>
+              <span class="stat-boost-name">${s === 'int' ? 'Int' : s === 'acerto' ? 'Acerto' : s.charAt(0).toUpperCase()+s.slice(1)}</span>
               <button class="btn ghost stat-boost-btn" data-boost-stat="${s}" data-boost-delta="-1">−</button>
               <span class="stat-boost-val ${(statBoosts[s]||0) > 0 ? 'boost-pos' : (statBoosts[s]||0) < 0 ? 'boost-neg' : ''}">${(statBoosts[s]||0) > 0 ? '+' : ''}${statBoosts[s]||0}</span>
               <button class="btn ghost stat-boost-btn" data-boost-stat="${s}" data-boost-delta="1">+</button>
@@ -2418,16 +2428,19 @@ function renderSheetsInspectorCard(wrap) {
 
   // ── Calculadora de dano — atualização ao vivo ──────────────────────
   wrap.querySelectorAll("[data-dmg-calc]").forEach((calcDiv) => {
-    const baseRk   = parseInt(calcDiv.dataset.baseRk)    || 0;
-    const baseAcc  = parseInt(calcDiv.dataset.baseAcc)   || 0;
-    const stab     = parseInt(calcDiv.dataset.stab)      || 0;
-    const typeB    = parseInt(calcDiv.dataset.typeBonus) || 0;
+    const baseRk      = parseInt(calcDiv.dataset.baseRk)      || 0;
+    const baseAcc     = parseInt(calcDiv.dataset.baseAcc)     || 0;
+    const stab        = parseInt(calcDiv.dataset.stab)        || 0;
+    const typeB       = parseInt(calcDiv.dataset.typeBonus)   || 0;
+    const aceiroBoost = parseInt(calcDiv.dataset.aceiroBoost) || 0;
     const liveAcc  = calcDiv.querySelector(".dmg-live-acc");
     const liveDmg  = calcDiv.querySelector(".dmg-live-dmg");
     const update = () => {
       const modAcc = parseInt(calcDiv.querySelector('[data-mod="acc"]')?.value) || 0;
       const modDmg = parseInt(calcDiv.querySelector('[data-mod="dmg"]')?.value) || 0;
-      if (liveAcc) liveAcc.textContent = `A+${baseAcc + modAcc}`;
+      // Acerto: base do golpe + boost de acerto global + modificador manual
+      if (liveAcc) liveAcc.textContent = `A+${baseAcc + aceiroBoost + modAcc}`;
+      // Dano: base (já inclui stat boost) + STAB + tipo + modificador manual
       if (liveDmg) liveDmg.textContent = `R${baseRk + stab + typeB + modDmg}`;
     };
     calcDiv.querySelectorAll(".dmg-mod-input").forEach(inp => inp.addEventListener("input", update));

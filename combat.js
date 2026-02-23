@@ -687,7 +687,10 @@ _getEffectiveStats(trainerName, pid) {
       const pid = safeStr(p.pid);
       const name = this._getDisplayName(pid);
       const owner = safeStr(p.owner);
-      html += `<option value="${escHtml(safeStr(p.id))}" data-owner="${escHtml(owner)}" data-pid="${escHtml(pid)}">${escHtml(name)} (${escHtml(owner)})</option>`;
+      // Pré-carrega tipos do alvo no option element (fallback para race condition de carregamento de ficha)
+      const tSheetPre = this._getSheet(owner, pid);
+      const tTypesPre = Array.isArray(tSheetPre?.pokemon?.types) ? tSheetPre.pokemon.types.join(",") : "";
+      html += `<option value="${escHtml(safeStr(p.id))}" data-owner="${escHtml(owner)}" data-pid="${escHtml(pid)}" data-types="${escHtml(tTypesPre)}">${escHtml(name)} (${escHtml(owner)})</option>`;
     }
     html += `</select>`;
 
@@ -772,7 +775,7 @@ _getEffectiveStats(trainerName, pid) {
       });
     });
 
-    // Retorna os tipos do alvo atualmente selecionado (da ficha)
+    // Retorna os tipos do alvo atualmente selecionado (da ficha, com fallback para data-types do option)
     const getTargetTypes = () => {
       const tOpt = targetSel.selectedOptions[0];
       if (!tOpt) return [];
@@ -780,7 +783,19 @@ _getEffectiveStats(trainerName, pid) {
       const tPid = tOpt.dataset.pid;
       if (!tOwner || !tPid) return [];
       const tSheet = this._getSheet(tOwner, tPid);
-      return Array.isArray(tSheet?.pokemon?.types) ? tSheet.pokemon.types : [];
+      if (tSheet && Array.isArray(tSheet?.pokemon?.types) && tSheet.pokemon.types.length > 0) {
+        // Atualiza cache no option para futuras consultas
+        tOpt.dataset.types = tSheet.pokemon.types.join(",");
+        return tSheet.pokemon.types;
+      }
+      // Fallback: tipos armazenados no atributo data-types do option
+      const stored = safeStr(tOpt.dataset.types);
+      return stored ? stored.split(",").filter(Boolean) : [];
+    };
+
+    // Helper: resolve tipo do golpe (lookup por nome + fallback para mv.type / mv.meta.type)
+    const getMoveTypeResolved = (moveName, mv) => {
+      return getMoveType(moveName) || safeStr(mv?.meta?.type) || safeStr(mv?.type) || "";
     };
 
     // Populate moves when attacker pokemon changes
@@ -806,13 +821,16 @@ _getEffectiveStats(trainerName, pid) {
       const atkTypes = Array.isArray(sheet?.pokemon?.types) ? sheet.pokemon.types : [];
       const moves = sheet?.moves || [];
       const tgtTypes = getTargetTypes();
+      // Boost de acerto global (afeta todas as rolagens de ataque)
+      const aceiroBonus = safeInt(effectiveStats.acerto || 0);
 
       let opts = `<option value="manual">Manual (sem golpe)</option>`;
       moves.forEach((mv, i) => {
         const name = safeStr(mv.name) || "Golpe";
         const rank = safeInt(mv.rank);
         const [based, statVal] = moveStatValue(mv.meta || {}, stats);
-        const moveType = getMoveType(name);
+        // Resolve tipo do golpe: lookup por nome + fallback para mv.meta.type / mv.type
+        const moveType = getMoveTypeResolved(name, mv);
         const typeBonus = tgtTypes.length > 0 && moveType ? getTypeDamageBonus(moveType, tgtTypes) : 0;
         // STAB: +2 se o tipo do golpe é igual ao tipo do pokémon atacante
         const isStab = moveType && atkTypes.some(t => normalizeType(t) === moveType);
@@ -821,7 +839,8 @@ _getEffectiveStats(trainerName, pid) {
         const acc = safeInt(mv.accuracy);
         const bonusTxt = typeBonus !== 0 ? ` [${typeBonus > 0 ? '+' : ''}${typeBonus} tipo]` : '';
         const stabTxt = isStab ? " ★" : "";
-        opts += `<option value="${i}">${escHtml(name)}${stabTxt}. A:${acc} D:${damage}${bonusTxt}</option>`;
+        const aceiroTxt = aceiroBonus !== 0 ? ` Ac:${aceiroBonus > 0 ? '+' : ''}${aceiroBonus}` : '';
+        opts += `<option value="${i}">${escHtml(name)}${stabTxt}. A:${acc}${aceiroTxt} D:${damage}${bonusTxt}</option>`;
       });
       moveSel.innerHTML = opts;
       updateAccuracy();
@@ -839,7 +858,12 @@ _getEffectiveStats(trainerName, pid) {
       const mv = moves[parseInt(idx)];
       const acc = safeInt(mv.accuracy);
       accInput.value = acc;
-      accHint.textContent = `Acerto sugerido pelo golpe: ${acc}`;
+      const effectiveStats = this._getEffectiveStats(by, pid);
+      const aceiroBonus = safeInt(effectiveStats.acerto || 0);
+      const totalAcc = acc + aceiroBonus;
+      accHint.textContent = aceiroBonus !== 0
+        ? `Acerto sugerido: ${acc} + boost Acerto ${aceiroBonus > 0 ? '+' : ''}${aceiroBonus} = ${totalAcc}`
+        : `Acerto sugerido pelo golpe: ${acc}`;
     };
 
     atkPokemonSel.addEventListener("change", populateMoves);
@@ -897,10 +921,14 @@ _getEffectiveStats(trainerName, pid) {
       if (isSneakAttack) defenseVal = Math.floor(defenseVal / 2);
       const needed = defenseVal + 10;
 
+      // Boost de acerto do atacante (da aba de fichas)
+      const atkEffStatsForAceiro = this._getEffectiveStats(by, attackerPid);
+      const aceiroBonus = safeInt(atkEffStatsForAceiro.acerto || 0);
+
       // roll
       const roll = d20Roll();
       this._publishRoll(roll, `Ataque • ${attackerPid || "—"}`);
-      const totalAtk = atkMod + roll;
+      const totalAtk = atkMod + aceiroBonus + roll;
       let hit, critBonus;
       if (roll === 1) { hit = false; critBonus = 0; }
       else if (roll === 20) { hit = true; critBonus = 5; }
@@ -908,6 +936,7 @@ _getEffectiveStats(trainerName, pid) {
 
       const resultMsg = hit ? "ACERTOU! ✅" : "ERROU! ❌";
       const critTxt = critBonus ? " (CRÍTICO +5)" : "";
+      const aceiroTxt = aceiroBonus !== 0 ? ` +${aceiroBonus} Acerto` : "";
 
       // build move payload (usa effective stats com boosts)
       let movePayload = null;
@@ -923,10 +952,13 @@ _getEffectiveStats(trainerName, pid) {
           const rank = safeInt(mv.rank);
           const [based, statVal] = moveStatValue(mv.meta || {}, stats);
           const moveName = safeStr(mv.name) || "Golpe";
-          const moveType = getMoveType(moveName);
-          // Tipos do alvo para calcular bônus de tipo
+          // Resolve tipo: lookup por nome + fallback mv.meta.type / mv.type
+          const moveType = getMoveTypeResolved(moveName, mv);
+          // Tipos do alvo: tenta carregar da ficha, com fallback para option data-types
           const tSheet = this._getSheet(tOwner, tPid);
-          const tgtTypes = Array.isArray(tSheet?.pokemon?.types) ? tSheet.pokemon.types : [];
+          const tgtTypes = (tSheet && Array.isArray(tSheet?.pokemon?.types) && tSheet.pokemon.types.length > 0)
+            ? tSheet.pokemon.types
+            : (safeStr(targetOpt.dataset.types) ? safeStr(targetOpt.dataset.types).split(",").filter(Boolean) : []);
           const typeBonus = moveType && tgtTypes.length > 0 ? getTypeDamageBonus(moveType, tgtTypes) : 0;
           // STAB: +2 se o tipo do golpe = tipo do pokémon atacante
           const atkTypes = Array.isArray(sheet?.pokemon?.types) ? sheet.pokemon.types : [];
@@ -946,6 +978,8 @@ _getEffectiveStats(trainerName, pid) {
       }
 
       const sneakTxt = isSneakAttack ? " 🥷 Furtivo (def/2)" : "";
+      const atkModParts = [atkMod, aceiroBonus].filter(v => v !== 0);
+      const atkModStr = atkModParts.length > 1 ? atkModParts.join("+") : (atkModParts[0] || 0);
       const ref = this._battleRef(); if (!ref) return;
       await updateDoc(ref, {
         status: hit ? "hit_confirmed" : "missed",
@@ -957,6 +991,7 @@ _getEffectiveStats(trainerName, pid) {
         attack_move: movePayload,
         attack_range: atkRange,
         atk_mod: atkMod,
+        aceiro_bonus: aceiroBonus,
         d20: roll,
         defense_val: defenseVal,
         needed,
@@ -964,7 +999,7 @@ _getEffectiveStats(trainerName, pid) {
         crit_bonus: critBonus,
         sneak_attack: isSneakAttack,
         logs: [
-          `${by} rolou ${roll}+${atkMod}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${critTxt}${sneakTxt}... ${resultMsg}`
+          `${by} rolou ${roll}+${atkModStr}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${critTxt}${aceiroTxt}${sneakTxt}... ${resultMsg}`
         ],
       });
     });
@@ -1081,10 +1116,30 @@ _getEffectiveStats(trainerName, pid) {
     `;
 
     if (isAttacker) {
-      const moveDmg = battle.attack_move?.damage || 0;
+      const atk = battle.attack_move;
+      const moveDmg = atk?.damage || 0;
+      // Monta breakdown visual do dano para transparência
+      let breakdownHtml = "";
+      if (atk && atk.rank != null) {
+        const parts = [];
+        parts.push(`R${atk.rank} base`);
+        if (atk.stat_value) parts.push(`+${atk.stat_value} ${atk.based_stat || ""}`);
+        if (atk.stab_bonus) parts.push(`+${atk.stab_bonus} STAB`);
+        if (atk.type_bonus && atk.type_bonus !== 0) parts.push(`${atk.type_bonus > 0 ? '+' : ''}${atk.type_bonus} tipo`);
+        const critBonus = safeInt(battle.crit_bonus);
+        if (critBonus) parts.push(`+${critBonus} crítico`);
+        const totalWithCrit = moveDmg + critBonus;
+        breakdownHtml = `
+          <div style="font-size:11px;padding:6px 10px;margin-bottom:8px;border-radius:8px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.2);color:#94a3b8">
+            ${escHtml(parts.join(" "))} = <strong style="color:#38bdf8">R${totalWithCrit}</strong>
+            ${atk.move_type ? `<span style="margin-left:4px;opacity:.7">(${escHtml(atk.move_type)})</span>` : ""}
+          </div>
+        `;
+      }
       html += `
         <div style="margin-top:12px">
           <label class="label">Rank do Dano / Efeito</label>
+          ${breakdownHtml}
           <input class="input" id="cb_dmg_input" type="number" value="${safeInt(moveDmg)}" min="0" style="margin-bottom:10px" />
           <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
             <input type="checkbox" id="cb_is_effect" />
