@@ -2031,27 +2031,40 @@ function renderInspectorCard() {
   ].join("");
 
   const isMine = isPieceMine(p);
-  const mvBudget = getPieceMovementBudget(p);
+
+  // ✅ Dono-only: só o dono pode puxar/usar a ficha completa
+  const sh2 = isMine ? getSheetForPiece(p) : null;
+
+  const mvBudget = isMine ? getPieceMovementBudget(p) : { speed: 0, maxTiles: 0, dash: false };
   const freeMove = !!appState.movement?.freeByPieceId?.[selId];
+
   const slug = _pokeApiSlugFromPid(pid);
-  const apiCached = slug ? _pokeApiSpeedCache.get(slug) : undefined;
-  // Determine if the speed actually came from PokeAPI (sheet had no valid speed)
-  const sh2 = getSheetForPiece(p);
+  const apiCached = (isMine && slug) ? _pokeApiSpeedCache.get(slug) : undefined;
+
+  // ✅ Tipos/matchups: só mostra se for meu (ou se você quiser permitir tipos públicos, troque a regra aqui)
   const insTypes = (() => {
+    if (!isMine) return [];
     const fromSheet = sh2?.pokemon?.types;
     if (Array.isArray(fromSheet) && fromSheet.length) return fromSheet;
     if (Array.isArray(p?.types) && p.types.length) return p.types;
     return [];
   })();
-  const matchupH = revealed ? _typeMatchupHtml(insTypes) : "";
+
+  const matchupH = (isMine && revealed) ? _typeMatchupHtml(insTypes) : "";
+
   const psOwner = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
-  const sheetHasSpeed = [
+  const sheetHasSpeed = isMine ? [
     readSpeedFromStats(sh2?.stats), readSpeedFromStats(sh2?.pokemon?.stats),
+    readSpeedFromStats(sh2?.poke_stats), Number(sh2?.speed), Number(sh2?.pokemon?.speed),
+    readSpeedFromStats(psOwner?.stats), readSpeedFromStats(p?.stats), Number(p?.speed),
+  ].some(c => Number.isFinite(Number(c)) && Number(c) > 0) : false;
     readSpeedFromStats(sh2?.poke_stats), Number(sh2?.speed), Number(sh2?.pokemon?.speed),
     readSpeedFromStats(psOwner?.stats), readSpeedFromStats(p?.stats), Number(p?.speed),
   ].some(c => Number.isFinite(Number(c)) && Number(c) > 0);
   const speedSource = apiCached === "pending" ? "buscando…" : (!sheetHasSpeed && apiCached > 0) ? "PokeAPI" : "sheet";
-  const moveSummary = `Speed ${mvBudget.speed} (${speedSource}) • deslocamento ${mvBudget.maxTiles % 1 ? "1/2" : mvBudget.maxTiles} quadrado(s)`;
+  const moveSummary = isMine
+    ? `Speed ${mvBudget.speed} (${speedSource}) • deslocamento ${mvBudget.maxTiles % 1 ? "1/2" : mvBudget.maxTiles} quadrado(s)`
+    : `🔒 Ficha privada — apenas o dono pode ver stats/golpes.`;
 
   wrap.innerHTML = `
     <div class="inspector-head">
@@ -2092,8 +2105,8 @@ function renderInspectorCard() {
           <button type="button" class="btn primary" data-ins-act="move">Mover</button>
           <button type="button" class="btn ${freeMove ? "primary" : "secondary"}" data-ins-act="free" ${isMine ? "" : "disabled"}>🧭 Deslocamento livre ${freeMove ? "ON" : "OFF"}</button>
           <button type="button" class="btn ${mvBudget.dash ? "primary" : "secondary"}" data-ins-act="dash" ${isMine ? "" : "disabled"}>${mvBudget.dash ? "⚡ Standard gasta (x2)" : "⚡ Abrir mão da Standard (x2)"}</button>
-          <button type="button" class="btn secondary" data-ins-act="toggle">Ocultar</button>
-          <button type="button" class="btn danger" data-ins-act="remove">Retirar da arena</button>
+          <button type="button" class="btn secondary" data-ins-act="toggle" ${isMine ? "" : "disabled"}>Ocultar</button>
+          <button type="button" class="btn danger" data-ins-act="remove" ${isMine ? "" : "disabled"}>Retirar da arena</button>
         </div>
       </div>
     </div>

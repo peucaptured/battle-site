@@ -322,7 +322,20 @@ export class CombatUI {
     const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
     const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
     const baseStats = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
-    return normalizeStats(sheet?.stats || {});
+    const rawStats =
+      (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
+        ? sheet.stats
+        : {};
+    const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
+    const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
+    const baseStats = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
+
+    // ✅ THG fallback: se vier 0, THG = 2*NP - Dodge
+    const out = normalizeStats(baseStats);
+    if (safeInt(out.thg) <= 0 && np > 0) {
+      out.thg = Math.max(0, (2 * np) - safeInt(out.dodge));
+    }
+    return out;
   }
 
   // ─── Get effective stats (base + boosts temporários) ─────────────
@@ -353,6 +366,19 @@ export class CombatUI {
     }
     result.fortitude = safeInt(result.fort);
     result.toughness = safeInt(result.thg);
+    const boosts = pData.stat_boosts || {};
+    const result = normalizeStats(baseFixed);
+    for (const [k, v] of Object.entries(boosts)) {
+      const statKey = normalizeStatKey(k);
+      result[statKey] = (safeInt(result[statKey]) + safeInt(v));
+    }
+
+    // ✅ THG fallback: se vier 0, THG = 2*NP - Dodge (usa Dodge já boostado)
+    const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
+    if (safeInt(result.thg) <= 0 && np > 0) {
+      result.thg = Math.max(0, (2 * np) - safeInt(result.dodge));
+    }
+    return result;
     return result;
   }
 

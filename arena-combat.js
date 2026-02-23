@@ -775,7 +775,21 @@ export class ArenaCombatUI {
     const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
     const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
     const baseStats = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
-    return normalizeStats(sheet?.stats || {});
+
+    const rawStats =
+      (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
+        ? sheet.stats
+        : {};
+    const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
+    const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
+    const baseStats = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
+
+    // ✅ THG fallback: se vier 0, THG = 2*NP - Dodge
+    const out = normalizeStats(baseStats);
+    if (safeInt(out.thg) <= 0 && np > 0) {
+      out.thg = Math.max(0, (2 * np) - safeInt(out.dodge));
+    }
+    return out;
   }
 
   // ─── Favorites ─────────────────────────────────────────────────
