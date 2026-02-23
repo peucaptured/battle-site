@@ -1489,9 +1489,69 @@
     </div>
   </div>
 
+
+/* ═══════════════════════════════════════════════════════════════════
+   combat-inspector-patch.css
+   Estilos complementares para a tabela de fraquezas/resistências
+   e os campos de modificadores manuais injetados pelo patch.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Tabela de tipos do alvo */
+.cb-target-type-table {
+  animation: cbFadeIn .2s ease-out;
+}
+
+/* Pill de tipo dentro da tabela do alvo */
+.cb-target-type-table span[style] {
+  transition: filter .15s;
+}
+.cb-target-type-table span[style]:hover {
+  filter: brightness(1.2);
+}
+
+/* Painel de modificadores manuais */
+#cb_manual_mods_panel {
+  animation: cbFadeIn .2s ease-out;
+}
+
+#cb_manual_mods_panel .input:focus {
+  border-color: rgba(251, 191, 36, .6) !important;
+  box-shadow: 0 0 0 2px rgba(251, 191, 36, .15);
+}
+
+/* Indicador visual de valor positivo/negativo nos inputs de mod */
+#cb_mod_acc:not([value="0"]),
+#cb_mod_dmg:not([value="0"]) {
+  border-color: rgba(251, 191, 36, .5);
+  background: rgba(251, 191, 36, .05);
+}
+
+/* Badge de bônus/custo calculado (opcional) */
+.cb-mod-preview {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .25);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cb-mod-preview .mod-plus  { color: rgba(74, 222, 128, 1); }
+.cb-mod-preview .mod-minus { color: rgba(248, 113, 113, 1); }
+.cb-mod-preview .mod-zero  { color: rgba(148, 163, 184, .6); }
+
+
+
+
+
   <!-- ═══════════════════════════════════════════════════════
        HUD BODY — 3-column layout
        ═══════════════════════════════════════════════════════ -->
+
+
   <div class="hud-body">
     <!-- ┌─── LEFT: Fichas (team list) ───┐ -->
     <div class="sidebar-left">
@@ -1774,6 +1834,7 @@
        ═══════════════════════════════════════════════════════ -->
   <script type="module" src="./main.js"></script>
   <script type="module" src="./combat-patch.js"></script>
+  <script type="module" src="./combat-inspector-patch.js"></script>  ← NOVO
   <script type="module" src="./initiative-patch.js"></script>
   <script type="module" src="./arena-combat-patch.js"></script>
   <script type="module" src="./scoreboard-patch.js"></script>
