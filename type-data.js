@@ -61,7 +61,14 @@ const PT_TO_EN = {
 export function normalizeType(t) {
   if (!t) return "";
   const s = String(t).trim();
-  return PT_TO_EN[s] || s;
+  if (!s) return "";
+  // Tenta lookup direto (ex: "Fogo", "Fire")
+  if (PT_TO_EN[s]) return PT_TO_EN[s];
+  // Tenta lookup com capitalização (ex: "fogo" → "Fogo" → "Fire", "psychic" → "Psychic")
+  const cap = s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  if (PT_TO_EN[cap]) return PT_TO_EN[cap];
+  // Retorna sempre capitalizado para casar com TYPE_CHART (ex: "psychic" → "Psychic")
+  return cap;
 }
 
 /**

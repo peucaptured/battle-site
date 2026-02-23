@@ -2050,29 +2050,28 @@ function renderInspectorCard() {
       if (_hasValidTypes(fromSheet)) return fromSheet;
       if (_hasValidTypes(p?.types)) return p.types;
     }
-    // Inspector público: qualquer peça (própria ou revelada) — busca PokeAPI
-    if (canSeeIdentity) {
-      if (slug) {
-        const cached = _pokeApiTypeCache.get(slug);
+    // Inspector público: qualquer peça — busca PokeAPI (dados de tipo são públicos)
+    if (slug) {
+      const cached = _pokeApiTypeCache.get(slug);
+      if (Array.isArray(cached) && cached.length) return cached;
+      if (cached !== "pending") fetchPokeApiTypes(slug); // fire-and-forget
+    }
+    // Fallback: tenta pelo nome de exibição (ex: "Charizard" → "charizard")
+    const displayName = dexNameFromPid(pid) || pid;
+    if (!slug && displayName && displayName !== "???" && displayName !== "—") {
+      const nameSlug = displayName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+      if (nameSlug) {
+        const cached = _pokeApiTypeCache.get(nameSlug);
         if (Array.isArray(cached) && cached.length) return cached;
-        if (cached !== "pending") fetchPokeApiTypes(slug); // fire-and-forget
-      }
-      // Fallback: tenta pelo nome de exibição (ex: "Charizard" → "charizard")
-      if (!slug && name && name !== "???" && name !== "—") {
-        const nameSlug = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
-        if (nameSlug) {
-          const cached = _pokeApiTypeCache.get(nameSlug);
-          if (Array.isArray(cached) && cached.length) return cached;
-          if (cached !== "pending") fetchPokeApiTypes(nameSlug);
-        }
+        if (cached !== "pending") fetchPokeApiTypes(nameSlug);
       }
     }
     return [];
   })();
 
-  // Tabela de fraquezas visível para todos os jogadores (Inspector público)
-  const offenseH = canSeeIdentity ? _typeOffenseHtml(insTypes) : "";
-  const matchupH = canSeeIdentity ? _typeMatchupHtml(insTypes) : "";
+  // Tabela de fraquezas visível para todos os jogadores (público)
+  const offenseH = _typeOffenseHtml(insTypes);
+  const matchupH = _typeMatchupHtml(insTypes);
 
 const psOwner = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
 const sheetHasSpeed = isMine ? [
