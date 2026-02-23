@@ -2052,13 +2052,14 @@ function renderInspectorCard() {
 
   const matchupH = (isMine && revealed) ? _typeMatchupHtml(insTypes) : "";
 
-  const psOwner = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
-  const sheetHasSpeed = isMine ? [
-    readSpeedFromStats(sh2?.stats), readSpeedFromStats(sh2?.pokemon?.stats),
-    readSpeedFromStats(sh2?.poke_stats), Number(sh2?.speed), Number(sh2?.pokemon?.speed),
-    readSpeedFromStats(psOwner?.stats), readSpeedFromStats(p?.stats), Number(p?.speed),
-  ].some(c => Number.isFinite(Number(c)) && Number(c) > 0) : false;
-  const speedSource = apiCached === "pending" ? "buscando…" : (!sheetHasSpeed && apiCached > 0) ? "PokeAPI" : "sheet";
+const psOwner = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
+const sheetHasSpeed = isMine ? [
+  readSpeedFromStats(sh2?.stats), readSpeedFromStats(sh2?.pokemon?.stats),
+  readSpeedFromStats(sh2?.poke_stats), Number(sh2?.speed), Number(sh2?.pokemon?.speed),
+  readSpeedFromStats(psOwner?.stats), readSpeedFromStats(p?.stats), Number(p?.speed),
+].some(c => Number.isFinite(Number(c)) && Number(c) > 0) : false;
+
+const speedSource = apiCached === "pending" ? "buscando…" : (!sheetHasSpeed && apiCached > 0) ? "PokeAPI" : "sheet";
   const moveSummary = isMine
     ? `Speed ${mvBudget.speed} (${speedSource}) • deslocamento ${mvBudget.maxTiles % 1 ? "1/2" : mvBudget.maxTiles} quadrado(s)`
     : `🔒 Ficha privada — apenas o dono pode ver stats/golpes.`;
