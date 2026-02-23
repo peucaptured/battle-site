@@ -3905,9 +3905,12 @@ function drawWaterCells(ctx, ox, oy, gs, tile) {
   if (!gh || !gw) return;
 
   const t   = Date.now() / 1000;
-  // 3 animation frames, each 5 cols wide in the spritesheet; ~4 fps
-  const ANIM_FRAMES = 3;
-  const fi = Math.floor(t * 4) % ANIM_FRAMES;
+
+  // ── Wave timing constants ───────────────────────────────────────────────
+  // WAVE_PERIOD: seconds for one complete crash-and-recede cycle.
+  // The cycle uses sin²: ~55% of the time the wave is fully receded (frame 0),
+  // ~30% transitioning (frame 2), and only ~15% at peak crash (frame 1).
+  const WAVE_PERIOD = 3.2;
 
   const borderMap = mapDataState.borderMap;  // Map<"r,c", land_mask> or null
   const hasPrebuilt = borderMap !== null;
@@ -3941,26 +3944,52 @@ function drawWaterCells(ctx, ox, oy, gs, tile) {
       }
 
       if (isBorder && oceanAnim.ready) {
-        // ── BORDA: tile do spritesheet selecionado pelo land_mask ─────────
-        // OCEAN_AUTOTILE_MAP dá a posição {r,c} dentro do bloco 5×3.
-        // Cada frame de animação desloca +5 colunas no spritesheet.
-        const tc = OCEAN_AUTOTILE_MAP[mask] || {r: 1, c: 1};
-        const sheetCol = tc.c + fi * 5;
+        // ── BORDA: crash-and-recede wave animation ────────────────────────
+        //
+        // Stagger: each cell has a fixed phase offset so waves appear to roll
+        // diagonally along the shoreline instead of all crashing in sync.
+        // The coefficient mix (r*0.45, c*0.55) creates a gentle diagonal roll.
+        const stagger = ((r * 0.45 + c * 0.55) % WAVE_PERIOD + WAVE_PERIOD) % WAVE_PERIOD;
+        const rawT    = ((t + stagger) % WAVE_PERIOD) / WAVE_PERIOD; // 0→1
+
+        // sin²: positive only for first half of cycle (0→0.5), zero for second half.
+        // Squaring sharpens the peak → brief crash, long calm.
+        const sinVal  = Math.sin(rawT * Math.PI * 2);
+        const wavePeak = sinVal > 0 ? sinVal * sinVal : 0;   // 0 when wave receded
+
+        // Frame + alpha based on wave phase:
+        //   wavePeak = 0      → receded: sandy tile (F0), low alpha
+        //   wavePeak = 0–0.5  → approaching/receding: mid tile (F2), mid alpha
+        //   wavePeak > 0.5    → crashed: foam/water tile (F1), high alpha
+        let fi, waveAlpha;
+        if (wavePeak < 0.12) {
+          fi = 0; waveAlpha = 0.38 + wavePeak * 1.2;   // receded — subtle wet overlay
+        } else if (wavePeak < 0.55) {
+          fi = 2; waveAlpha = 0.55 + wavePeak * 0.45;  // wave rising / receding
+        } else {
+          fi = 1; waveAlpha = 0.82 + wavePeak * 0.10;  // wave at peak — max foam
+        }
+
+        // Look up the correctly-shaped tile for this cell's shore direction
+        const tc       = OCEAN_AUTOTILE_MAP[mask] || {r: 1, c: 1};
+        const sheetCol = tc.c + fi * 5;   // each frame is 5 cols wide
         const sheetRow = tc.r;
 
-        ctx.globalAlpha = 0.85;
+        ctx.globalAlpha = Math.min(waveAlpha, 0.92);
         ctx.drawImage(
           oceanAnim.img,
-          sheetCol * 32, sheetRow * 32, 32, 32,   // fonte exata no spritesheet
-          cx, cy, tile, tile                       // destino: escalado para view.scale
+          sheetCol * 32, sheetRow * 32, 32, 32,   // exact source tile
+          cx, cy, tile, tile                       // dest: scaled to view
         );
         ctx.globalAlpha = 1;
 
-        // Leve brilho de espuma nas bordas
-        const edge = Math.sin(t * 3 + c * 1.1 + r * 0.9) * 0.5 + 0.5;
-        ctx.strokeStyle = `rgba(220,245,255,${0.10 + edge * 0.14})`;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(cx + 0.5, cy + 0.5, tile - 1, tile - 1);
+        // Brief white-foam sparkle at the very peak of the crash
+        if (fi === 1 && wavePeak > 0.70) {
+          const sparkle = (wavePeak - 0.70) / 0.30;
+          ctx.strokeStyle = `rgba(230,250,255,${sparkle * 0.28})`;
+          ctx.lineWidth   = 1;
+          ctx.strokeRect(cx + 0.5, cy + 0.5, tile - 1, tile - 1);
+        }
 
       } else {
         // ── INTERIOR: shimmer suave (calm water) ─────────────────────────
