@@ -286,11 +286,12 @@ newRoundBtn.addEventListener("click", async () => {
 
     const currentRound = Number(window.appState?.battle?.turn_state?.round) || 1;
     // Start preprep asking phase directly (no dice roll needed)
+    // Note: passTurnBtn already incremented the round, so don't add +1 here
     await setDoc(ref, {
       preprep: { phase: "asking", responses: {}, data: {} },
       turn_state: {
         phase: "preprep_asking",
-        round: currentRound + 1,
+        round: currentRound,
         index: 0,
         order,
         updatedAt: Date.now(),
@@ -441,13 +442,39 @@ function renderModalWaiting() {
     </li>`;
   }
 
+  // Check if all have responded already (for showing force-advance button to GM)
+  const role = safeStr(window.appState?.role);
+  const isOwner = role === "owner" || role === "gm";
+  const allAnswered = allPlayers.length > 0 && allPlayers.every(p => {
+    const tn = safeStr(p.trainer_name);
+    return responses[tn] === "yes" || responses[tn] === "no";
+  });
+
   _modal.innerHTML = `
     <div class="pp-card">
       <h2>⏳ Aguardando jogadores…</h2>
       <p class="pp-subtitle">Esperando todos responderem antes de iniciar a rodada.</p>
-      <ul class="pp-waiting-list">${items}</ul>
+      <ul class="pp-waiting-list">${items || '<li class="pp-waiting-item"><span class="pp-waiting-dot wait"></span><span>Carregando jogadores…</span></li>'}</ul>
+      <div class="pp-action-row" style="justify-content:space-between">
+        <button class="pp-btn-cancel" id="pp-close-waiting">Fechar</button>
+        ${isOwner ? `<button class="pp-btn-confirm" id="pp-force-advance" style="font-size:.8rem;padding:8px 16px">⏩ Forçar início</button>` : ''}
+      </div>
     </div>
   `;
+
+  _modal.querySelector("#pp-close-waiting").onclick = () => closeModal();
+  if (isOwner) {
+    _modal.querySelector("#pp-force-advance")?.addEventListener("click", async () => {
+      const ref = getBattleRef();
+      if (!ref) return;
+      try {
+        await setDoc(ref, {
+          preprep: { phase: "done" },
+          turn_state: { phase: "active" },
+        }, { merge: true });
+      } catch (e) { console.error("[preprep] force-advance error", e); }
+    });
+  }
 }
 
 // Step — Selecionar pokémons para preprep
@@ -682,14 +709,21 @@ async function tryAdvanceToActive() {
     .filter(p => safeStr(p?.trainer_name));
   const responses = _preprepData?.responses || {};
 
-  if (!allPlayers.length) return;
-
-  const allAnswered = allPlayers.every(p => {
-    const tn = safeStr(p.trainer_name);
-    return responses[tn] === "yes" || responses[tn] === "no";
-  });
-
-  if (!allAnswered) return;
+  // If no players list, fall back to checking responses directly
+  let allAnswered = false;
+  if (!allPlayers.length) {
+    // Use responses keys as proxy for who needs to answer
+    const respVals = Object.values(responses);
+    // If at least I answered and nobody is pending, advance
+    allAnswered = !!responses[_by] && respVals.every(v => v === "yes" || v === "no");
+    if (!allAnswered) return;
+  } else {
+    allAnswered = allPlayers.every(p => {
+      const tn = safeStr(p.trainer_name);
+      return responses[tn] === "yes" || responses[tn] === "no";
+    });
+    if (!allAnswered) return;
+  }
 
   // All "no" or all collected their prepreps
   const anyYes = Object.values(responses).some(v => v === "yes");
@@ -697,7 +731,10 @@ async function tryAdvanceToActive() {
     // Check if all who said yes already submitted their data
     const data = _preprepData?.data || {};
     const yesPlayers = allPlayers.filter(p => responses[safeStr(p.trainer_name)] === "yes");
-    const allSubmitted = yesPlayers.every(p => {
+    // If we don't have players list, check my own submission
+    const checkList = yesPlayers.length > 0 ? yesPlayers :
+      (responses[_by] === "yes" ? [{ trainer_name: _by }] : []);
+    const allSubmitted = checkList.every(p => {
       const entries = data[safeStr(p.trainer_name)]?.entries;
       return Array.isArray(entries) && entries.length > 0;
     });
@@ -851,40 +888,39 @@ function onBattleSnapshot(snap) {
   const ppPhase = safeStr(pp.phase);
   const turnPhase = safeStr(turnState.phase);
 
-  // If preprep is done or turn is active → close any modal
-  if (ppPhase === "done" || turnPhase === "active") {
-    closeModal();
+  // If preprep is done, turn is active, or no preprep in progress → close any modal
+  const preprepActive = ppPhase === "asking" && turnPhase === "preprep_asking";
+  if (!preprepActive) {
+    if (_modal) closeModal();
     return;
   }
 
-  // If preprep phase is "asking" (set by roll initiative)
-  if (ppPhase === "asking") {
-    const responses = pp.responses || {};
-    const myResp = responses[_by];
+  // If preprep phase is "asking" (triggered by round end)
+  const responses = pp.responses || {};
+  const myResp = responses[_by];
 
-    // I haven't answered yet → show Ask modal
-    if (!myResp) {
-      if (_modalStep !== "ask") openModal("ask");
+  // I haven't answered yet → show Ask modal
+  if (!myResp) {
+    if (_modalStep !== "ask") openModal("ask");
+    return;
+  }
+
+  // I answered yes but haven't submitted data yet → stay on text/select
+  if (myResp === "yes") {
+    const myData = pp.data?.[_by];
+    if (!Array.isArray(myData?.entries) || myData.entries.length === 0) {
+      // Stay in selection/text flow; don't interrupt
+      if (_modalStep === "waiting") openModal("select");
       return;
     }
-
-    // I answered yes but haven't submitted data yet → stay on text/select
-    if (myResp === "yes") {
-      const myData = pp.data?.[_by];
-      if (!Array.isArray(myData?.entries) || myData.entries.length === 0) {
-        // Stay in selection/text flow; don't interrupt
-        if (_modalStep === "waiting") openModal("select");
-        return;
-      }
-    }
-
-    // I answered; show waiting for others
-    if (_modalStep !== "waiting") openModal("waiting");
-    else renderModalWaiting(); // refresh the list
-
-    // Try advancing
-    tryAdvanceToActive();
   }
+
+  // I answered; show waiting for others
+  if (_modalStep !== "waiting") openModal("waiting");
+  else renderModalWaiting(); // refresh the list
+
+  // Try advancing whenever snapshot fires and we're waiting
+  tryAdvanceToActive();
 }
 
 // ── init ──────────────────────────────────────────────────────────────────

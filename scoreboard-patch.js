@@ -508,12 +508,18 @@ function getSpriteUrl(pid, opts) {
 }
 
 // ── Get trainer photo ──
+// Retorna { src, type } onde type é "photo"|"sprite"|null
 function getTrainerPhoto(player) {
   const tn = safeStr(player.trainer_name);
+
+  // 1. foto real (base64 thumb) — prioridade máxima
   if (player.avatar?.photo_thumb_b64) {
     return `data:image/png;base64,${player.avatar.photo_thumb_b64}`;
   }
+
   const as = window.appState;
+
+  // 2. foto real via userProfiles (users/{uid} em tempo real)
   if (as?.userProfiles) {
     const uid = safeStr(player.uid) || safeDocId(tn);
     const entry = as.userProfiles.get(uid);
@@ -522,6 +528,20 @@ function getTrainerPhoto(player) {
       return `data:image/png;base64,${profile.avatar.photo_thumb_b64}`;
     }
   }
+
+  // 3. avatar_choice: sprite de treinador salvo no Ga'Al Dex (./pokemon/{choice}.png)
+  const choice =
+    safeStr(player.avatar?.avatar_choice || "") ||
+    safeStr(
+      as?.userProfiles?.get?.(safeDocId(tn))?.profile?.avatar?.avatar_choice ||
+      as?.userProfiles?.get?.(safeDocId(tn))?.raw?.data?.trainer_profile?.avatar_choice ||
+      (tn === safeStr(as?.by) ? as?.selfUserData?.trainer_profile?.avatar_choice : "") ||
+      ""
+    );
+  if (choice) {
+    return `./pokemon/${choice}.png`;
+  }
+
   return null;
 }
 

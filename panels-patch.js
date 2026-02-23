@@ -25,6 +25,83 @@ function escapeHtml(s) {
 }
 function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
 
+// ─── Avatar helper ───────────────────────────────────────────────────
+// Retorna HTML para o avatar do treinador (foto, sprite ou inicial)
+// Fontes (em ordem de prioridade):
+//   1. photo_thumb_b64 vindo do player ou userProfiles (foto real)
+//   2. avatar_choice  → ./pokemon/{choice}.png (sprite de treinador)
+//   3. Firebase Storage trainer_photos/{name}/profile.png
+//   4. Inicial do nome como fallback final
+function getAvatarImgHtml(trainerName, extraStyle) {
+  const tn = safeStr(trainerName);
+  if (!tn) return `<div class="pp-avatar-img"${extraStyle ? ` style="${extraStyle}"` : ""}>?</div>`;
+
+  const as = window.appState;
+  const initial = tn.charAt(0).toUpperCase();
+
+  // coleta dados de avatar de múltiplas fontes
+  let thumb = "";
+  let choice = "";
+
+  // Fonte 1: selfUserData (treinador logado)
+  if (as?.selfUserData && safeStr(as.by) === tn) {
+    const prof = as.selfUserData?.trainer_profile || {};
+    thumb  = safeStr(prof.photo_thumb_b64 || "");
+    choice = safeStr(prof.avatar_choice || "");
+  }
+
+  // Fonte 2: appState.players (lista da sala, tem avatar sincronizado do Ga'Al Dex)
+  if (!thumb && !choice) {
+    const player = (as?.players || []).find(p => safeStr(p?.trainer_name) === tn);
+    if (player?.avatar) {
+      thumb  = safeStr(player.avatar.photo_thumb_b64 || "");
+      choice = safeStr(player.avatar.avatar_choice   || "");
+    }
+  }
+
+  // Fonte 3: userProfiles (users/{uid} assinado em tempo real)
+  if (!thumb && !choice && as?.userProfiles) {
+    const uid = safeStr(tn).replace(/[^a-zA-Z0-9_\-\.]/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "user";
+    const entry = as.userProfiles.get(uid);
+    const pAvatar = entry?.profile?.avatar;
+    if (pAvatar) {
+      thumb  = safeStr(pAvatar.photo_thumb_b64 || "");
+      choice = safeStr(pAvatar.avatar_choice   || "");
+    }
+    // Também tenta via users_raw
+    if (!thumb && !choice) {
+      const raw   = entry?.raw;
+      const rData = raw?.data || raw;
+      const rProf = rData?.trainer_profile || {};
+      thumb  = safeStr(rProf.photo_thumb_b64 || "");
+      choice = safeStr(rProf.avatar_choice   || "");
+    }
+  }
+
+  const styleAttr = extraStyle ? ` style="${extraStyle}"` : "";
+
+  if (thumb) {
+    return `<div class="pp-avatar-img"${styleAttr}><img src="data:image/png;base64,${escapeAttr(thumb)}" alt="${escapeAttr(tn)}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"/></div>`;
+  }
+
+  if (choice) {
+    const fallbackLetter = escapeHtml(initial);
+    return `<div class="pp-avatar-img"${styleAttr}><img src="${escapeAttr(`./pokemon/${choice}.png`)}" alt="${escapeAttr(tn)}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;" onerror="this.parentElement.textContent='${fallbackLetter}';"/></div>`;
+  }
+
+  // Tenta Firebase Storage como último recurso antes da letra
+  const bucket = window.DEFAULT_FIREBASE_CONFIG?.storageBucket || "";
+  if (bucket) {
+    const storageUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(`trainer_photos/${tn}/profile.png`)}?alt=media`;
+    const safeDocName = tn.replace(/[^a-zA-Z0-9_\-\.]/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "user";
+    const storageUrl2 = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(`trainer_photos/${safeDocName}/profile.png`)}?alt=media`;
+    const fallbackLetter = escapeHtml(initial);
+    return `<div class="pp-avatar-img"${styleAttr}><img src="${escapeAttr(storageUrl)}" alt="${escapeAttr(tn)}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;" onerror="if(this.dataset.f!=='1'){this.dataset.f='1';this.src='${escapeAttr(storageUrl2)}';}else{var p=this.parentElement;this.remove();if(p)p.textContent='${fallbackLetter}';}"/></div>`;
+  }
+
+  return `<div class="pp-avatar-img"${styleAttr}>${escapeHtml(initial)}</div>`;
+}
+
 // ─── Inject styles ONCE ──────────────────────────────────────────────
 let _stylesInjected = false;
 function injectPanelStyles() {
@@ -795,10 +872,9 @@ function renderMyTeam(teamRoot, by, pieces, myParty) {
   // Avatar card
   const avatarCard = document.createElement("div");
   avatarCard.className = "pp-avatar-card";
-  const initial = by ? by.charAt(0).toUpperCase() : "?";
   const role = safeStr(window.appState?.role) || "—";
   avatarCard.innerHTML = `
-    <div class="pp-avatar-img">${initial}</div>
+    ${getAvatarImgHtml(by)}
     <div class="pp-avatar-info">
       <div class="pp-avatar-name">🟡 ${escapeHtml(by || "—")}</div>
       <div class="pp-avatar-role">${escapeHtml(role)}</div>
@@ -924,7 +1000,7 @@ function renderOpponents(oppRoot, by, pieces) {
     const oppAvatar = document.createElement("div");
     oppAvatar.className = "pp-avatar-card";
     oppAvatar.innerHTML = `
-      <div class="pp-avatar-img" style="border-color: rgba(248,113,113,.35);">${ownerName.charAt(0).toUpperCase()}</div>
+      ${getAvatarImgHtml(ownerName, "border-color: rgba(248,113,113,.35);")}
       <div class="pp-avatar-info">
         <div class="pp-avatar-name">🔴 ${escapeHtml(ownerName)}</div>
         <div class="pp-avatar-role">Oponente</div>

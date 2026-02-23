@@ -525,6 +525,14 @@ let currentRid = null;
 let unsub = [];
 let userUnsub = new Map(); // uid -> unsubscribe
 
+// Converte nome de treinador para ID no formato usado pelas Cloud Functions (lowercase + sem-acento)
+function safeIdLower(name) {
+  return safeStr(name).toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "")
+    .slice(0, 80) || "user";
+}
+
 function ensureUserSubscriptions() {
   if (!currentDb) return;
   const wanted = new Map(); // uid/docId -> trainer_name
@@ -535,11 +543,16 @@ function ensureUserSubscriptions() {
     wanted.set(key, name);
   };
   const by = safeStr(appState.by);
-  if (by) addWanted(safeDocId(by), by);
+  if (by) {
+    addWanted(safeDocId(by), by);
+    // Cloud Functions e sync HTTP usam chave lowercase — assina também essa variante
+    addWanted(safeIdLower(by), by);
+  }
   for (const p of (appState.players || [])) {
     const tn = safeStr(p?.trainer_name);
     if (!tn) continue;
     addWanted(safeDocId(tn), tn);
+    addWanted(safeIdLower(tn), tn);
     addWanted(p?.uid, tn);
     addWanted(p?.id, tn);
   }
@@ -547,6 +560,7 @@ function ensureUserSubscriptions() {
     const tn = safeStr(p?.owner);
     if (!tn) continue;
     addWanted(safeDocId(tn), tn);
+    addWanted(safeIdLower(tn), tn);
   }
 
   // unsubscribe removidos
@@ -569,6 +583,18 @@ function ensureUserSubscriptions() {
         const cur = appState.userProfiles.get(uid) || {};
         cur.raw = data;
         appState.userProfiles.set(uid, cur);
+
+        // 🔄 Se este uid corresponde ao treinador logado, atualiza selfUserData em tempo real.
+        // Isso garante que mudanças feitas no Ga'Al Dex (party, itens…) reflitam na batalha
+        // sem precisar reconectar.
+        const selfBy = safeStr(appState.by);
+        if (selfBy && data && (uid === safeDocId(selfBy) || uid === safeIdLower(selfBy))) {
+          const freshData = data.data || data; // users_raw pode ter campo .data
+          if (freshData && typeof freshData === "object" && Array.isArray(freshData.party)) {
+            appState.selfUserData = freshData;
+          }
+        }
+
         updateSidePanels();
       }, () => {});
       const un2 = onSnapshot(profileDoc, (snap) => {
@@ -639,10 +665,25 @@ function updateTopBadges() {
       const url1 = storageMediaUrl(`trainer_photos/${tn}/profile.png`);
       const url2 = storageMediaUrl(`trainer_photos/${safeDocId(tn)}/profile.png`);
       const letter = tn.slice(0, 1).toUpperCase();
-      // Render foto do treinador (Storage). Fallback: tenta pasta "safe" e depois cai na letra.
-      avatarIcon.innerHTML = `<img src="${escapeAttr(url1)}" alt="${escapeAttr(tn)}"
-        style="width:26px;height:26px;border-radius:999px;object-fit:cover;display:block"
-        onerror="if(this.dataset.fallback!=='1'){this.dataset.fallback='1';this.src='${escapeAttr(url2)}';}else{var p=this.parentElement;this.remove();if(p)p.textContent='${letter}';}">`;
+      // Verifica se existe foto base64 ou avatar_choice no selfUserData
+      const prof = appState.selfUserData?.trainer_profile || {};
+      const thumb  = safeStr(prof.photo_thumb_b64 || "");
+      const choice = safeStr(prof.avatar_choice   || "");
+      if (thumb) {
+        // foto real (base64 thumb)
+        avatarIcon.innerHTML = `<img src="data:image/png;base64,${escapeAttr(thumb)}" alt="${escapeAttr(tn)}"
+          style="width:26px;height:26px;border-radius:999px;object-fit:cover;display:block">`;
+      } else if (choice) {
+        // sprite de treinador do Ga'Al Dex
+        avatarIcon.innerHTML = `<img src="${escapeAttr(`./pokemon/${choice}.png`)}" alt="${escapeAttr(tn)}"
+          style="width:26px;height:26px;border-radius:999px;object-fit:cover;display:block"
+          onerror="var p=this.parentElement;this.remove();if(p)p.textContent='${letter}';">`;
+      } else {
+        // Render foto do treinador (Storage). Fallback: tenta pasta "safe" → letra.
+        avatarIcon.innerHTML = `<img src="${escapeAttr(url1)}" alt="${escapeAttr(tn)}"
+          style="width:26px;height:26px;border-radius:999px;object-fit:cover;display:block"
+          onerror="if(this.dataset.fallback!=='1'){this.dataset.fallback='1';this.src='${escapeAttr(url2)}';}else{var p=this.parentElement;this.remove();if(p)p.textContent='${letter}';}">`;
+      }
     }
   }
 
@@ -902,23 +943,30 @@ passTurnBtn?.addEventListener("click", async () => {
       let nextIndex = idx + 1;
       let nextRound = Number(turnState.round) || 1;
       let nextPhase = "active";
+      let roundEnded = false;
       if (nextIndex >= order.length) {
         nextIndex = 0;
         nextRound += 1;
-        nextPhase = "awaiting_initiative";
+        nextPhase = "preprep_asking";
+        roundEnded = true;
+      }
+
+      const _updatePayload = {
+        turn_state: {
+          ...turnState,
+          round: nextRound,
+          index: nextIndex,
+          phase: nextPhase,
+          updatedAt: Date.now(),
+        },
+      };
+      if (roundEnded) {
+        _updatePayload.preprep = { phase: "asking", responses: {}, data: {} };
       }
 
       tx.set(
         battleRef,
-        {
-          turn_state: {
-            ...turnState,
-            round: nextRound,
-            index: nextIndex,
-            phase: nextPhase,
-            updatedAt: Date.now(),
-          },
-        },
+        _updatePayload,
         { merge: true }
       );
     });
@@ -1122,6 +1170,9 @@ connectBtn?.addEventListener("click", async () => {
         if (statePre) statePre.textContent = pretty(data);
         updateArenaMeta();
         updateSidePanels();
+        // Garante que treinadores que entraram só via peças (sem registro em players) também têm
+        // users_raw/users assinados, permitindo carregar party e avatar corretamente.
+        ensureUserSubscriptions();
         if (!useCanvas) renderArenaDom();
         if (useCanvas && view.autoFit) fitToView();
       },
@@ -1624,9 +1675,11 @@ function getPartyForTrainer(trainerName) {
       return direct.map(x => ({ pid: normalizePartyPid(x) })).filter(it => it.pid);
     }
 
-    // (opcional) se no futuro você guardar party dentro de byId
+    // byId: Cloud Functions gravam com safeId (lowercase+sem-acento); Ga'Al Dex com safe_doc_id (case).
+    // Tentamos múltiplas variações de chave para cobrir ambos os casos.
     const byId = ps.byId || {};
-    const entry = byId[safeDocId(tn)] || byId[tn];
+    const tnLower = safeStr(tn).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const entry = byId[safeDocId(tn)] || byId[tn] || byId[tnLower] || byId[safeStr(tn).toLowerCase()];
     const party2 = Array.isArray(entry?.party) ? entry.party : (Array.isArray(entry?.party_snapshot) ? entry.party_snapshot : []);
     if (party2.length) {
       // party2 pode vir como strings ou objetos, normaliza:
@@ -6099,7 +6152,8 @@ window.getSpriteUrlFromPid = getSpriteUrlFromPid;
 window.localSpriteUrl      = localSpriteUrl;
 window.spriteUrlWithFallback = spriteUrlWithFallback;
 window.spriteSlugFromPokemonName = spriteSlugFromPokemonName;
-window._arenaView         = view;
+window._arenaView              = view;
+window.DEFAULT_FIREBASE_CONFIG = DEFAULT_FIREBASE_CONFIG; // exposto para patches (avatar URL)
 window.currentDb          = null;
 window.currentRid         = null;
 window.runTransaction     = runTransaction;

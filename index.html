@@ -1159,32 +1159,102 @@
       }
     }
     @media (max-width: 700px) {
+      :root { --hud-viewport-height: auto; }
+      body { overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
       .hero-header{
         height: auto;
+        min-height: 52px;
         padding: 8px 12px;
         flex-wrap: wrap;
-        gap:8px;
+        gap: 6px;
+        position: sticky;
+        top: 0;
       }
-      .hero-title{ font-size:14px; }
+      .hero-left { flex: 0 0 auto; }
+      .hero-title{ font-size:13px; }
+      .hero-sub { display: none; }
       .hero-right{
-        gap:6px;
-        justify-content: center;
-        width:100%;
+        gap: 5px;
+        justify-content: flex-end;
+        flex: 1;
+        flex-wrap: wrap;
       }
+      .hero-right .pill { font-size: 10px; padding: 4px 7px; }
+      /* Hide less important pills on mobile */
+      #sync_badge, .pill:has(#rid_badge) { display: none; }
+      .hero-right .btn { padding: 6px 10px; font-size: 11px; }
+      .hero-roll-btn { padding: 7px 12px !important; font-size: 12px !important; }
+      /* Compact turn badge */
+      .turn-pill { max-width: 180px; font-size: 10px; }
+
       .hud-tabs{
-        margin-top: auto;
-        padding: 6px 10px;
+        margin-top: 0;
+        padding: 5px 8px;
+        position: sticky;
+        top: 0;
+        z-index: 90;
+        background: linear-gradient(180deg, rgba(9,14,29,.97), rgba(9,14,29,.85));
+        backdrop-filter: blur(16px);
+        border-bottom: 1px solid rgba(120,210,255,.10);
       }
-      .tabs{
-        gap:4px;
-        padding:4px 6px;
-      }
-      .tab{ padding:7px 10px; font-size:11px; }
+      .tabs{ gap:3px; padding:3px 4px; overflow-x: auto; flex-wrap: nowrap; }
+      .tab{ padding:6px 9px; font-size:10px; white-space: nowrap; }
+
       .hud-body{
-        padding:6px 8px 12px;
-        gap:8px;
+        grid-template-columns: 1fr;
+        height: auto;
+        max-height: none;
+        overflow: visible;
+        padding: 6px 8px 80px;
+        gap: 8px;
       }
+
+      /* On mobile, collapse sidebars into toggleable sections */
+      .sidebar-left, .sidebar-right {
+        max-height: none;
+        overflow: visible;
+      }
+      .sidebar-left .panel,
+      .sidebar-right .panel {
+        max-height: 300px;
+      }
+      .sidebar-left .panel-inner,
+      .sidebar-right .panel-inner {
+        max-height: 280px;
+        overflow-y: auto;
+      }
+
+      /* Arena: use full width, touch-friendly height */
+      .arena-card { min-height: 0; }
+      .arena-wrap {
+        min-height: 55vw;
+        height: 55vw;
+        max-height: 420px;
+        touch-action: none;
+      }
+      /* Arena controls: smaller and scrollable */
+      .arena-head { padding: 6px 8px; flex-wrap: wrap; gap: 6px; }
+      .stage-controls { gap: 4px; flex-wrap: wrap; }
+      .stage-controls .btn { padding: 5px 8px; font-size: 11px; }
+      .field-conditions { overflow-x: auto; gap: 4px; padding: 4px 6px; }
+      .fc-group { gap: 3px; }
+      .fc-btn { font-size: 16px; padding: 3px 5px; min-width: 30px; }
+
+      /* Draw toolbar: stack vertically on mobile */
+      #draw-toolbar { flex-wrap: wrap; gap: 5px; }
+
+      /* Scoreboard: horizontal scroll */
+      #scoreboard { overflow-x: auto; }
+
       /* scoreboard responsive: handled in scoreboard-patch.js */
+    }
+
+    /* Extra small (phones <400px) */
+    @media (max-width: 400px) {
+      .hero-right { gap: 3px; }
+      .hero-right .btn:not(#top_roll_btn):not(#pass_turn_btn) { display: none; }
+      .turn-pill { max-width: 130px; }
+      .tab { padding: 5px 7px; font-size: 9px; }
     }
 
     /* ── Compat: legacy .app hidden, .side-panel hidden ── */
@@ -1330,9 +1400,24 @@
               <button class="btn ghost" id="btn_zoom_in" title="Zoom +">+</button>
             </div>
             <button class="btn secondary" id="btn_center" title="Centralizar">Centralizar</button>
+            <button class="btn toggle" id="btn_draw_mode" aria-pressed="false" title="Modo de desenho livre (🖌️)">🖌️</button>
           </div>
         </div>
-
+        <!-- Draw toolbar: shown when draw mode is active -->
+        <div id="draw-toolbar" style="display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(6,10,22,.6);border:1px solid rgba(120,210,255,.14);border-radius:12px;margin-bottom:8px;flex-wrap:wrap">
+          <span style="font-size:11px;font-weight:800;color:rgba(148,163,184,.7);text-transform:uppercase;letter-spacing:.05em">Desenho</span>
+          <label title="Cor do traço" style="display:flex;align-items:center;gap:4px;font-size:11px;color:rgba(226,232,240,.8)">
+            Cor <input type="color" id="draw-color" value="#ff4444" style="width:28px;height:22px;border:none;border-radius:6px;cursor:pointer;background:none;padding:0">
+          </label>
+          <label title="Espessura" style="display:flex;align-items:center;gap:4px;font-size:11px;color:rgba(226,232,240,.8)">
+            <input type="range" id="draw-size" min="1" max="20" value="4" style="width:70px;accent-color:#38bdf8">
+            <span id="draw-size-label" style="min-width:18px;text-align:right">4</span>
+          </label>
+          <button class="btn toggle" id="btn-draw-pen" aria-pressed="true" title="Caneta" style="padding:5px 10px;font-size:12px">✏️ Caneta</button>
+          <button class="btn toggle" id="btn-draw-eraser" aria-pressed="false" title="Borracha" style="padding:5px 10px;font-size:12px">🧹 Apagar</button>
+          <button class="btn ghost" id="btn-draw-undo" title="Desfazer último traço" style="padding:5px 10px;font-size:12px">↩ Desfazer</button>
+          <button class="btn danger" id="btn-draw-clear" title="Limpar todos os desenhos" style="padding:5px 10px;font-size:12px">🗑️ Limpar tudo</button>
+        </div>
         <!-- Field Conditions bar (hidden for spectators via JS) -->
         <div class="field-conditions" id="field_conditions">
           <div class="fc-group">
@@ -1548,5 +1633,6 @@
   <script type="module" src="./fichas-inspector-patch.js"></script>
   <script type="module" src="./preprep-patch.js"></script>
   <script type="module" src="./field-zones-patch.js"></script>
+  <script type="module" src="./drawing-patch.js"></script>
 </body>
 </html>
