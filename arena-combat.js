@@ -31,6 +31,16 @@ import { getMoveType, getTypeDamageBonus, normalizeType } from "./type-data.js";
 // ─── helpers ──────────────────────────────────────────────────────
 function safeStr(x) { return (x == null ? "" : String(x)).trim(); }
 function safeInt(x, fb = 0) { const n = parseInt(x, 10); return Number.isFinite(n) ? n : fb; }
+function getMoveData(mv) {
+  return {
+    // Garante que pega o Rank base do golpe
+    rank: safeInt(mv?.rank ?? mv?.damage ?? mv?.power ?? mv?.lvl ?? 0),
+    // Pega o modificador de acerto específico DO GOLPE
+    acc: safeInt(mv?.accuracy ?? mv?.acc ?? mv?.acerto ?? mv?.modificador ?? 0),
+    // Pega possíveis bônus extras de dano salvos direto no golpe
+    modDano: safeInt(mv?.damage_mod ?? mv?.mod_dano ?? mv?.mod ?? 0)
+  };
+}
 function safeDocId(name) {
   const s = safeStr(name) || "user";
   return s.replace(/[^a-zA-Z0-9_\-\.]/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "user";
@@ -789,8 +799,11 @@ export class ArenaCombatUI {
   }
 
   // Calculador centralizado de dano com STAB e Tipo
-  _calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid) {
-    const rank = safeInt(move.rank);
+_calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid) {
+    const mData = getMoveData(move);
+    const rank = mData.rank;
+    const extraDmg = mData.modDano; // Modificador extra do golpe, se houver
+    
     const [based, statVal] = moveStatValue(move.meta || {}, atkStats);
     
     const moveName = safeStr(move.name) || "Golpe";
@@ -805,8 +818,8 @@ export class ArenaCombatUI {
     const stabBonus = (moveType && atkTypes.some(t => normalizeType(t) === moveType)) ? 2 : 0;
 
     return {
-      baseDmg: rank + statVal,
-      totalDmg: rank + statVal + typeBonus + stabBonus,
+      baseDmg: rank + statVal + extraDmg,
+      totalDmg: rank + statVal + typeBonus + stabBonus + extraDmg,
       typeBonus,
       stabBonus,
       moveType,
@@ -1174,7 +1187,8 @@ export class ArenaCombatUI {
       
       const ctx = this._calcMoveContext(mv, stats, this.getBy(), getAtkPid(), targetPiece.owner, targetPiece.pid);
       const aceiroBonus = safeInt(stats.acerto || 0);
-      const acc = safeInt(mv.accuracy) + aceiroBonus;
+const mData = getMoveData(mv);
+const acc = mData.acc + aceiroBonus;
       const extraTxt = (ctx.typeBonus !== 0 || ctx.stabBonus > 0) ? ` (+)` : ``;
       const dmgClass = (ctx.typeBonus > 0 || ctx.stabBonus > 0) ? "bonus-high" : "";
 
@@ -1485,8 +1499,9 @@ export class ArenaCombatUI {
     // Novo fluxo: Defense DC é dinâmico usando o stats total do alvo
     const needed = defenseVal + 10;
 
-    const atkMod = safeInt(move.accuracy);
-    const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid);
+const mData = getMoveData(move);
+const atkMod = mData.acc; // Puxa o modificador do golpe exato
+const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid);
     const isEffect = this._isEffectMove(move);
 
     // Roll d20 + Acc do Golpe + Modificador de Acerto (Ficha)
@@ -1837,14 +1852,25 @@ export class ArenaCombatUI {
     this._currentPrompt = el;
 
     el.querySelector("#ac-sec-yes").addEventListener("click", async () => {
+      // IMPORTANTE: feche o prompt ANTES de escrever no Firestore.
+      // Caso contrário, o snapshot pode chegar enquanto _currentPrompt ainda existe,
+      // e a UI não renderiza o próximo passo (CONFIRM_HIT_RANK).
       el.querySelector("#ac-sec-yes").disabled = true;
       const ref = this._battleRef(); if (!ref) return;
+
+      this._closePrompt();
+
       await this._writeBattle({
         status: "hit_confirmed",
         pendingFor: this.getBy(),
         prompt: { type: "CONFIRM_HIT_RANK" },
         logs: arrayUnion("⚡ Efeito secundário ativado — defina o rank do efeito.")
       });
+
+      // Força um repaint local imediato caso o próximo snapshot demore
+      // (ou caso o snapshot anterior tenha sido consumido com o prompt aberto).
+      this.render();
+    });
       this._closePrompt();
     });
 

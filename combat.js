@@ -334,6 +334,20 @@ export class CombatUI {
     this._boundOnClick = (e) => this._onClick(e);
   }
 
+  // ───────────────────────────────────────────────────────────────
+  // Compat: métodos esperados por patches antigos (combat-inspector-patch.js)
+  // ───────────────────────────────────────────────────────────────
+
+  async _renderSetup(battle, isPlayer, by) {
+    this._renderGuide(battle, isPlayer, by);
+  }
+
+  async _renderHitConfirmed(battle, isPlayer, by) {
+    this._renderGuide(battle, isPlayer, by);
+  }
+
+
+
   startListening() {
     // purely DOM listeners (no Firestore)
     if (!this._container) return;
@@ -415,7 +429,28 @@ export class CombatUI {
     }
   }
 
-  render(force = false) {
+  render(battle = null, isPlayer = null, by = null) {
+    // Compat com combat-patch.js: render(battle,isPlayer,by)
+    if (battle) this._battle = battle;
+    if (typeof isPlayer === "boolean") this._isPlayer = isPlayer;
+    if (by != null) this._by = by;
+
+    const b = this._battle || this._getBattle();
+    const status = (b && b.status) ? String(b.status) : "setup";
+
+    if (status === "setup") {
+      Promise.resolve(this._renderSetup(b, this._isPlayer, this._by));
+      return;
+    }
+    if (status === "hit_confirmed") {
+      Promise.resolve(this._renderHitConfirmed(b, this._isPlayer, this._by));
+      return;
+    }
+    this._renderGuide(b, this._isPlayer, this._by);
+  }
+
+  _renderGuide(battle, isPlayer, by) {
+
     injectStylesOnce();
 
     const root = this._container;
@@ -430,8 +465,8 @@ export class CombatUI {
       this._saveOverrides();
     }
 
-    const battle = this._getBattle();
-    const by = this._getBy();
+    const battle = battle || this._getBattle();
+    const by = (by != null ? by : this._getBy());
 
     // Signature to avoid unnecessary reflows
     const sig = JSON.stringify({
@@ -676,7 +711,10 @@ export class CombatUI {
 
       </div>
     `;
+  
   }
+
+
 }
 
 // Backwards compatibility: some code may import default
