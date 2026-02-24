@@ -1852,24 +1852,15 @@ const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid);
     this._currentPrompt = el;
 
     el.querySelector("#ac-sec-yes").addEventListener("click", async () => {
-      // IMPORTANTE: feche o prompt ANTES de escrever no Firestore.
-      // Caso contrário, o snapshot pode chegar enquanto _currentPrompt ainda existe,
-      // e a UI não renderiza o próximo passo (CONFIRM_HIT_RANK).
       el.querySelector("#ac-sec-yes").disabled = true;
       const ref = this._battleRef(); if (!ref) return;
-
-      this._closePrompt();
-
       await this._writeBattle({
         status: "hit_confirmed",
         pendingFor: this.getBy(),
         prompt: { type: "CONFIRM_HIT_RANK" },
         logs: arrayUnion("⚡ Efeito secundário ativado — defina o rank do efeito.")
       });
-
-      // Força um repaint local imediato caso o próximo snapshot demore
-      // (ou caso o snapshot anterior tenha sido consumido com o prompt aberto).
-      this.render();
+      this._closePrompt();
     });
 
     el.querySelector("#ac-sec-no").addEventListener("click", () => {
@@ -2055,6 +2046,8 @@ const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid);
         prompt: { type: "ROLL_RESIST", options: { dc: dcTotal, isEffect: isEff } },
         logs: arrayUnion(`Rank/Dano: ${dmg} (${isEff ? "Efeito" : "Dano"}). CD ${dcTotal}. Aguardando resistência...`),
       });
+      this._closePrompt();
+    });
   }
 
   _renderRerollToast(battle, prompt) {
