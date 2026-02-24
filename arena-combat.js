@@ -31,16 +31,6 @@ import { getMoveType, getTypeDamageBonus, normalizeType } from "./type-data.js";
 // ─── helpers ──────────────────────────────────────────────────────
 function safeStr(x) { return (x == null ? "" : String(x)).trim(); }
 function safeInt(x, fb = 0) { const n = parseInt(x, 10); return Number.isFinite(n) ? n : fb; }
-function getMoveData(mv) {
-  return {
-    // Garante que pega o Rank base do golpe
-    rank: safeInt(mv?.rank ?? mv?.damage ?? mv?.power ?? mv?.lvl ?? 0),
-    // Pega o modificador de acerto específico DO GOLPE
-    acc: safeInt(mv?.accuracy ?? mv?.acc ?? mv?.acerto ?? mv?.modificador ?? 0),
-    // Pega possíveis bônus extras de dano salvos direto no golpe
-    modDano: safeInt(mv?.damage_mod ?? mv?.mod_dano ?? mv?.mod ?? 0)
-  };
-}
 function safeDocId(name) {
   const s = safeStr(name) || "user";
   return s.replace(/[^a-zA-Z0-9_\-\.]/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "user";
@@ -799,11 +789,8 @@ export class ArenaCombatUI {
   }
 
   // Calculador centralizado de dano com STAB e Tipo
-_calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid) {
-    const mData = getMoveData(move);
-    const rank = mData.rank;
-    const extraDmg = mData.modDano; // Modificador extra do golpe, se houver
-    
+  _calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid) {
+    const rank = safeInt(move.rank);
     const [based, statVal] = moveStatValue(move.meta || {}, atkStats);
     
     const moveName = safeStr(move.name) || "Golpe";
@@ -818,8 +805,8 @@ _calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid) {
     const stabBonus = (moveType && atkTypes.some(t => normalizeType(t) === moveType)) ? 2 : 0;
 
     return {
-      baseDmg: rank + statVal + extraDmg,
-      totalDmg: rank + statVal + typeBonus + stabBonus + extraDmg,
+      baseDmg: rank + statVal,
+      totalDmg: rank + statVal + typeBonus + stabBonus,
       typeBonus,
       stabBonus,
       moveType,
@@ -1187,8 +1174,7 @@ _calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid) {
       
       const ctx = this._calcMoveContext(mv, stats, this.getBy(), getAtkPid(), targetPiece.owner, targetPiece.pid);
       const aceiroBonus = safeInt(stats.acerto || 0);
-const mData = getMoveData(mv);
-const acc = mData.acc + aceiroBonus;
+      const acc = safeInt(mv.accuracy) + aceiroBonus;
       const extraTxt = (ctx.typeBonus !== 0 || ctx.stabBonus > 0) ? ` (+)` : ``;
       const dmgClass = (ctx.typeBonus > 0 || ctx.stabBonus > 0) ? "bonus-high" : "";
 
@@ -1499,9 +1485,8 @@ const acc = mData.acc + aceiroBonus;
     // Novo fluxo: Defense DC é dinâmico usando o stats total do alvo
     const needed = defenseVal + 10;
 
-const mData = getMoveData(move);
-const atkMod = mData.acc; // Puxa o modificador do golpe exato
-const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid);
+    const atkMod = safeInt(move.accuracy);
+    const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid);
     const isEffect = this._isEffectMove(move);
 
     // Roll d20 + Acc do Golpe + Modificador de Acerto (Ficha)
