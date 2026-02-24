@@ -19,6 +19,7 @@ import {
   runTransaction,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+import { canPieceLandOn } from "./size-rules.js";
 
 // ── Firebase (reusa app existente) ──
 const FIREBASE_CONFIG = {
@@ -757,10 +758,10 @@ async function placeTrainerAt(trainerName, row, col) {
       const data = snap.exists() ? snap.data() : {};
       let pieces = Array.isArray(data?.pieces) ? [...data.pieces] : [];
 
-      const occupied = pieces.some(p =>
-        safeStr(p?.status || "active") === "active" && Number(p?.row) === r && Number(p?.col) === c
-      );
-      if (occupied) throw new Error("tile ocupado");
+      // Trainer tokens são sempre "medium" — validação via size-rules
+      const fakeTrainer = { id: "__placing_trainer__", kind: "trainer", sizeCategory: "medium" };
+      const landCheck = canPieceLandOn(fakeTrainer, r, c, pieces);
+      if (!landCheck.allowed) throw new Error(landCheck.reason || "tile ocupado");
 
       const existingIdx = pieces.findIndex(p =>
         safeStr(p?.owner) === tn && safeStr(p?.kind) === "trainer" && safeStr(p?.status || "active") === "active"
@@ -771,7 +772,7 @@ async function placeTrainerAt(trainerName, row, col) {
       if (player?.avatar?.avatar_choice) avatarChoice = player.avatar.avatar_choice;
 
       if (existingIdx >= 0) {
-        pieces[existingIdx] = { ...pieces[existingIdx], row: r, col: c };
+        pieces[existingIdx] = { ...pieces[existingIdx], row: r, col: c, sizeCategory: "medium" };
       } else {
         const newId = `tc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
         pieces.push({
@@ -783,6 +784,7 @@ async function placeTrainerAt(trainerName, row, col) {
           col: c,
           revealed: true,
           status: "active",
+          sizeCategory: "medium",
           avatar: avatarChoice,
         });
       }

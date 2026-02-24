@@ -1,4 +1,5 @@
 import { getMoveType, getTypeColor, getTypeDamageBonus, getSuperEffectiveAgainst, getWeakAgainst, getImmuneTo, getTypeAdvantage, TYPE_CHART, TYPE_COLORS as TYPE_COLORS_DATA, normalizeType } from "./type-data.js";
+import { getSizeCategory, getSizeDimensions, getPieceFootprint, getPiecesOccupyingTile, canPieceLandOn, isTileFullyBlocked, getTinySlotPosition, isFootprintWithinGrid, SIZE_CATEGORIES } from "./size-rules.js";
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
 import {
   getFirestore,
@@ -2039,7 +2040,8 @@ function renderInspectorCard() {
   const freeMove = !!appState.movement?.freeByPieceId?.[selId];
 
   const slug = _pokeApiSlugFromPid(pid);
-  const apiCached = (isMine && slug) ? _pokeApiSpeedCache.get(slug) : undefined;
+  const apiCachedEntry = (isMine && slug) ? _getPokeApiCached(slug) : null;
+  const apiCached = apiCachedEntry ? apiCachedEntry.speed : undefined;
 
   // Tipos: ficha → peça → cache PokeAPI (mesma lógica para dono e adversário)
   const _hasValidTypes = (arr) => Array.isArray(arr) && arr.length && arr.some(t => normalizeType(t));
@@ -2052,18 +2054,20 @@ function renderInspectorCard() {
     }
     // Inspector público: qualquer peça — busca PokeAPI (dados de tipo são públicos)
     if (slug) {
-      const cached = _pokeApiTypeCache.get(slug);
-      if (Array.isArray(cached) && cached.length) return cached;
-      if (cached !== "pending") fetchPokeApiTypes(slug); // fire-and-forget
+      const cached = _getPokeApiCached(slug);
+      if (cached && Array.isArray(cached.types) && cached.types.length) return cached.types;
+      const v = _pokeApiCache.get(slug);
+      if (v !== "pending") fetchPokeApiData(slug); // fire-and-forget
     }
     // Fallback: tenta pelo nome de exibição (ex: "Charizard" → "charizard")
     const displayName = dexNameFromPid(pid) || pid;
     if (!slug && displayName && displayName !== "???" && displayName !== "—") {
       const nameSlug = displayName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
       if (nameSlug) {
-        const cached = _pokeApiTypeCache.get(nameSlug);
-        if (Array.isArray(cached) && cached.length) return cached;
-        if (cached !== "pending") fetchPokeApiTypes(nameSlug);
+        const cached = _getPokeApiCached(nameSlug);
+        if (cached && Array.isArray(cached.types) && cached.types.length) return cached.types;
+        const v = _pokeApiCache.get(nameSlug);
+        if (v !== "pending") fetchPokeApiData(nameSlug);
       }
     }
     return [];
@@ -2878,14 +2882,22 @@ function screenToTile(x, y) {
 }
 
 function getPieceAt(row, col) {
+  // Footprint-aware: retorna o piece mais "em cima" (maior z-index = menor size)
+  const all = getPiecesAt(row, col);
+  return all.length ? all[0] : null;
+}
+
+function getPiecesAt(row, col) {
+  // Retorna todos os pieces visíveis cujo footprint inclui (row, col), ordenados por z-index desc
   const pieces = appState.pieces || [];
-  for (const p of pieces) {
-    if (safeStr(p?.status || "active") !== "active") continue;
-    if (!isPieceVisibleToMe(p)) continue;
-    if (!isPieceVisibleToMe(p)) continue;
-    if (Number(p?.row) === row && Number(p?.col) === col) return p;
-  }
-  return null;
+  const candidates = getPiecesOccupyingTile(row, col, pieces)
+    .filter(p => isPieceVisibleToMe(p));
+  candidates.sort((a, b) => {
+    const za = getSizeDimensions(a?.sizeCategory || "medium").zIndex;
+    const zb = getSizeDimensions(b?.sizeCategory || "medium").zIndex;
+    return zb - za; // maior z-index (menor peça) primeiro
+  });
+  return candidates;
 }
 
 function getTurnKey() {
@@ -2929,36 +2941,9 @@ function readSpeedFromStats(statsObj) {
   return 0;
 }
 
-// ── PokeAPI Types cache & fetcher (Inspector público) ─────────────
-const _pokeApiTypeCache = new Map(); // slug → string[] | "pending" | "error"
-
-async function fetchPokeApiTypes(slug) {
-  if (!slug) return [];
-  if (_pokeApiTypeCache.has(slug)) {
-    const v = _pokeApiTypeCache.get(slug);
-    return (v === "pending" || v === "error") ? [] : v;
-  }
-  _pokeApiTypeCache.set(slug, "pending");
-  try {
-    const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(slug)}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const types = (data.types || [])
-      .sort((a, b) => a.slot - b.slot)
-      .map(t => { const n = String(t.type?.name || ""); return n.charAt(0).toUpperCase() + n.slice(1); })
-      .filter(Boolean);
-    _pokeApiTypeCache.set(slug, types);
-    // Re-renderiza o inspector para mostrar a tabela recém-carregada
-    if (typeof updateSidePanels === "function") updateSidePanels();
-    return types;
-  } catch {
-    _pokeApiTypeCache.set(slug, "error");
-    return [];
-  }
-}
-
-// ── PokeAPI Speed cache & fetcher ────────────────────────────────
-const _pokeApiSpeedCache = new Map(); // slug → speed value or "pending"
+// ── PokeAPI unified cache & fetcher ──────────────────────────────
+// Unifica types, speed e height em um único fetch por slug.
+const _pokeApiCache = new Map(); // slug → { speed, types, height } | "pending" | "error"
 
 function _pokeApiSlugFromPid(pid) {
   const k = safeStr(pid);
@@ -2967,36 +2952,82 @@ function _pokeApiSlugFromPid(pid) {
   if (k.startsWith("EXT:")) {
     name = k.slice(4).trim();
   } else {
-    // PokeAPI aceita tanto nomes quanto IDs numéricos (ex: /pokemon/25 → Pikachu)
     name = dexNameFromPid(k) || k;
   }
   if (!name) return "";
-  // Convert to PokeAPI slug: lowercase, spaces→hyphens, strip special chars
   return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+}
+
+function _getPokeApiCached(slug) {
+  const v = _pokeApiCache.get(slug);
+  return (v && v !== "pending" && v !== "error") ? v : null;
+}
+
+async function fetchPokeApiData(slug) {
+  if (!slug) return null;
+  if (_pokeApiCache.has(slug)) {
+    const v = _pokeApiCache.get(slug);
+    return (v === "pending" || v === "error") ? null : v;
+  }
+  _pokeApiCache.set(slug, "pending");
+  try {
+    const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(slug)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const types = (data.types || [])
+      .sort((a, b) => a.slot - b.slot)
+      .map(t => { const n = String(t.type?.name || ""); return n.charAt(0).toUpperCase() + n.slice(1); })
+      .filter(Boolean);
+    const speedStat = data?.stats?.find(s => s.stat?.name === "speed");
+    const entry = {
+      speed:  speedStat ? Number(speedStat.base_stat) : 0,
+      types,
+      height: Number(data.height) || 0,
+    };
+    _pokeApiCache.set(slug, entry);
+    if (typeof updateSidePanels === "function") updateSidePanels();
+    return entry;
+  } catch {
+    _pokeApiCache.set(slug, "error");
+    return null;
+  }
+}
+
+// Shims de compatibilidade — callers antigos continuam funcionando
+async function fetchPokeApiTypes(slug) {
+  if (!slug) return [];
+  const cached = _getPokeApiCached(slug);
+  if (cached) return cached.types;
+  const v = _pokeApiCache.get(slug);
+  if (v === "pending") return [];
+  const data = await fetchPokeApiData(slug);
+  return data?.types || [];
 }
 
 async function fetchPokeApiSpeed(pid) {
   const slug = _pokeApiSlugFromPid(pid);
   if (!slug) return 0;
-  if (_pokeApiSpeedCache.has(slug)) {
-    const cached = _pokeApiSpeedCache.get(slug);
-    return cached === "pending" ? 0 : cached;
+  const cached = _getPokeApiCached(slug);
+  if (cached) return cached.speed || 0;
+  const v = _pokeApiCache.get(slug);
+  if (v === "pending") return 0;
+  const data = await fetchPokeApiData(slug);
+  return data?.speed || 0;
+}
+
+// ── Size category resolver ───────────────────────────────────────
+function getPieceSizeCategory(piece) {
+  if (piece?.sizeCategory) return piece.sizeCategory;
+  if (piece?.kind === "trainer") return SIZE_CATEGORIES.medium;
+  const pid = safeStr(piece?.pid || "");
+  const slug = _pokeApiSlugFromPid(pid);
+  if (slug) {
+    const cached = _getPokeApiCached(slug);
+    if (cached && cached.height > 0) return getSizeCategory(cached.height);
+    const v = _pokeApiCache.get(slug);
+    if (v !== "pending") fetchPokeApiData(slug); // fire-and-forget
   }
-  _pokeApiSpeedCache.set(slug, "pending");
-  try {
-    const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${slug}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const speedStat = data?.stats?.find(s => s.stat?.name === "speed");
-    const spd = speedStat ? Number(speedStat.base_stat) : 0;
-    _pokeApiSpeedCache.set(slug, spd > 0 ? spd : 0);
-    // Refresh inspector if a piece is selected so the new speed shows up
-    if (typeof updateSidePanels === "function") updateSidePanels();
-    return spd;
-  } catch {
-    _pokeApiSpeedCache.set(slug, 0);
-    return 0;
-  }
+  return SIZE_CATEGORIES.medium;
 }
 
 function getPieceSpeed(piece) {
@@ -3020,12 +3051,13 @@ function getPieceSpeed(piece) {
     if (Number.isFinite(n) && n > 0) return n;
   }
 
-  // Try PokeAPI cache (sync read, async fetch if missing)
+  // Try PokeAPI unified cache (sync read, async fetch if missing)
   const slug = _pokeApiSlugFromPid(pid);
   if (slug) {
-    const cached = _pokeApiSpeedCache.get(slug);
-    if (typeof cached === "number" && cached > 0) return cached;
-    if (cached !== "pending") fetchPokeApiSpeed(pid); // fire-and-forget
+    const cached = _getPokeApiCached(slug);
+    if (cached && cached.speed > 0) return cached.speed;
+    const v = _pokeApiCache.get(slug);
+    if (v !== "pending") fetchPokeApiData(slug); // fire-and-forget
   }
 
   return 80; // default while fetching
@@ -3067,11 +3099,20 @@ function getReachableTileMap(piece) {
   const gs = Number(appState.gridSize) || 0;
   if (gs <= 0) return out;
 
+  const sizeCategory = piece?.sizeCategory || SIZE_CATEGORIES.medium;
+  const allPieces = appState.pieces || [];
+
+  // Helper: checa se piece pode pousar no destino (footprint + stacking)
+  const _canLand = (tr, tc) => {
+    if (!isFootprintWithinGrid(tr, tc, sizeCategory, gs)) return false;
+    return canPieceLandOn(piece, tr, tc, allPieces).allowed;
+  };
+
   if (pieceId && appState.movement?.freeByPieceId?.[pieceId]) {
     for (let r = 0; r < gs; r++) {
       for (let c = 0; c < gs; c++) {
         if (r === row && c === col) continue;
-        if (isTileOccupied(r, c)) continue;
+        if (!_canLand(r, c)) continue;
         out.set(`${r}:${c}`, { row: r, col: c, halfStep: false, free: true });
       }
     }
@@ -3086,8 +3127,7 @@ function getReachableTileMap(piece) {
         if (dr === 0 && dc === 0) continue;
         const nr = row + dr;
         const nc = col + dc;
-        if (!isTileWithinGrid(nr, nc)) continue;
-        if (isTileOccupied(nr, nc)) continue;
+        if (!_canLand(nr, nc)) continue;
         out.set(`${nr}:${nc}`, { row: nr, col: nc, dr, dc, halfStep: true });
       }
     }
@@ -3099,7 +3139,7 @@ function getReachableTileMap(piece) {
     for (let c = 0; c < gs; c++) {
       const cheb = Math.max(Math.abs(r - row), Math.abs(c - col));
       if (cheb <= 0 || cheb > limit) continue;
-      if (isTileOccupied(r, c)) continue;
+      if (!_canLand(r, c)) continue;
       out.set(`${r}:${c}`, { row: r, col: c, halfStep: false });
     }
   }
@@ -3173,12 +3213,13 @@ function sendMoveSelected(toRow, toCol) {
     const vec = clampDirection((pending.dr || 0) + first.dr, (pending.dc || 0) + first.dc);
     const targetRow = fromRow + vec.dr;
     const targetCol = fromCol + vec.dc;
-    if (!isTileWithinGrid(targetRow, targetCol)) {
+    const pSize = piece?.sizeCategory || SIZE_CATEGORIES.medium;
+    if (!isFootprintWithinGrid(targetRow, targetCol, pSize, Number(appState.gridSize) || 10)) {
       setStatus("err", "vetor final de meio deslocamento saiu da arena");
       appState.movement.halfStepIntentByPieceId[pieceId] = { ...first, turnKey: appState.movement.turnKey };
       return;
     }
-    if (isTileOccupied(targetRow, targetCol)) {
+    if (!canPieceLandOn(piece, targetRow, targetCol, appState.pieces || []).allowed) {
       setStatus("err", "tile final ocupado para meio deslocamento");
       appState.movement.halfStepIntentByPieceId[pieceId] = { ...first, turnKey: appState.movement.turnKey };
       return;
@@ -3247,8 +3288,11 @@ async function placePokemonOnBoardAt(pid, row, col) {
 
   const r = Number(row);
   const c = Number(col);
-  if (!isTileWithinGrid(r, c)) {
-    setStatus("err", "tile inválido para posicionar pokémon");
+  const sizeCategory = getPieceSizeCategory({ pid: monPid });
+  const gs = Number(appState.gridSize) || 10;
+
+  if (!isFootprintWithinGrid(r, c, sizeCategory, gs)) {
+    setStatus("err", "tile inválido ou pokémon não cabe na borda da arena");
     return;
   }
   if (isPokemonKo(by, monPid)) {
@@ -3263,15 +3307,16 @@ async function placePokemonOnBoardAt(pid, row, col) {
     updateSidePanels();
     return;
   }
-  if (isTileOccupied(r, c)) {
-    setStatus("err", "tile ocupado");
+
+  // Pré-validação de stacking com size-rules
+  const fakePiece = { id: "__placing__", pid: monPid, sizeCategory };
+  const preCheck = canPieceLandOn(fakePiece, r, c, appState.pieces || []);
+  if (!preCheck.allowed) {
+    setStatus("err", `tile ocupado: ${preCheck.reason}`);
     return;
   }
 
   try {
-    // ✅ Opção A: aplica direto no public_state/state (igual Streamlit), via transaction
-    // Motivo: o mapa renderiza APENAS o que está em state.pieces. Se você só cria action,
-    // precisa de um "aplicador" no backend — e aqui vamos evitar isso.
     const stateRef = getStateDocRef();
     if (!stateRef || !currentDb) {
       setStatus("err", "sem conexão com o Firestore");
@@ -3287,6 +3332,7 @@ async function placePokemonOnBoardAt(pid, row, col) {
       col: c,
       status: "active",
       revealed: true,
+      sizeCategory,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -3296,11 +3342,10 @@ async function placePokemonOnBoardAt(pid, row, col) {
       const data = snap.exists() ? snap.data() : {};
       const pieces = Array.isArray(data?.pieces) ? data.pieces : [];
 
-      // Revalida dentro da transaction (evita corrida)
-      const occupied = pieces.some(
-        (p) => safeStr(p?.status || "active") === "active" && Number(p?.row) === r && Number(p?.col) === c
-      );
-      if (occupied) throw new Error("tile ocupado");
+      // Revalida dentro da transaction com size-rules (evita corrida)
+      const txFake = { id: "__placing__", pid: monPid, sizeCategory };
+      const txCheck = canPieceLandOn(txFake, r, c, pieces);
+      if (!txCheck.allowed) throw new Error(txCheck.reason);
 
       const already = pieces.some(
         (p) =>
@@ -3343,9 +3388,8 @@ function isTileWithinGrid(row, col) {
 }
 
 function isTileOccupied(row, col) {
-  return (appState.pieces || []).some((p) =>
-    safeStr(p?.status || "active") === "active" && Number(p?.row) === row && Number(p?.col) === col
-  );
+  // Delegado para size-rules: retorna true apenas se NADA pode entrar (fully blocked)
+  return isTileFullyBlocked(row, col, appState.pieces || []);
 }
 
 function getPartyHp(ownerName, pid) {
@@ -3530,6 +3574,71 @@ function openPieceContextMenu(piece, x, y) {
   if (overflowY > 0) pieceContextMenu.style.top = `${Math.max(8, localY - overflowY - 8)}px`;
 }
 
+// ── Piece Picker Menu (seleção de peça quando há stacking) ───────
+let _pickerEl = null;
+let _pickerState = { pieces: [], afterPick: "select", clientX: 0, clientY: 0 };
+
+function _ensurePickerEl() {
+  if (_pickerEl) return _pickerEl;
+  _pickerEl = document.createElement("div");
+  _pickerEl.id = "piece_picker_menu";
+  _pickerEl.className = "piece-context-menu";
+  _pickerEl.style.display = "none";
+  _pickerEl.style.flexDirection = "column";
+  _pickerEl.style.maxHeight = "200px";
+  _pickerEl.style.overflowY = "auto";
+  canvasWrap?.appendChild(_pickerEl);
+  _pickerEl.addEventListener("click", (ev) => {
+    const btn = ev.target?.closest("[data-picker-id]");
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const pickedId = safeStr(btn.dataset.pickerId);
+    const afterPick = _pickerState.afterPick;
+    const cx = _pickerState.clientX;
+    const cy = _pickerState.clientY;
+    hidePiecePickerMenu();
+    const piece = (appState.pieces || []).find(p => safeStr(p?.id) === pickedId);
+    if (!piece) return;
+    if (afterPick === "context" && isPieceMine(piece)) {
+      openPieceContextMenu(piece, cx, cy);
+    } else {
+      selectPiece(pickedId);
+    }
+  });
+  return _pickerEl;
+}
+
+function openPiecePickerMenu(piecesArr, clientX, clientY, opts) {
+  const el = _ensurePickerEl();
+  _pickerState = { pieces: piecesArr, afterPick: (opts && opts.afterPick) || "select", clientX, clientY };
+  el.innerHTML = piecesArr.map(p => {
+    const name = (p?.revealed ? (dexNameFromPid(safeStr(p.pid)) || safeStr(p.pid)) : "???").slice(0, 16);
+    const size = p?.sizeCategory || "medium";
+    const mine = isPieceMine(p);
+    return `<button type="button" data-picker-id="${safeStr(p.id)}" style="text-align:left;padding:4px 8px;font-size:13px;">${mine ? "★ " : ""}${name} <span style="opacity:0.5;font-size:11px;">(${size})</span></button>`;
+  }).join("");
+  const wrapRect = canvasWrap.getBoundingClientRect();
+  const localX = Math.max(0, Math.min(wrapRect.width - 8, clientX - wrapRect.left));
+  const localY = Math.max(0, Math.min(wrapRect.height - 8, clientY - wrapRect.top));
+  el.style.display = "flex";
+  el.style.left = `${localX}px`;
+  el.style.top = `${localY}px`;
+  // Ajusta overflow
+  requestAnimationFrame(() => {
+    if (!_pickerEl) return;
+    const menuRect = _pickerEl.getBoundingClientRect();
+    const overX = menuRect.right - wrapRect.right;
+    const overY = menuRect.bottom - wrapRect.bottom;
+    if (overX > 0) _pickerEl.style.left = `${Math.max(8, localX - overX - 8)}px`;
+    if (overY > 0) _pickerEl.style.top = `${Math.max(8, localY - overY - 8)}px`;
+  });
+}
+
+function hidePiecePickerMenu() {
+  if (_pickerEl) _pickerEl.style.display = "none";
+}
+
 async function handlePieceMenuAction(action, pieceId) {
   const id = safeStr(pieceId);
   if (!id) return;
@@ -3579,14 +3688,19 @@ pieceContextMenu?.addEventListener("click", async (ev) => {
 });
 
 document.addEventListener("click", (ev) => {
+  // Fecha picker se clicar fora
+  if (_pickerEl && _pickerEl.style.display === "flex" && !ev.target?.closest?.("#piece_picker_menu")) {
+    hidePiecePickerMenu();
+  }
   if (!pieceContextMenu || pieceContextMenu.style.display !== "flex") return;
   if (ev.target?.closest?.("#piece_context_menu")) return;
   hidePieceContextMenu();
 });
 document.addEventListener("keydown", (ev) => {
   if (ev.key !== "Escape") return;
-  // 1) fecha menu de contexto
+  // 1) fecha menus
   hidePieceContextMenu();
+  hidePiecePickerMenu();
 
   // 2) cancela modo posicionamento (pokébola armada)
   if (getPlacingPokemonPid()) {
@@ -3658,6 +3772,7 @@ function bindArenaInteractionsCanvas() {
 
   canvas.addEventListener("click", (ev) => {
     hidePieceContextMenu();
+    hidePiecePickerMenu();
     // Se acabou de soltar um drag, ignore o click que vem logo depois
     if (appState.drag.justDropped) {
       appState.drag.justDropped = false;
@@ -3676,13 +3791,17 @@ function bindArenaInteractionsCanvas() {
       return;
     }
 
-    const p = getPieceAt(tile.row, tile.col);
-    if (p) {
-      selectPiece(p.id);
+    // Stacking: se múltiplos pieces no tile, abre picker
+    const candidates = getPiecesAt(tile.row, tile.col);
+    if (candidates.length === 0) {
+      if (appState.selectedPieceId) sendMoveSelected(tile.row, tile.col);
       return;
     }
-    // tile vazio: tenta mover seleção atual
-    if (appState.selectedPieceId) sendMoveSelected(tile.row, tile.col);
+    if (candidates.length === 1) {
+      selectPiece(candidates[0].id);
+      return;
+    }
+    openPiecePickerMenu(candidates, ev.clientX, ev.clientY);
   });
 
   canvas.addEventListener("contextmenu", (ev) => {
@@ -3691,15 +3810,15 @@ function bindArenaInteractionsCanvas() {
     const y = ev.clientY - rect.top;
     const tile = screenToTile(x, y);
     if (!tile) return;
-    const p = getPieceAt(tile.row, tile.col);
-    if (!p) return;
-    // ✅ Menu de contexto só para peças do próprio jogador (evita vazar ficha/ações do oponente)
+    const candidates = getPiecesAt(tile.row, tile.col).filter(p => isPieceMine(p));
+    if (candidates.length === 0) return;
     ev.preventDefault();
-    if (!isPieceMine(p)) {
-      // peças do oponente: não abre menu de contexto (use clique esquerdo para inspecionar)
+    if (candidates.length === 1) {
+      openPieceContextMenu(candidates[0], ev.clientX, ev.clientY);
       return;
     }
-    openPieceContextMenu(p, ev.clientX, ev.clientY);
+    // Múltiplas peças próprias: picker primeiro, depois context menu
+    openPiecePickerMenu(candidates, ev.clientX, ev.clientY, { afterPick: "context" });
   });
 }
 
@@ -3726,6 +3845,7 @@ function bindArenaInteractionsDom() {
 
   arenaDom.addEventListener("click", (ev) => {
     hidePieceContextMenu();
+    hidePiecePickerMenu();
     const cell = ev.target?.closest?.(".cell");
     if (!cell) return;
     const row = Number(cell.dataset.row);
@@ -3738,15 +3858,17 @@ function bindArenaInteractionsDom() {
       return;
     }
 
-    const p = getPieceAt(row, col);
-    if (p) {
-      selectPiece(p.id);
+    const candidates = getPiecesAt(row, col);
+    if (candidates.length === 0) {
+      if (appState.selectedPieceId) sendMoveSelected(row, col);
+      return;
+    }
+    if (candidates.length === 1) {
+      selectPiece(candidates[0].id);
       renderArenaDom();
       return;
     }
-    if (appState.selectedPieceId) {
-      sendMoveSelected(row, col);
-    }
+    openPiecePickerMenu(candidates, ev.clientX, ev.clientY);
   });
 
   arenaDom.addEventListener("contextmenu", (ev) => {
@@ -3754,15 +3876,14 @@ function bindArenaInteractionsDom() {
     if (!cell) return;
     const row = Number(cell.dataset.row);
     const col = Number(cell.dataset.col);
-    const p = getPieceAt(row, col);
-    if (!p) return;
-    // ✅ Menu de contexto só para peças do próprio jogador (evita vazar ficha/ações do oponente)
+    const candidates = getPiecesAt(row, col).filter(p => isPieceMine(p));
+    if (candidates.length === 0) return;
     ev.preventDefault();
-    if (!isPieceMine(p)) {
-      // peças do oponente: não abre menu de contexto (use clique esquerdo para inspecionar)
+    if (candidates.length === 1) {
+      openPieceContextMenu(candidates[0], ev.clientX, ev.clientY);
       return;
     }
-    openPieceContextMenu(p, ev.clientX, ev.clientY);
+    openPiecePickerMenu(candidates, ev.clientX, ev.clientY, { afterPick: "context" });
   });
 }
 
@@ -3809,20 +3930,22 @@ function renderArenaDom() {
     cell.classList.remove("place-ok");
     cell.classList.remove("move-ok");
     cell.classList.remove("move-no");
-    // remove token
-    const t = cell.querySelector(":scope > .token");
-    if (t) t.remove();
+    // remove todos os tokens (stacking pode ter múltiplos)
+    cell.querySelectorAll(":scope > .token").forEach(t => t.remove());
   }
 
 
-  // placing mode highlight (tiles válidos)
+  // placing mode highlight (tiles válidos, size-aware)
   const placingPid = getPlacingPokemonPid();
   if (placingPid) {
+    const placingSize = getPieceSizeCategory({ pid: placingPid });
+    const fakePiece = { id: "__placing__", pid: placingPid, sizeCategory: placingSize };
     for (let r = 0; r < gs; r++) {
       for (let c = 0; c < gs; c++) {
         const cell = domCells[r * gs + c];
         if (!cell) continue;
-        if (isTileOccupied(r, c)) continue;
+        if (!isFootprintWithinGrid(r, c, placingSize, gs)) continue;
+        if (!canPieceLandOn(fakePiece, r, c, appState.pieces || []).allowed) continue;
         cell.classList.add("place-ok");
       }
     }
@@ -3843,10 +3966,15 @@ function renderArenaDom() {
     }
   }
 
-  // coloca tokens
-  for (const p of appState.pieces || []) {
-    if (safeStr(p?.status || "active") !== "active") continue;
-    if (!isPieceVisibleToMe(p)) continue;
+  // coloca tokens (ordenados por z-index: grandes primeiro, pequenos por cima)
+  const domSortedPieces = [...(appState.pieces || [])].filter(p =>
+    safeStr(p?.status || "active") === "active" && isPieceVisibleToMe(p)
+  ).sort((a, b) => {
+    const za = getSizeDimensions(a?.sizeCategory || "medium").zIndex;
+    const zb = getSizeDimensions(b?.sizeCategory || "medium").zIndex;
+    return za - zb;
+  });
+  for (const p of domSortedPieces) {
     const r = Number(p?.row);
     const c = Number(p?.col);
     if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
@@ -3855,6 +3983,8 @@ function renderArenaDom() {
     if (!cell) continue;
     const token = document.createElement("div");
     token.className = "token";
+    const sizeCategory = p?.sizeCategory || "medium";
+    if (sizeCategory === SIZE_CATEGORIES.tiny) token.style.cssText = "font-size:9px;transform:scale(0.5);";
     const label = (p?.revealed ? String(p?.pid ?? "?") : "?").slice(0, 4);
     token.textContent = label;
     cell.appendChild(token);
@@ -5399,16 +5529,20 @@ function draw() {
 
 
 
-  // placing mode highlight (tiles válidos)
+  // placing mode highlight (tiles válidos, size-aware)
   const placingPid = getPlacingPokemonPid();
   if (placingPid) {
-    ctx.fillStyle = "rgba(163, 230, 53, 0.10)"; // amarelo-esverdeado sutil
+    const placingSize = getPieceSizeCategory({ pid: placingPid });
+    const { tileW: pw, tileH: ph } = getSizeDimensions(placingSize);
+    const fakePiece = { id: "__placing__", pid: placingPid, sizeCategory: placingSize };
+    ctx.fillStyle = "rgba(163, 230, 53, 0.10)";
     for (let rr = 0; rr < gs; rr++) {
       for (let cc = 0; cc < gs; cc++) {
-        if (isTileOccupied(rr, cc)) continue;
+        if (!isFootprintWithinGrid(rr, cc, placingSize, gs)) continue;
+        if (!canPieceLandOn(fakePiece, rr, cc, appState.pieces || []).allowed) continue;
         const xh = ox + cc * tile;
         const yh = oy + rr * tile;
-        ctx.fillRect(xh + 1, yh + 1, tile - 2, tile - 2);
+        ctx.fillRect(xh + 1, yh + 1, tile * pw - 2, tile * ph - 2);
       }
     }
   }
@@ -5494,18 +5628,29 @@ drawTraps(ctx, ox, oy, tile);
   // Track which sprite overlay elements are used this frame
   const _usedSpriteIds = new Set();
 
-  for (const p of pieces) {
-    if (safeStr(p?.status || "active") !== "active") continue;
-    if (!isPieceVisibleToMe(p)) continue;
+  // Ordena: z-index ascendente → Huge(1) primeiro (fundo), Tiny(4) por último (topo)
+  const sortedPieces = [...pieces].filter(p =>
+    safeStr(p?.status || "active") === "active" && isPieceVisibleToMe(p)
+  ).sort((a, b) => {
+    const za = getSizeDimensions(a?.sizeCategory || "medium").zIndex;
+    const zb = getSizeDimensions(b?.sizeCategory || "medium").zIndex;
+    return za - zb;
+  });
+
+  for (const p of sortedPieces) {
     const row = Number(p?.row);
     const col = Number(p?.col);
     if (!Number.isFinite(row) || !Number.isFinite(col)) continue;
-    const x = ox + col * tile;
-    const y = oy + row * tile;
     const id = safeStr(p?.id);
     const owner = safeStr(p?.owner);
     const isSel = safeStr(appState.selectedPieceId) && safeStr(appState.selectedPieceId) === id;
     const isMine = _by && owner === _by;
+
+    const sizeCategory = p?.sizeCategory || SIZE_CATEGORIES.medium;
+    const { tileW, tileH, zIndex } = getSizeDimensions(sizeCategory);
+
+    const x = ox + col * tile;
+    const y = oy + row * tile;
 
     // Determine color scheme
     let colorScheme;
@@ -5519,14 +5664,41 @@ drawTraps(ctx, ox, oy, tile);
       colorScheme = _defaultColor;
     }
 
-    // token base fill
+    // token base fill — spans full footprint for multi-tile pieces
     ctx.fillStyle = colorScheme.fill;
-    ctx.fillRect(x + 2, y + 2, tile - 4, tile - 4);
+    ctx.fillRect(x + 2, y + 2, tile * tileW - 4, tile * tileH - 4);
 
     // sprite — rendered as HTML <img> overlay for GIF animation support
     const _psPiece = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[safeStr(p?.pid)] || {};
     const sprUrl = getSpriteUrlForPiece(p, { type: "battle", shiny: !!_psPiece.shiny });
     const pad = Math.max(6, Math.floor(tile * 0.12));
+
+    // Calcula posição e tamanho do sprite conforme sizeCategory
+    let spriteX, spriteY, spriteW, spriteH;
+    if (sizeCategory === SIZE_CATEGORIES.tiny) {
+      // Quadrante: encontra slot entre tinies no mesmo tile
+      const tinyOnTile = getPiecesOccupyingTile(row, col, pieces)
+        .filter(q => (q?.sizeCategory || "medium") === SIZE_CATEGORIES.tiny && isPieceVisibleToMe(q));
+      const slotIndex = Math.max(0, tinyOnTile.findIndex(q => safeStr(q.id) === id));
+      const slot = getTinySlotPosition(slotIndex);
+      spriteX = x + slot.offsetXRatio * tile;
+      spriteY = y + slot.offsetYRatio * tile;
+      spriteW = slot.sizeRatio * tile;
+      spriteH = slot.sizeRatio * tile;
+    } else if (sizeCategory === SIZE_CATEGORIES.large || sizeCategory === SIZE_CATEGORIES.huge) {
+      // Multi-tile: sprite cobre todo o footprint
+      const pad2 = Math.max(4, Math.floor(tile * 0.06));
+      spriteX = x + pad2;
+      spriteY = y + pad2;
+      spriteW = tile * tileW - pad2 * 2;
+      spriteH = tile * tileH - pad2 * 2;
+    } else {
+      // Medium: 1 tile inteiro (comportamento original)
+      spriteX = x + pad;
+      spriteY = y + pad;
+      spriteW = tile - pad * 2;
+      spriteH = tile - pad * 2;
+    }
 
     if (sprUrl && id) {
       _usedSpriteIds.add(id);
@@ -5538,7 +5710,6 @@ drawTraps(ctx, ox, oy, tile);
         el.loading = "eager";
         el.decoding = "async";
         el.alt = "";
-        // Fallback chain: local GIF → remote PokemonDB PNG → hide
         el.onerror = function () {
           const cur = this.getAttribute("src") || "";
           const fb = this.dataset.fallback || "";
@@ -5552,13 +5723,11 @@ drawTraps(ctx, ox, oy, tile);
         entry = { el, url: "", fallback: "" };
         _spritePool.set(id, entry);
       }
-      // Compute remote fallback URL (PokemonDB sprite)
       const _name = resolvePokemonNameFromPid(p?.pid);
       const _fbSlug = _name ? spriteSlugFromPokemonName(_name) : "";
       const remoteFb = _fbSlug
         ? `https://img.pokemondb.net/sprites/home/normal/${_fbSlug}.png`
         : "";
-      // Update src only when URL changes
       if (entry.url !== sprUrl) {
         entry.el.dataset.fallback = remoteFb;
         entry.el.src = sprUrl;
@@ -5569,28 +5738,29 @@ drawTraps(ctx, ox, oy, tile);
         entry.el.dataset.fallback = remoteFb;
         entry.fallback = remoteFb;
       }
-      // Position the <img> over the tile
-      // ctx coordinates are already in CSS pixels (DPR transform applied),
-      // and the overlay div matches the canvas CSS size via inset:0
       const st = entry.el.style;
-      st.left = (x + pad) + "px";
-      st.top = (y + pad) + "px";
-      st.width = (tile - pad * 2) + "px";
-      st.height = (tile - pad * 2) + "px";
+      st.left   = spriteX + "px";
+      st.top    = spriteY + "px";
+      st.width  = spriteW + "px";
+      st.height = spriteH + "px";
+      st.zIndex = String(zIndex);
     } else {
-      // fallback glyph (no sprite URL)
+      // fallback glyph
       ctx.fillStyle = "rgba(226,232,240,0.85)";
-      ctx.font = `900 ${Math.max(10, Math.floor(tile * 0.22))}px system-ui`;
+      const fontSize = sizeCategory === SIZE_CATEGORIES.tiny
+        ? Math.max(8, Math.floor(spriteW * 0.35))
+        : Math.max(10, Math.floor(tile * 0.22));
+      ctx.font = `900 ${fontSize}px system-ui`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       const label = (p?.revealed ? String(p?.pid ?? "?") : "?").slice(0, 4);
-      ctx.fillText(label, x + tile / 2, y + tile / 2);
+      ctx.fillText(label, spriteX + spriteW / 2, spriteY + spriteH / 2);
     }
 
-    // Dynamic border
+    // Dynamic border — spans full footprint
     ctx.strokeStyle = colorScheme.border;
     ctx.lineWidth = isSel ? 3 : (isMine || _oppColorMap[owner]) ? 2 : 1;
-    ctx.strokeRect(x + 2, y + 2, tile - 4, tile - 4);
+    ctx.strokeRect(x + 2, y + 2, tile * tileW - 4, tile * tileH - 4);
 
     // Glow effect for selected piece
     if (isSel) {
@@ -5599,7 +5769,7 @@ drawTraps(ctx, ox, oy, tile);
       ctx.shadowBlur = 8;
       ctx.strokeStyle = _selColor.border;
       ctx.lineWidth = 2;
-      ctx.strokeRect(x + 1, y + 1, tile - 2, tile - 2);
+      ctx.strokeRect(x + 1, y + 1, tile * tileW - 2, tile * tileH - 2);
       ctx.restore();
     }
   }
@@ -5612,12 +5782,25 @@ drawTraps(ctx, ox, oy, tile);
     }
   }
 
-  // drag ghost
+  // drag ghost — retângulo para large/huge, círculo para tiny/medium
   if (appState.drag.active && appState.selectedPieceId) {
+    const dragPiece = (appState.pieces || []).find(q => safeStr(q?.id) === safeStr(appState.selectedPieceId));
+    const dragSize = dragPiece?.sizeCategory || SIZE_CATEGORIES.medium;
+    const { tileW: dw, tileH: dh } = getSizeDimensions(dragSize);
     ctx.fillStyle = "rgba(56,189,248,0.10)";
-    ctx.beginPath();
-    ctx.arc(appState.drag.x, appState.drag.y, Math.max(10, tile * 0.32), 0, Math.PI * 2);
-    ctx.fill();
+    if (dw > 1 || dh > 1) {
+      // Retângulo ghost multi-tile
+      const hx = appState.drag.x - (dw * tile) / 2;
+      const hy = appState.drag.y - (dh * tile) / 2;
+      ctx.fillRect(hx, hy, dw * tile, dh * tile);
+      ctx.strokeStyle = "rgba(56,189,248,0.35)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(hx, hy, dw * tile, dh * tile);
+    } else {
+      ctx.beginPath();
+      ctx.arc(appState.drag.x, appState.drag.y, Math.max(10, tile * 0.32), 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   requestAnimationFrame(draw);
@@ -6598,6 +6781,8 @@ window.removePieceFromBoard = removePieceFromBoard;
 window.startPlacePokemon  = startPlacePokemon;
 window.screenToTile       = screenToTile;
 window.getPieceAt         = getPieceAt;
+window.getPiecesAt        = getPiecesAt;
+window.getPieceSizeCategory = getPieceSizeCategory;
 window.canCurrentPlayerStartCombat = canCurrentPlayerStartCombat;
 window.canCurrentPlayerPassTurn = canCurrentPlayerPassTurn;
 window.isPieceVisibleToMe = isPieceVisibleToMe;
