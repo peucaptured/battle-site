@@ -449,7 +449,7 @@ export class CombatUI {
     this._renderGuide(b, this._isPlayer, this._by);
   }
 
-  _renderGuide(battle, isPlayer, by) {
+  _renderGuide(battleArg, isPlayer, byArg) {
 
     injectStylesOnce();
 
@@ -465,8 +465,8 @@ export class CombatUI {
       this._saveOverrides();
     }
 
-    const battle = battle || this._getBattle();
-    const by = (by != null ? by : this._getBy());
+    const battle = battleArg || this._getBattle();
+    const by = (byArg != null ? byArg : this._getBy());
 
     // Signature to avoid unnecessary reflows
     const sig = JSON.stringify({

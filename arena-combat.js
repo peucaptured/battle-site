@@ -1871,8 +1871,6 @@ const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid);
       // (ou caso o snapshot anterior tenha sido consumido com o prompt aberto).
       this.render();
     });
-      this._closePrompt();
-    });
 
     el.querySelector("#ac-sec-no").addEventListener("click", () => {
       this._closePrompt();
@@ -2057,8 +2055,6 @@ const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid);
         prompt: { type: "ROLL_RESIST", options: { dc: dcTotal, isEffect: isEff } },
         logs: arrayUnion(`Rank/Dano: ${dmg} (${isEff ? "Efeito" : "Dano"}). CD ${dcTotal}. Aguardando resistência...`),
       });
-      this._closePrompt();
-    });
   }
 
   _renderRerollToast(battle, prompt) {
