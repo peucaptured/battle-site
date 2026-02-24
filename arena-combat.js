@@ -5,8 +5,11 @@
  * compact move list → auto-roll → floating feedback on map → pending
  * prompt for defender → reroll toast → stage chips.
  *
- * Agora com cálculos completos unificados com o combat.js:
- * STAB, Fraqueza/Vantagem de Tipo, Bônus de Acerto e Efeito Secundário.
+ * Does NOT modify main.js — reads globals:
+ *   window.appState, window._arenaView, window.screenToTile,
+ *   window.getPieceAt, window.isPieceVisibleToMe, window.selectPiece
+ *
+ * Firestore writes go to the same battle document as combat.js.
  */
 
 import {
@@ -26,9 +29,7 @@ import {
   runTransaction,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
-import { getMoveType, getTypeDamageBonus, normalizeType } from "./type-data.js";
-
-// ─── helpers ──────────────────────────────────────────────────────
+// ─── helpers (same as combat.js) ──────────────────────────────────
 function safeStr(x) { return (x == null ? "" : String(x)).trim(); }
 function safeInt(x, fb = 0) { const n = parseInt(x, 10); return Number.isFinite(n) ? n : fb; }
 function safeDocId(name) {
@@ -38,14 +39,6 @@ function safeDocId(name) {
 function d20Roll() { return Math.floor(Math.random() * 20) + 1; }
 function escHtml(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 function uid() { return `ac_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`; }
-
-function normalizeStatKey(key) {
-  const k = safeStr(key).toLowerCase();
-  if (k === "fortitude") return "fort";
-  if (k === "toughness") return "thg";
-  if (k === "intel" || k === "intelligence") return "int";
-  return k;
-}
 
 function normalizeStats(stats) {
   const raw = stats || {};
@@ -86,6 +79,7 @@ function moveStatValue(meta, stats) {
 }
 
 function spriteUrl(pid, opts) {
+  // opts: { type: "battle"|"art", shiny: bool }
   try {
     if (typeof window.getSpriteUrlFromPid === "function") {
       return safeStr(window.getSpriteUrlFromPid(pid, opts));
@@ -297,9 +291,6 @@ const CSS_TEXT = `
   padding: 2px 6px; border-radius: 6px;
   background: rgba(56,189,248,.1); border: 1px solid rgba(56,189,248,.2);
 }
-.ac-move-dmg.bonus-high {
-  background: rgba(34,197,94,.15); border-color: rgba(34,197,94,.4); color: rgba(34,197,94,.95);
-}
 
 /* ── Range selector (in overlay) ── */
 .ac-range-row {
@@ -413,8 +404,6 @@ const CSS_TEXT = `
 }
 .ac-prompt-btn:disabled { opacity:.35; cursor: default; transform: none; }
 .ac-prompt-btn.ac-wide { grid-column: span 2; }
-.ac-prompt-btn.ac-special { background: rgba(251,191,36,.15); border-color: rgba(251,191,36,.4); color: rgba(251,191,36,.95); }
-.ac-prompt-btn.ac-special:hover { background: rgba(251,191,36,.25); }
 
 /* ── Reroll toast ── */
 .ac-reroll-toast {
@@ -583,7 +572,7 @@ const LAST_MOVE_KEY = "pvp_last_move";
 // ═══════════════════════════════════════════════════════════════════
 export class ArenaCombatUI {
   constructor(opts) {
-    this.container = opts.arenaWrap;
+    this.container = opts.arenaWrap;   // #arena_wrap
     this.getDb     = opts.getDb;
     this.getRid    = opts.getRid;
     this.getBy     = opts.getBy;
@@ -591,11 +580,13 @@ export class ArenaCombatUI {
     this.getBattle = opts.getBattle;
     this.getPieces = opts.getPieces;
 
+    // caches
     this._partyStates = {};
     this._sheets = new Map();
     this._sheetsMap = new Map();
     this._partyStatesUnsub = null;
 
+    // UI state
     this._overlayRoot = null;
     this._currentOverlay = null;
     this._currentRadial = null;
@@ -607,6 +598,8 @@ export class ArenaCombatUI {
     this._repeatBtn = null;
     this._timeline = null;
     this._lastMove = null;
+
+    // keyboard bound flag
     this._kbBound = false;
 
     try {
@@ -615,14 +608,18 @@ export class ArenaCombatUI {
 
     injectCSS();
     this._init();
+    // ✅ garante cache populado pro combate em arena
     this.startListening();
   }
 
+  // ─── Init ──────────────────────────────────────────────────────
   _init() {
+    // Create overlay root
     this._overlayRoot = document.createElement("div");
     this._overlayRoot.id = "arena-combat-overlay";
     this.container.appendChild(this._overlayRoot);
 
+    // Repeat last move button
     this._repeatBtn = document.createElement("button");
     this._repeatBtn.className = "ac-repeat-btn";
     this._repeatBtn.style.display = "none";
@@ -635,6 +632,7 @@ export class ArenaCombatUI {
     this._updateRepeatBtn();
   }
 
+  // ─── Firestore refs ────────────────────────────────────────────
   _battleRef() {
     const db = this.getDb(); const rid = this.getRid();
     if (!db || !rid) return null;
@@ -656,15 +654,17 @@ export class ArenaCombatUI {
         by, value: safeInt(value, 0), label: safeStr(label) || "d20",
         createdAt: serverTimestamp(),
       });
-    } catch (err) {}
+    } catch (err) { console.warn("[arena-combat] roll publish fail:", err); }
   }
 
+  // ─── Listen party_states ───────────────────────────────────────
   startListening() {
     this.stopListening();
     const ref = this._partyStatesRef();
     if (!ref) return;
     this._partyStatesUnsub = onSnapshot(ref, (snap) => {
       this._partyStates = snap.exists() ? (snap.data() || {}) : {};
+      // Eagerly load sheets for all trainers seen in party_states
       for (const trainerName of Object.keys(this._partyStates)) {
         if (trainerName && !this._sheets.has(trainerName)) {
           this._loadSheets(trainerName);
@@ -672,23 +672,26 @@ export class ArenaCombatUI {
       }
     }, () => {});
 
+    // Also pre-load sheets for already-known players
     setTimeout(() => {
       const players = window.appState?.players || [];
       for (const pl of players) {
         const name = safeStr(pl?.trainer_name);
         if (name && !this._sheets.has(name)) this._loadSheets(name);
       }
+      // Pre-load for current user
       const by = this.getBy?.();
       if (by && !this._sheets.has(by)) this._loadSheets(by);
     }, 400);
   }
-
   stopListening() {
     if (this._partyStatesUnsub) { try { this._partyStatesUnsub(); } catch {} }
     this._partyStatesUnsub = null;
   }
 
+  // ─── Load sheets ───────────────────────────────────────────────
   async _loadSheets(trainerName) {
+    // Skip if already loaded with at least one sheet; allow retry if empty
     if (this._sheets.has(trainerName) && (this._sheets.get(trainerName) || []).length > 0) return;
     const db = this.getDb();
     if (!db) return;
@@ -700,6 +703,7 @@ export class ArenaCombatUI {
       const sheets = [];
       const map = new Map();
 
+      // snap já vem do mais recente → mais antigo
       snap.forEach((d) => {
         const s = d.data() || {};
         s._sheet_id = d.id;
@@ -709,28 +713,37 @@ export class ArenaCombatUI {
         const lpid = safeStr(s.linked_pid);
         const pname = safeStr(s.pokemon?.name).toLowerCase();
 
+        // ✅ FIRST WINS: mantém a primeira (mais recente)
         if (pid && !map.has(pid)) map.set(pid, s);
         if (pid && /^\d+$/.test(pid)) {
           const num = String(Number(pid));
           if (!map.has(num)) map.set(num, s);
         }
+
         if (lpid && !map.has(lpid)) map.set(lpid, s);
+
         if (pname && !map.has(pname)) map.set(pname, s);
-      });
-      this._sheets.set(trainerName, sheets);
+      });      this._sheets.set(trainerName, sheets);
       this._sheetsMap.set(trainerName, map);
-    } catch (e) {}
+      console.log(`[arena-combat] sheets loaded for ${trainerName}: ${sheets.length} sheets`);
+    } catch (e) {
+      console.warn("[arena-combat] loadSheets error", e);
+      // Don't cache failures — allow retry next time
+    }
   }
 
   _getSheet(trainerName, pid) {
     const m = this._sheetsMap.get(trainerName);
     if (!m) return null;
     const key = safeStr(pid);
+    // Try exact match first
     if (m.has(key)) return m.get(key);
+    // Try numeric normalization (e.g. "025" → "25")
     if (/^\d+$/.test(key)) {
       const num = String(Number(key));
       if (m.has(num)) return m.get(num);
     }
+    // Try display name lookup via dexMap
     if (window.dexMap) {
       const name = (window.dexMap[key] || window.dexMap[String(Number(key))] || "").toLowerCase();
       if (name && m.has(name)) return m.get(name);
@@ -738,84 +751,69 @@ export class ArenaCombatUI {
     return null;
   }
 
-  // Novo _getEffectiveStats incluindo boosts temporários (espelha o combat.js)
-  _getEffectiveStats(trainerName, pid) {
-    const tData = this._partyStates[trainerName] || {};
-    const key = safeStr(pid);
-    
-    let pData = tData[key];
-    if (!pData && /^\d+$/.test(key)) pData = tData[String(Number(key))];
-    if (!pData) {
-      for (const k of Object.keys(tData)) {
-        if (/^\d+$/.test(k) && Number(k) === Number(key)) { pData = tData[k]; break; }
-      }
+_getEffectiveStats(trainerName, pid) {
+  const tData = this._partyStates[trainerName] || {};
+  const key = safeStr(pid);
+  
+  let pData = tData[key];
+  if (!pData && /^\d+$/.test(key)) pData = tData[String(Number(key))];
+  if (!pData) {
+    for (const k of Object.keys(tData)) {
+      if (/^\d+$/.test(k) && Number(k) === Number(key)) { pData = tData[k]; break; }
     }
-    pData = pData || {};
+  }
+  pData = pData || {};
 
-    const sheet = this._getSheet(trainerName, pid);
-    const hasPartyStats = (pData.stats && Object.keys(pData.stats).length > 0);
-    const base = hasPartyStats ? pData.stats : (sheet?.stats || {});
+  const sheet = this._getSheet(trainerName, pid);
+  const hasPartyStats = (pData.stats && Object.keys(pData.stats).length > 0);
+  const base = hasPartyStats ? pData.stats : (sheet?.stats || {});
 
-    let baseFixed = base;
-    if (!hasPartyStats) {
-      const rawStats = (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats)) ? sheet.stats : {};
-      const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
-      const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
-      baseFixed = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
-    }
-
-    const boosts = pData.stat_boosts || {};
-    const result = normalizeStats(baseFixed);
-
-    // Aplica modificadores (ex: acerto +2, parry -1)
-    for (const [k, v] of Object.entries(boosts)) {
-      const statKey = normalizeStatKey(k);
-      if (result[statKey] !== undefined || statKey === "acerto") {
-        result[statKey] = (safeInt(result[statKey]) + safeInt(v));
-      }
-    }
-
-    result.fortitude = safeInt(result.fort);
-    result.toughness = safeInt(result.thg);
-
-    // THG Fallback baseado no dodge já boostado
+  let baseFixed = base;
+  if (!hasPartyStats) {
+    const rawStats = (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats)) ? sheet.stats : {};
     const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
-    if (safeInt(result.thg) <= 0 && np > 0) {
-      result.thg = Math.max(0, (2 * np) - safeInt(result.dodge));
-      result.toughness = safeInt(result.thg);
+    const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
+    baseFixed = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
+  }
+
+  const boosts = pData.stat_boosts || {};
+  const result = normalizeStats(baseFixed);
+
+  for (const [k, v] of Object.entries(boosts)) {
+    const statKey = normalizeStatKey(k);
+    if (result[statKey] !== undefined || statKey === "acerto") {
+      result[statKey] = (safeInt(result[statKey]) + safeInt(v));
     }
-
-    return result;
   }
 
-  // Calculador centralizado de dano com STAB e Tipo
-  _calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid) {
-    const rank = safeInt(move.rank);
-    const [based, statVal] = moveStatValue(move.meta || {}, atkStats);
-    
-    const moveName = safeStr(move.name) || "Golpe";
-    const moveType = getMoveType(moveName) || safeStr(move.meta?.type) || safeStr(move.type) || "";
-    
-    const atkSheet = this._getSheet(by, atkPid);
-    const atkTypes = Array.isArray(atkSheet?.pokemon?.types) ? atkSheet.pokemon.types : [];
-    const tSheet = this._getSheet(tOwner, tPid);
-    const tgtTypes = Array.isArray(tSheet?.pokemon?.types) ? tSheet.pokemon.types : [];
+  result.fortitude = safeInt(result.fort);
+  result.toughness = safeInt(result.thg);
 
-    const typeBonus = moveType && tgtTypes.length > 0 ? getTypeDamageBonus(moveType, tgtTypes) : 0;
-    const stabBonus = (moveType && atkTypes.some(t => normalizeType(t) === moveType)) ? 2 : 0;
-
-    return {
-      baseDmg: rank + statVal,
-      totalDmg: rank + statVal + typeBonus + stabBonus,
-      typeBonus,
-      stabBonus,
-      moveType,
-      based,
-      statVal,
-      rank
-    };
+  const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
+  if (safeInt(result.thg) <= 0 && np > 0) {
+    result.thg = Math.max(0, (2 * np) - safeInt(result.dodge));
+    result.toughness = safeInt(result.thg);
   }
 
+  return result;
+}
+
+_getPokeStats(trainerName, pid) {
+  // Compat wrapper: arena code historically called _getPokeStats().
+  // Now we prefer the effective stats (base + temporary boosts from party_states).
+  const eff = this._getEffectiveStats(trainerName, pid);
+  if (eff) return eff;
+
+  // Fallback: try raw sheet stats if party_states not ready.
+  const sheet = this._getSheet(trainerName, pid);
+  const rawStats =
+    (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
+      ? sheet.stats
+      : {};
+  return normalizeStats(rawStats);
+}
+
+  // ─── Favorites ─────────────────────────────────────────────────
   _getFavorites(trainerName) {
     try {
       const raw = localStorage.getItem(FAV_KEY_PREFIX + trainerName);
@@ -829,6 +827,7 @@ export class ArenaCombatUI {
     try { localStorage.setItem(FAV_KEY_PREFIX + trainerName, JSON.stringify(arr)); } catch {}
   }
 
+  // ─── Tile → screen position ────────────────────────────────────
   _tileToScreen(row, col) {
     const v = window._arenaView;
     if (!v) return { x: 0, y: 0 };
@@ -843,6 +842,7 @@ export class ArenaCombatUI {
     return this._tileToScreen(Number(piece.row), Number(piece.col));
   }
 
+  // ─── Clamp overlay to container bounds ─────────────────────────
   _clampPos(x, y, w, h) {
     const cr = this.container.getBoundingClientRect();
     const maxX = cr.width - w - 8;
@@ -853,10 +853,14 @@ export class ArenaCombatUI {
     };
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // CANVAS CLICK INTERCEPTION
+  // ═══════════════════════════════════════════════════════════════
   _bindCanvasClick() {
     const canvas = document.getElementById("arena");
     if (!canvas) return;
 
+    // Helper: check if click is on an enemy piece
     const _getEnemyPiece = (ev) => {
       if (window.appState?.placingPid) return null;
       const rect = canvas.getBoundingClientRect();
@@ -875,21 +879,34 @@ export class ArenaCombatUI {
       return piece;
     };
 
+    // Intercept mousedown to prevent drag on enemy pieces
     canvas.addEventListener("mousedown", (ev) => {
       if (ev.button !== 0) return;
-      if (_getEnemyPiece(ev)) ev.stopImmediatePropagation();
+      if (_getEnemyPiece(ev)) {
+        ev.stopImmediatePropagation(); // prevent main.js drag
+      }
     }, true);
 
+    // Left-click on enemy pieces → open Inspector (combat via right-click context menu)
     canvas.addEventListener("click", (ev) => {
       if (window.appState?.drag?.justDropped) return;
       const piece = _getEnemyPiece(ev);
       if (!piece) return;
+
+      // Prevent main.js handler (we handle selection ourselves)
       ev.stopImmediatePropagation();
+
+      // Close existing overlays
       this._closeAll();
+
+      // Select the enemy piece to open the Inspector
       window.selectPiece?.(safeStr(piece.id));
-    }, true);
+    }, true); // capture phase
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // RIGHT-CLICK CONTEXT MENU
+  // ═══════════════════════════════════════════════════════════════
   _bindContextMenu() {
     const canvas = document.getElementById("arena");
     if (!canvas) return;
@@ -964,14 +981,17 @@ export class ArenaCombatUI {
       return `<div class="ac-ctx-item"><span class="ac-ctx-icon">${it.icon}</span>${escHtml(it.label)}${it.kbd ? `<span class="ac-ctx-kbd">${it.kbd}</span>` : ""}</div>`;
     }).join("");
 
+    // Position
     const pos = this._clampPos(x, y, 200, items.length * 36);
     el.style.left = `${pos.x}px`;
     el.style.top = `${pos.y}px`;
     this._overlayRoot.appendChild(el);
     this._currentContext = el;
 
+    // Wire clicks
     let idx = 0;
     el.querySelectorAll(".ac-ctx-item").forEach(itemEl => {
+      // Find corresponding non-sep item
       while (idx < items.length && items[idx].type === "sep") idx++;
       if (idx >= items.length) return;
       const action = items[idx].action;
@@ -979,6 +999,7 @@ export class ArenaCombatUI {
       idx++;
     });
 
+    // Close on outside click
     const closeHandler = (e) => {
       if (!el.contains(e.target)) {
         this._closeContext();
@@ -988,14 +1009,21 @@ export class ArenaCombatUI {
     setTimeout(() => document.addEventListener("click", closeHandler, true), 10);
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // KEYBOARD SHORTCUTS
+  // ═══════════════════════════════════════════════════════════════
   _bindKeyboard() {
     if (this._kbBound) return;
     this._kbBound = true;
     document.addEventListener("keydown", (ev) => {
+      // Don't capture when typing in inputs/textareas
       const tag = (ev.target?.tagName || "").toLowerCase();
       if (tag === "input" || tag === "textarea" || tag === "select") {
+        // Only let Escape through for closing overlays
         if (ev.key !== "Escape") return;
       }
+
+      // Escape closes all overlays
       if (ev.key === "Escape") {
         if (this._currentOverlay || this._currentRadial || this._currentPrompt || this._currentContext || this._currentReroll) {
           ev.preventDefault();
@@ -1003,10 +1031,20 @@ export class ArenaCombatUI {
         }
         return;
       }
+      // Reroll shortcuts
       if (this._currentReroll) {
-        if (ev.key === "r" || ev.key === "R") { ev.preventDefault(); this._doReroll(); return; }
-        if (ev.key === "Enter") { ev.preventDefault(); this._keepRoll(); return; }
+        if (ev.key === "r" || ev.key === "R") {
+          ev.preventDefault();
+          this._doReroll();
+          return;
+        }
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          this._keepRoll();
+          return;
+        }
       }
+      // / to focus search in move list
       if (ev.key === "/" && this._currentOverlay) {
         const search = this._currentOverlay.querySelector(".ac-search");
         if (search) { ev.preventDefault(); search.focus(); }
@@ -1014,6 +1052,9 @@ export class ArenaCombatUI {
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // ATTACK OVERLAY
+  // ═══════════════════════════════════════════════════════════════
   async _openAttackOverlay(targetPiece, x, y, forceMode = null) {
     this._closeOverlay();
 
@@ -1034,9 +1075,11 @@ export class ArenaCombatUI {
     const el = document.createElement("div");
     el.className = "ac-overlay";
 
+    // Header
     el.innerHTML = `
       <div class="ac-overlay-header">
-        <img class="ac-overlay-sprite" src="${escHtml(tSprite)}" alt="${escHtml(tName)}" onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'" />
+        <img class="ac-overlay-sprite" src="${escHtml(tSprite)}" alt="${escHtml(tName)}"
+          onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'" />
         <div>
           <div class="ac-overlay-name">${escHtml(tName)}</div>
           <div class="ac-overlay-sub">${escHtml(tOwner)} • ${escHtml(tName)}</div>
@@ -1046,6 +1089,7 @@ export class ArenaCombatUI {
       <div id="ac-overlay-body"></div>
     `;
 
+    // Position
     const pos = this._clampPos(x + 10, y - 20, 300, 400);
     el.style.left = `${pos.x}px`;
     el.style.top = `${pos.y}px`;
@@ -1053,8 +1097,10 @@ export class ArenaCombatUI {
     this._overlayRoot.appendChild(el);
     this._currentOverlay = el;
 
+    // Close button
     el.querySelector(".ac-overlay-close").addEventListener("click", () => this._closeOverlay());
 
+    // Close on outside click (delayed to avoid self-close)
     const closeHandler = (e) => {
       if (!el.contains(e.target) && !e.target.closest(".ac-radial")) {
         this._closeOverlay();
@@ -1063,6 +1109,7 @@ export class ArenaCombatUI {
     };
     setTimeout(() => document.addEventListener("mousedown", closeHandler, true), 50);
 
+    // Build body
     const body = el.querySelector("#ac-overlay-body");
     this._buildOverlayBody(body, targetPiece, myPieces, forceMode);
   }
@@ -1070,6 +1117,7 @@ export class ArenaCombatUI {
   _buildOverlayBody(body, targetPiece, myPieces, forceMode) {
     const by = this.getBy();
 
+    // Select attacker pokemon
     let atkHtml = "";
     if (myPieces.length === 1) {
       const p = myPieces[0];
@@ -1083,10 +1131,11 @@ export class ArenaCombatUI {
       </select>`;
     }
 
+    // Range selector
     const rangeHtml = `
       <div class="ac-range-row">
         <button class="ac-range-btn ac-active" data-range="distance">🏹 Distância (Dodge)</button>
-        <button class="ac-range-btn" data-range="melee">⚔️ Melee (Parry)</button>
+        <button class="ac-range-btn" data-range="melee">⚔️ Corpo-a-corpo (Parry)</button>
         <button class="ac-range-btn" data-range="area">🌀 Área (Dodge CD)</button>
       </div>
     `;
@@ -1096,13 +1145,14 @@ export class ArenaCombatUI {
       ${rangeHtml}
       <div style="display:flex;align-items:center;gap:8px;margin:8px 0 10px;padding:8px 10px;border-radius:10px;background:rgba(168,85,247,.10);border:1px solid rgba(168,85,247,.28)">
         <input type="checkbox" id="ac-sneak-attack" style="accent-color:#a855f7;width:16px;height:16px;cursor:pointer" />
-        <label for="ac-sneak-attack" style="font-size:12px;font-weight:700;cursor:pointer;color:rgba(226,232,240,.9)">🥷 Furtivo <span style="font-weight:400;color:rgba(148,163,184,.9)">(oponente usa def/2)</span></label>
+        <label for="ac-sneak-attack" style="font-size:12px;font-weight:700;cursor:pointer;color:rgba(226,232,240,.9)">🥷 Golpe Furtivo <span style="font-weight:400;color:rgba(148,163,184,.9)">(oponente usa metade da defesa)</span></label>
       </div>
       <div id="ac-moves-area"></div>
     `;
 
     const getSneakAttack = () => !!body.querySelector("#ac-sneak-attack")?.checked;
 
+    // Range toggle
     let currentRange = "distance";
     body.querySelectorAll(".ac-range-btn").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -1111,26 +1161,30 @@ export class ArenaCombatUI {
       });
     });
 
+    // Get attacker pid
     const getAtkPid = () => {
       if (myPieces.length === 1) return safeStr(myPieces[0].pid);
       const sel = body.querySelector("#ac-atk-select");
       return sel ? sel.value : (myPieces[0] ? safeStr(myPieces[0].pid) : "");
     };
 
+    // Load moves for attacker
     const loadMoves = () => {
       const atkPid = getAtkPid();
       const sheet = this._getSheet(by, atkPid);
       const moves = sheet?.moves || [];
-      const stats = this._getEffectiveStats(by, atkPid);
+      const stats = sheet?.stats || this._getPokeStats(by, atkPid) || {};
       const favorites = this._getFavorites(by);
 
       const movesArea = body.querySelector("#ac-moves-area");
 
+      // Check if we should show radial or list
       const favMoves = favorites.length > 0
         ? favorites.map(name => moves.find(m => safeStr(m.name) === name)).filter(Boolean)
         : [];
 
       if (favMoves.length >= 3 && !forceMode) {
+        // Show radial menu hint + button to open
         movesArea.innerHTML = `
           <div class="ac-quick-actions">
             <button class="ac-quick-btn" id="ac-open-radial">🎯 Favoritos (${favMoves.length})</button>
@@ -1148,19 +1202,23 @@ export class ArenaCombatUI {
           this._openManualInputDialog(targetPiece, getAtkPid(), currentRange, getSneakAttack());
         });
       } else {
+        // Show compact list directly
         this._renderMoveList(movesArea, moves, stats, targetPiece, getAtkPid, () => currentRange, getSneakAttack);
       }
     };
 
+    // Reload moves when attacker changes
     body.querySelector("#ac-atk-select")?.addEventListener("change", loadMoves);
     loadMoves();
   }
 
+  // ─── Compact move list ─────────────────────────────────────────
   _renderMoveList(container, moves, stats, targetPiece, getAtkPid, getRange, getSneakAttack = () => false) {
     let html = `<input class="ac-search" placeholder="/ buscar golpe..." id="ac-move-search" />`;
     html += `<button class="ac-quick-btn" id="ac-manual-input" style="width:100%;margin-bottom:6px">✍️ Input manual</button>`;
     html += `<div class="ac-movelist" id="ac-movelist-inner">`;
 
+    // Area attack option
     html += `<div class="ac-move-item" data-mode="area">
       <span style="font-size:14px">🌀</span>
       <span class="ac-move-name">Ataque em Área</span>
@@ -1169,30 +1227,29 @@ export class ArenaCombatUI {
 
     moves.forEach((mv, i) => {
       const name = safeStr(mv.name) || "Golpe";
+      const rank = safeInt(mv.rank);
+      const [based, statVal] = moveStatValue(mv.meta || {}, stats);
+      const damage = rank + statVal;
+      const acc = safeInt(mv.accuracy);
       const cat = safeStr(mv.meta?.category || mv.category || "").toLowerCase();
       const icon = cat.includes("status") ? "🟣" : cat.includes("special") || cat.includes("especial") ? "🔵" : "🔴";
-      
-      const ctx = this._calcMoveContext(mv, stats, this.getBy(), getAtkPid(), targetPiece.owner, targetPiece.pid);
-      const aceiroBonus = safeInt(stats.acerto || 0);
-      const acc = safeInt(mv.accuracy) + aceiroBonus;
-      const extraTxt = (ctx.typeBonus !== 0 || ctx.stabBonus > 0) ? ` (+)` : ``;
-      const dmgClass = (ctx.typeBonus > 0 || ctx.stabBonus > 0) ? "bonus-high" : "";
 
       html += `<div class="ac-move-item" data-idx="${i}">
         <span style="font-size:14px">${icon}</span>
         <span class="ac-move-name">${escHtml(name)}</span>
-        <span class="ac-move-meta">Ac ${acc} • R${ctx.rank}</span>
-        <span class="ac-move-dmg ${dmgClass}">${ctx.totalDmg}${extraTxt}</span>
+        <span class="ac-move-meta">Acc ${acc} • R${rank}</span>
+        <span class="ac-move-dmg">${damage}</span>
       </div>`;
     });
 
     if (!moves.length) {
-      html += `<div style="padding:12px;text-align:center;color:rgba(148,163,184,.5);font-size:12px">Nenhum golpe encontrado.</div>`;
+      html += `<div style="padding:12px;text-align:center;color:rgba(148,163,184,.5);font-size:12px">Nenhum golpe encontrado. Carregue sheets do treinador.</div>`;
     }
 
     html += `</div>`;
     container.innerHTML = html;
 
+    // Search filter
     const searchInput = container.querySelector("#ac-move-search");
     searchInput?.addEventListener("input", () => {
       const q = searchInput.value.toLowerCase();
@@ -1202,6 +1259,7 @@ export class ArenaCombatUI {
       });
     });
 
+    // Click handlers
     container.querySelectorAll(".ac-move-item[data-idx]").forEach(el => {
       el.addEventListener("click", () => {
         const idx = parseInt(el.dataset.idx);
@@ -1218,6 +1276,7 @@ export class ArenaCombatUI {
       });
     });
 
+    // Area mode
     container.querySelector('.ac-move-item[data-mode="area"]')?.addEventListener("click", () => {
       this._openAreaDialog(targetPiece, getAtkPid());
     });
@@ -1232,6 +1291,7 @@ export class ArenaCombatUI {
     return category.includes("status") || move?.meta?.is_effect === true;
   }
 
+  // ─── Area attack dialog ────────────────────────────────────────
   _openAreaDialog(targetPiece, atkPid, defaults = {}) {
     this._closeOverlay();
     const pos = this._pieceScreenPos(targetPiece);
@@ -1365,6 +1425,9 @@ export class ArenaCombatUI {
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // RADIAL MENU
+  // ═══════════════════════════════════════════════════════════════
   _openRadialMenu(targetPiece, favMoves, allMoves, stats, getAtkPid, currentRange, getSneakAttack = () => false) {
     this._closeRadial();
 
@@ -1374,6 +1437,7 @@ export class ArenaCombatUI {
     el.style.left = `${pos.x}px`;
     el.style.top = `${pos.y}px`;
 
+    // Center: target sprite
     const tPid = safeStr(targetPiece.pid);
     const _tOwnerRadial = safeStr(targetPiece.owner);
     const _tPsRadial = ((this._partyStates && this._partyStates[_tOwnerRadial]) ? this._partyStates[_tOwnerRadial] : {})[tPid] || {};
@@ -1384,14 +1448,15 @@ export class ArenaCombatUI {
       </div>
     `;
 
+    // Slots
     const radius = 90;
-    const slotCount = Math.min(favMoves.length + 2, 8);
+    const slotCount = Math.min(favMoves.length + 2, 8); // +1 for "all", +1 for "area"
     const totalSlots = slotCount;
 
     const displayMoves = [...favMoves.slice(0, 6)];
 
     for (let i = 0; i < totalSlots; i++) {
-      const angle = (i / totalSlots) * 2 * Math.PI - Math.PI / 2;
+      const angle = (i / totalSlots) * 2 * Math.PI - Math.PI / 2; // start from top
       const sx = Math.cos(angle) * radius;
       const sy = Math.sin(angle) * radius;
 
@@ -1402,16 +1467,18 @@ export class ArenaCombatUI {
 
       if (i < displayMoves.length) {
         const mv = displayMoves[i];
-        const ctx = this._calcMoveContext(mv, stats, this.getBy(), getAtkPid(), targetPiece.owner, targetPiece.pid);
+        const rank = safeInt(mv.rank);
+        const [based, statVal] = moveStatValue(mv.meta || {}, stats);
+        const damage = rank + statVal;
         const cat = safeStr(mv.meta?.category || mv.category || "").toLowerCase();
         const icon = cat.includes("status") ? "🟣" : cat.includes("special") || cat.includes("especial") ? "🔵" : "🔴";
 
         slot.innerHTML = `
           <span class="ac-slot-icon">${icon}</span>
           <span class="ac-slot-name">${escHtml(safeStr(mv.name).slice(0, 10))}</span>
-          <span class="ac-slot-sub">R${ctx.rank} • D${ctx.totalDmg}</span>
+          <span class="ac-slot-sub">R${rank} • D${damage}</span>
         `;
-        slot.title = `${safeStr(mv.name)} — Rank ${ctx.rank}, Dano ${ctx.totalDmg}, Acc ${safeInt(mv.accuracy) + safeInt(stats.acerto||0)}`;
+        slot.title = `${safeStr(mv.name)} — Rank ${rank}, Dano ${damage}, Acc ${safeInt(mv.accuracy)}`;
         slot.addEventListener("click", () => {
           this._closeRadial();
           this._closeOverlay();
@@ -1425,6 +1492,7 @@ export class ArenaCombatUI {
           this._executeAttack(getAtkPid(), targetPiece, mv, stats, currentRange, { sneakAttack: getSneakAttack() });
         });
       } else if (i === totalSlots - 2) {
+        // "+" all moves
         slot.innerHTML = `<span class="ac-slot-icon">➕</span><span class="ac-slot-name">Todos</span>`;
         slot.title = "Ver todos os golpes";
         slot.addEventListener("click", () => {
@@ -1435,6 +1503,7 @@ export class ArenaCombatUI {
           }
         });
       } else {
+        // "Area"
         slot.innerHTML = `<span class="ac-slot-icon">🌀</span><span class="ac-slot-name">Área</span>`;
         slot.title = "Ataque em Área";
         slot.addEventListener("click", () => {
@@ -1450,6 +1519,7 @@ export class ArenaCombatUI {
     this._overlayRoot.appendChild(el);
     this._currentRadial = el;
 
+    // Close on outside click
     const closeHandler = (e) => {
       if (!el.contains(e.target) && !this._currentOverlay?.contains(e.target)) {
         this._closeRadial();
@@ -1459,6 +1529,9 @@ export class ArenaCombatUI {
     setTimeout(() => document.addEventListener("mousedown", closeHandler, true), 50);
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // EXECUTE ATTACK (auto-roll + feedback)
+  // ═══════════════════════════════════════════════════════════════
   async _executeAttack(atkPid, targetPiece, move, stats, rangeStr, opts = {}) {
     this._closeAll();
 
@@ -1467,7 +1540,7 @@ export class ArenaCombatUI {
     const tOwner = safeStr(targetPiece.owner);
     const tPid = safeStr(targetPiece.pid);
     
-    // Assegura fichas atualizadas
+    // Carrega fichas atualizadas
     if (by) await this._loadSheets(by);
     if (tOwner) await this._loadSheets(tOwner);
 
@@ -1475,21 +1548,89 @@ export class ArenaCombatUI {
     const tStats = this._getEffectiveStats(tOwner, tPid);
 
     const aceiroBonus = safeInt(atkStats.acerto || 0);
+    const atkMod = safeInt(move.accuracy);
+    const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid);
+    const isEffect = this._isEffectMove(move);
 
+    // ===============================================
+    // CASO 1: ATAQUE EM ÁREA (Auto Dodge)
+    // ===============================================
+    if (rangeStr === "area") {
+      const dodge = safeInt(tStats.dodge);
+      const dcDodge = 10 + ctx.rank;
+      const dodgeRoll = d20Roll();
+      const dodgeTotal = dodgeRoll + dodge;
+      
+      const success = dodgeTotal >= dcDodge;
+      // Se passar, dano reduz pela metade (Math.ceil para favorecer atacante ou floor? Regra M&M é floor para rank resultante)
+      // Vou usar Math.ceil para damage (metade do rank). Ex: rank 10 -> 5. Rank 5 -> 3.
+      const finalRank = success ? Math.ceil(ctx.totalDmg / 2) : ctx.totalDmg;
+      
+      const dodgeMsg = success 
+        ? `AUTOMÁTICO: Dodge Sucesso (${dodgeRoll}+${dodge}=${dodgeTotal} vs CD ${dcDodge}). Dano reduzido para R${finalRank}.`
+        : `AUTOMÁTICO: Dodge Falha (${dodgeRoll}+${dodge}=${dodgeTotal} vs CD ${dcDodge}). Dano total R${finalRank}.`;
+        
+      this._showFloat(targetPiece, success ? "Dodge Sucesso! (Dano/2)" : "Dodge Falha! (Dano full)", success ? "hit" : "crit");
+      this._publishRoll(dodgeRoll, `Auto-Dodge (Área)`);
+
+      // Vai direto para Resistência (Toughness)
+      const dcResist = (isEffect ? 10 : 15) + finalRank;
+      
+      this._lastMove = {
+        moveName: safeStr(move.name),
+        attackerPid: atkPid,
+        rangeStr: "area",
+        sneakAttack: false
+      };
+      try { localStorage.setItem(LAST_MOVE_KEY, JSON.stringify(this._lastMove)); } catch {}
+
+      // Move payload
+      const movePayload = {
+        name: safeStr(move.name) || "Golpe Área",
+        accuracy: atkMod,
+        damage: finalRank, // rank ajustado
+        rank: ctx.rank,
+        description: safeStr(move.description || move.effect || ""), // Importante para efeito secundário
+        meta: move.meta || {},
+      };
+
+      await this._writeBattle({
+        status: "waiting_defense",
+        attacker: by,
+        attacker_pid: atkPid,
+        target_id: tId,
+        target_owner: tOwner,
+        target_pid: tPid,
+        attack_move: movePayload,
+        attack_range: "Área (Auto-Dodge)",
+        d20: dodgeRoll, 
+        dmg_base: finalRank,
+        is_effect: isEffect,
+        pendingFor: tOwner,
+        prompt: {
+          type: "ROLL_RESIST",
+          options: { dc: dcResist, isEffect, rank: finalRank }
+        },
+        logs: [
+          `${by} usou Área (Rank ${ctx.rank}). ${dodgeMsg}`,
+          `Resistência necessária: CD ${dcResist} (Rank ${finalRank}).`
+        ],
+      });
+      
+      return;
+    }
+
+    // ===============================================
+    // CASO 2: ATAQUE NORMAL (Roll p/ acertar)
+    // ===============================================
     const isDistance = rangeStr === "distance";
     const defenseKey = isDistance ? "dodge" : "parry";
     const isSneakAttack = !!opts.sneakAttack;
     const baseDefenseVal = safeInt(tStats[defenseKey]);
     const defenseVal = isSneakAttack ? Math.floor(baseDefenseVal / 2) : baseDefenseVal;
     
-    // Novo fluxo: Defense DC é dinâmico usando o stats total do alvo
     const needed = defenseVal + 10;
 
-    const atkMod = safeInt(move.accuracy);
-    const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid);
-    const isEffect = this._isEffectMove(move);
-
-    // Roll d20 + Acc do Golpe + Modificador de Acerto (Ficha)
     const roll = d20Roll();
     this._publishRoll(roll, `Ataque • ${displayName(atkPid)}`);
 
@@ -1510,9 +1651,7 @@ export class ArenaCombatUI {
 
     this._lastMove = {
       moveName: safeStr(move.name),
-      moveIdx: 0,
       attackerPid: atkPid,
-      mode: "normal",
       rangeStr,
       sneakAttack: isSneakAttack,
     };
@@ -1529,6 +1668,7 @@ export class ArenaCombatUI {
       move_type: ctx.moveType,
       type_bonus: ctx.typeBonus,
       stab_bonus: ctx.stabBonus,
+      description: safeStr(move.description || move.effect || ""), // Para efeito secundário
       meta: move.meta || {},
     };
 
@@ -1599,6 +1739,7 @@ export class ArenaCombatUI {
     }
   }
 
+  // ─── Repeat last move on a target ──────────────────────────────
   async _executeRepeatOnTarget(targetPiece) {
     if (!this._lastMove) return;
     const by = this.getBy();
@@ -1607,7 +1748,7 @@ export class ArenaCombatUI {
     const atkPid = this._lastMove.attackerPid;
     const sheet = this._getSheet(by, atkPid);
     const moves = sheet?.moves || [];
-    const stats = this._getEffectiveStats(by, atkPid);
+    const stats = sheet?.stats || this._getPokeStats(by, atkPid) || {};
     const mv = moves.find(m => safeStr(m.name) === this._lastMove.moveName);
     if (!mv) {
       this._showFloat(targetPiece, `❌ Golpe "${this._lastMove.moveName}" não encontrado`, "miss");
@@ -1619,6 +1760,7 @@ export class ArenaCombatUI {
   }
 
   _repeatLastMove() {
+    // Find the last target piece
     const battle = this.getBattle();
     if (!battle || !this._lastMove) return;
 
@@ -1656,6 +1798,13 @@ export class ArenaCombatUI {
     }
 
     const by = this.getBy();
+    const role = safeStr(this.getRole && this.getRole());
+    const ownerOfPiece = safeStr(piece.owner);
+    const canView = (!ownerOfPiece || ownerOfPiece === by || role === "master");
+    if (!canView) {
+      root.innerHTML = `<div class="arena-sheet-card"><div class="muted">Você não pode ver a ficha de peças do oponente.</div></div>`;
+      return;
+    }
     const pid = safeStr(piece.pid);
     const pkm = sheet.pokemon || {};
     const name = safeStr(pkm.name) || displayName(pid);
@@ -1717,9 +1866,11 @@ export class ArenaCombatUI {
     `;
   }
 
+  // ─── View sheet (context menu preview) ─────────────────────────
   async _viewSheet(piece) {
     if (!piece) return;
-    const by = (this.getBy() || "").toLowerCase();
+    // Privacidade: só o dono pode ver a ficha completa no painel lateral
+    const by    = (this.getBy() || "").toLowerCase();
     const owner = safeStr(piece.owner).toLowerCase();
     if (!by || owner !== by) return;
 
@@ -1727,11 +1878,14 @@ export class ArenaCombatUI {
       window.selectPiece(piece.id);
     }
     await this._loadSheets(safeStr(piece.owner) || this.getBy());
-    const pid = safeStr(piece.pid);
+    const pid   = safeStr(piece.pid);
     const sheet = this._getSheet(safeStr(piece.owner) || this.getBy(), pid);
     this._renderSidebarSheet(piece, sheet);
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // FLOATING FEEDBACK
+  // ═══════════════════════════════════════════════════════════════
   _showFloat(piece, text, type = "hit") {
     const pos = this._pieceScreenPos(piece);
     const offset = this._floats.filter(f => !f._removed).length * 35;
@@ -1747,6 +1901,7 @@ export class ArenaCombatUI {
     const entry = { el, _removed: false };
     this._floats.push(entry);
 
+    // For non-pending: auto-remove after animation
     if (type !== "pending") {
       const duration = type === "stage" ? 5000 : 4000;
       setTimeout(() => {
@@ -1770,6 +1925,9 @@ export class ArenaCombatUI {
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // PENDING PROMPT RENDERING (on battle doc change)
+  // ═══════════════════════════════════════════════════════════════
   render() {
     const battle = this.getBattle();
     if (!battle) { this._clearPendingFloats(); this._closePrompt(); this._closeReroll(); return; }
@@ -1779,6 +1937,15 @@ export class ArenaCombatUI {
     const prompt = battle.prompt;
     const status = safeStr(battle.status);
 
+    // Auto-resolve AOE dodge (reduz dano pela metade em caso de sucesso) — sem sair da arena
+    if (status === "aoe_defense" && pendingFor === by && prompt && prompt.type === "ROLL_RESIST") {
+      const aoePhase = safeStr(prompt.options && prompt.options.aoePhase);
+      if (aoePhase === "dodge" && !battle.aoe_auto_done) {
+        this._resolveAoeDefenseAuto(battle).catch(console.error);
+        return;
+      }
+    }
+
     this._updateTimeline(battle);
 
     if (status === "idle") {
@@ -1786,7 +1953,6 @@ export class ArenaCombatUI {
       this._closePrompt();
       this._closeReroll();
 
-      // Verifica se há combate anterior para Efeito Secundário
       const prevAttacker = safeStr(battle.attacker);
       const prevLogs = battle.logs || [];
       const canSecondary = (prevAttacker === by) && prevLogs.length > 0 && safeStr(battle.target_id);
@@ -1798,6 +1964,58 @@ export class ArenaCombatUI {
 
     if (pendingFor === by && prompt) {
       if (prompt.type === "ROLL_RESIST" && !this._currentPrompt) {
+  async _resolveAoeDefenseAuto(battle) {
+    const by = this.getBy();
+    const tOwner = safeStr(battle.target_owner);
+    const tPid = safeStr(battle.target_pid);
+    const atkPid = safeStr(battle.attacker_pid);
+    const moveIsEffect = !!battle.is_effect;
+
+    // Defender dodge vs DC (rank + 10)
+    const tStats = this._getEffectiveStats(tOwner, tPid) || {};
+    const dodgeVal = safeInt(tStats.dodge);
+    const dc = safeInt(battle.aoe_dc, 10);
+
+    const roll = d20Roll();
+    this._publishRoll(roll, `Dodge • ${displayName(tPid)}`);
+    const total = roll + dodgeVal;
+    const success = total >= dc;
+
+    const baseRank = safeInt(battle.dmg_base, 1);
+    const reducedRank = success ? Math.max(1, Math.floor(baseRank / 2)) : baseRank;
+
+    const dcBase = moveIsEffect ? 10 : 15;
+    const dcResist = dcBase + reducedRank;
+
+    const logs = Array.isArray(battle.logs) ? battle.logs.slice() : [];
+    logs.push(`Dodge (auto): ${roll}+${dodgeVal}=${total} vs CD ${dc} → ${success ? "SUCESSO ✅ (dano/2)" : "FALHA ❌"}.`);
+    logs.push(`Rank/Dano (após dodge): ${reducedRank}${moveIsEffect ? " (Affliction)" : ""}. Aguardando resistência... (CD ${dcResist})`);
+
+    // Promote to the normal resist flow with adjusted damage
+    await this._writeBattle({
+      status: "waiting_defense",
+      aoe_auto_done: true,
+      attacker: safeStr(battle.attacker),
+      attacker_pid: atkPid,
+      target_id: safeStr(battle.target_id),
+      target_owner: tOwner,
+      target_pid: tPid,
+      attack_range: "Área (Dodge)",
+      d20: roll,
+      defense_val: dodgeVal,
+      needed: dc,
+      total_atk: total,
+      dmg_base: reducedRank,
+      is_effect: moveIsEffect,
+      pendingFor: tOwner,
+      prompt: { type: "ROLL_RESIST", options: { dc: dcResist, isEffect: moveIsEffect, rank: reducedRank, critBonus: 0 } },
+      logs,
+    });
+
+    // UI feedback
+    // Feedback local (sem depender de lookup de peça)
+  }
+
         this._renderResistPrompt(battle, prompt);
       } else if (prompt.type === "CONFIRM_HIT_RANK" && !this._currentPrompt) {
         this._renderRankPrompt(battle, prompt);
@@ -1810,51 +2028,7 @@ export class ArenaCombatUI {
     }
   }
 
-  // Novo prompt que aparece para o Atacante ativar efeitos secundários
-  _renderSecondaryEffectPrompt(battle) {
-    const tId = safeStr(battle.target_id);
-    const pieces = this.getPieces() || [];
-    const targetPiece = pieces.find(p => safeStr(p.id) === tId);
-    if (!targetPiece) return;
-
-    const pos = this._pieceScreenPos(targetPiece);
-    const el = document.createElement("div");
-    el.className = "ac-prompt";
-    const cpos = this._clampPos(pos.x + 40, pos.y - 30, 260, 150);
-    el.style.left = `${cpos.x}px`;
-    el.style.top = `${cpos.y}px`;
-
-    el.innerHTML = `
-      <div class="ac-prompt-title">⚡ Efeito Secundário?</div>
-      <div style="font-size:11px;color:rgba(148,163,184,.7);margin-bottom:8px">Ative se o seu ataque causar também envenenar, paralisar, etc.</div>
-      <div class="ac-prompt-grid">
-        <button class="ac-prompt-btn ac-special" id="ac-sec-yes">⚡ Ativar Efeito</button>
-        <button class="ac-prompt-btn" id="ac-sec-no">Encerrar</button>
-      </div>
-    `;
-
-    this._overlayRoot.appendChild(el);
-    this._currentPrompt = el;
-
-    el.querySelector("#ac-sec-yes").addEventListener("click", async () => {
-      el.querySelector("#ac-sec-yes").disabled = true;
-      const ref = this._battleRef(); if (!ref) return;
-      await this._writeBattle({
-        status: "hit_confirmed",
-        pendingFor: this.getBy(),
-        prompt: { type: "CONFIRM_HIT_RANK" },
-        logs: arrayUnion("⚡ Efeito secundário ativado — defina o rank do efeito.")
-      });
-      this._closePrompt();
-    });
-
-    el.querySelector("#ac-sec-no").addEventListener("click", () => {
-      this._closePrompt();
-      const ref = this._battleRef();
-      if (ref) this._writeBattle({ target_id: "" });
-    });
-  }
-
+  // ─── Resist prompt ─────────────────────────────────────────────
   _renderResistPrompt(battle, prompt) {
     this._closePrompt();
     this._clearPendingFloats();
@@ -1894,14 +2068,16 @@ export class ArenaCombatUI {
     this._overlayRoot.appendChild(el);
     this._currentPrompt = el;
 
+    // Wire defense buttons
     el.querySelectorAll("[data-def]").forEach(btn => {
       btn.addEventListener("click", async () => {
+        // Disable all
         el.querySelectorAll("[data-def]").forEach(b => { b.disabled = true; b.style.opacity = "0.4"; });
         btn.textContent = "⏳ Rolando...";
 
         const defType = btn.dataset.def;
         const by = this.getBy();
-        const tStats = this._getEffectiveStats(by, tPid);
+        const tStats = this._getPokeStats(by, tPid);
         const statVal = safeInt(tStats[defType]);
 
         const roll = d20Roll();
@@ -1909,6 +2085,7 @@ export class ArenaCombatUI {
         const checkTotal = roll + statVal;
 
         if (isAoe) {
+          // AOE: success = rank halved
           const baseRank = safeInt(battle.dmg_base);
           let finalRank, msg;
           if (checkTotal >= dc) {
@@ -1919,8 +2096,10 @@ export class ArenaCombatUI {
             msg = `Falha no Dodge! (${checkTotal} vs ${dc}). Rank total: ${finalRank}`;
           }
 
+          // Show float
           if (targetPiece) this._showFloat(targetPiece, `🛡️ ${msg}`, "resist");
 
+          // Now need a second resist phase
           const isEff = !!battle.is_effect;
           const newDc = (isEff ? 10 : 15) + finalRank + safeInt(battle.crit_bonus);
 
@@ -1933,6 +2112,7 @@ export class ArenaCombatUI {
           });
           this._closePrompt();
         } else {
+          // Normal resist
           const diff = dc - checkTotal;
           let barsLost, resMsg;
           if (diff <= 0) {
@@ -1940,11 +2120,12 @@ export class ArenaCombatUI {
             resMsg = "SUCESSO! Nenhum dano.";
           } else {
             barsLost = Math.ceil(diff / 5);
-            resMsg = `FALHA por ${diff} — ${barsLost} barra(s)`;
+            resMsg = `FALHA por ${diff} — ${barsLost} barra(s) perdida(s)`;
           }
 
           let finalMsg = `🛡️ ${roll}+${statVal}=${checkTotal} (${defType.toUpperCase()}) vs CD ${dc}. ${resMsg}`;
 
+          // Show floats
           if (targetPiece) {
             this._showFloat(targetPiece, `🛡️ ${checkTotal} vs ${dc} — ${barsLost > 0 ? "FALHA" : "SUCESSO"}`, "resist");
             if (barsLost > 0) {
@@ -1966,6 +2147,7 @@ export class ArenaCombatUI {
     });
   }
 
+  // ─── Rank confirm prompt (for attacker) ────────────────────────
   _renderRankPrompt(battle, prompt) {
     this._closePrompt();
 
@@ -1973,26 +2155,11 @@ export class ArenaCombatUI {
     const pieces = this.getPieces() || [];
     const targetPiece = pieces.find(p => safeStr(p.id) === tId);
 
-    const atk = battle.attack_move;
-    const moveDmg = atk?.damage || 0;
-    
-    // Breakdown de como o Dano final foi gerado
-    let breakdownHtml = "";
-    if (atk && atk.rank != null) {
-      const parts = [];
-      parts.push(`R${atk.rank} base`);
-      if (atk.stat_value) parts.push(`+${atk.stat_value} ${atk.based_stat || ""}`);
-      if (atk.stab_bonus) parts.push(`+${atk.stab_bonus} STAB`);
-      if (atk.type_bonus && atk.type_bonus !== 0) parts.push(`${atk.type_bonus > 0 ? '+' : ''}${atk.type_bonus} tipo`);
-      const critBonus = safeInt(battle.crit_bonus);
-      if (critBonus) parts.push(`+${critBonus} crit`);
-      breakdownHtml = `<div style="font-size:10px;color:rgba(56,189,248,.8);margin:4px 0 6px">${escHtml(parts.join(" "))}</div>`;
-    }
-
+    const moveDmg = battle.attack_move?.damage || 0;
     const pos = targetPiece ? this._pieceScreenPos(targetPiece) : { x: 200, y: 200 };
     const el = document.createElement("div");
     el.className = "ac-prompt";
-    const cpos = this._clampPos(pos.x + 40, pos.y - 30, 260, 210);
+    const cpos = this._clampPos(pos.x + 40, pos.y - 30, 260, 200);
     el.style.left = `${cpos.x}px`;
     el.style.top = `${cpos.y}px`;
 
@@ -2000,8 +2167,7 @@ export class ArenaCombatUI {
       <div class="ac-prompt-title">✅ Acerto Confirmado!</div>
       <div style="margin-bottom:8px">
         <label style="font-size:11px;color:rgba(148,163,184,.7)">Rank do Dano / Efeito</label>
-        ${breakdownHtml}
-        <input class="ac-search" id="ac-rank-input" type="number" value="${safeInt(moveDmg)}" min="0" style="margin-top:2px" />
+        <input class="ac-search" id="ac-rank-input" type="number" value="${safeInt(moveDmg)}" min="0" style="margin-top:4px" />
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
         <input type="checkbox" id="ac-rank-effect" />
@@ -2035,6 +2201,9 @@ export class ArenaCombatUI {
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // REROLL TOAST
+  // ═══════════════════════════════════════════════════════════════
   _renderRerollToast(battle, prompt) {
     this._closeReroll();
 
@@ -2050,6 +2219,7 @@ export class ArenaCombatUI {
     this._overlayRoot.appendChild(el);
     this._currentReroll = el;
 
+    // Countdown timer
     const TIMEOUT = 8000;
     const start = Date.now();
     this._rerollInterval = setInterval(() => {
@@ -2071,14 +2241,13 @@ export class ArenaCombatUI {
     const battle = this.getBattle();
     if (!battle) return;
 
+    // Re-roll d20
     const roll = d20Roll();
     this._publishRoll(roll, "Re-roll");
 
     const atkMod = safeInt(battle.atk_mod);
-    const aceiroBonus = safeInt(battle.aceiro_bonus);
-    const totalAtk = atkMod + aceiroBonus + roll;
+    const totalAtk = atkMod + roll;
     const needed = safeInt(battle.needed);
-    
     let hit, critBonus;
     if (roll === 1) { hit = false; critBonus = 0; }
     else if (roll === 20) { hit = true; critBonus = 5; }
@@ -2088,9 +2257,7 @@ export class ArenaCombatUI {
     const pieces = this.getPieces() || [];
     const targetPiece = pieces.find(p => safeStr(p.id) === tId);
 
-    const atkModStr = (aceiroBonus !== 0) ? `${atkMod}+${aceiroBonus}` : `${atkMod}`;
-    const rollText = `Re-roll d20=${roll}+${atkModStr}=${totalAtk} vs DEF ${needed}`;
-    
+    const rollText = `Re-roll d20=${roll}+${atkMod}=${totalAtk} vs DEF ${needed}`;
     if (hit) {
       if (targetPiece) this._showFloat(targetPiece, `🔄 ACERTOU ✅ (${rollText})`, critBonus ? "crit" : "hit");
       const damage = safeInt(battle.dmg_base) || safeInt(battle.attack_move?.damage);
@@ -2101,7 +2268,7 @@ export class ArenaCombatUI {
         d20: roll, total_atk: totalAtk, crit_bonus: critBonus,
         pendingFor: safeStr(battle.target_owner),
         prompt: { type: "ROLL_RESIST", options: { dc: dcTotal, isEffect: false } },
-        logs: arrayUnion(`Re-roll: ${roll}+${atkModStr}=${totalAtk} vs ${needed}. ACERTOU!`),
+        logs: arrayUnion(`Re-roll: ${roll}+${atkMod}=${totalAtk} vs ${needed}. ACERTOU!`),
       });
     } else {
       if (targetPiece) this._showFloat(targetPiece, `🔄 ERROU ❌ (${rollText})`, "miss");
@@ -2109,15 +2276,19 @@ export class ArenaCombatUI {
         status: "idle",
         d20: roll, total_atk: totalAtk, crit_bonus: 0,
         pendingFor: null, prompt: null,
-        logs: arrayUnion(`Re-roll: ${roll}+${atkModStr}=${totalAtk} vs ${needed}. ERROU!`),
+        logs: arrayUnion(`Re-roll: ${roll}+${atkMod}=${totalAtk} vs ${needed}. ERROU!`),
       });
     }
   }
 
   async _keepRoll() {
     this._closeReroll();
+    // Just continue the flow as-is (already in the correct state)
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // MINI TIMELINE
+  // ═══════════════════════════════════════════════════════════════
   _updateTimeline(battle) {
     const status = safeStr(battle.status);
     if (status === "idle") {
@@ -2140,31 +2311,49 @@ export class ArenaCombatUI {
 
     this._timeline.innerHTML = steps.map((s, i) => {
       const cls = s.done ? "ac-tl-done" : s.active ? "ac-tl-active" : "";
+      const icon = s.done ? "✅" : s.active ? "⏳" : "⏳";
       const arrow = i < steps.length - 1 ? `<span class="ac-tl-arrow">→</span>` : "";
       return `<span class="ac-tl-step ${cls}">${s.done ? "✅" : s.active ? "⏳" : "○"} ${s.label}</span>${arrow}`;
     }).join("");
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // WRITE TO BATTLE DOC (with rev)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * _writeBattle: two modes
+   *   - If `updates.logs` is a plain array → full setDoc (used for new attacks)
+   *   - If `updates.logs` uses arrayUnion → updateDoc (used for appending results)
+   * Both include a rev increment for conflict detection.
+   */
   async _writeBattle(updates) {
     const db = this.getDb();
     const rid = this.getRid();
     if (!db || !rid) return;
     const ref = doc(db, "rooms", rid, "public_state", "battle");
 
+    // Detect if any value is a FieldValue (arrayUnion)
     const hasFieldValue = Object.values(updates).some(v =>
       v != null && typeof v === "object" && typeof v.isEqual === "function"
     );
 
     if (hasFieldValue) {
+      // Use updateDoc which supports FieldValues natively
       try {
+        // Read current rev and increment
         const snap = await getDoc(ref);
         const current = snap.exists() ? snap.data() : {};
         const nextRev = (safeInt(current.rev) || 0) + 1;
         await updateDoc(ref, { ...updates, rev: nextRev });
       } catch (err) {
-        try { await updateDoc(ref, updates); } catch (err2) {}
+        console.warn("[arena-combat] updateDoc failed:", err);
+        try { await updateDoc(ref, updates); } catch (err2) {
+          console.error("[arena-combat] updateDoc retry failed:", err2);
+        }
       }
     } else {
+      // Full setDoc via transaction for atomicity
       try {
         await runTransaction(db, async (tx) => {
           const snap = await tx.get(ref);
@@ -2173,11 +2362,19 @@ export class ArenaCombatUI {
           tx.set(ref, { ...current, ...updates, rev: nextRev });
         });
       } catch (err) {
-        try { await setDoc(ref, updates, { merge: true }); } catch (err2) {}
+        console.warn("[arena-combat] transaction failed, fallback:", err);
+        try {
+          await setDoc(ref, updates, { merge: true });
+        } catch (err2) {
+          console.error("[arena-combat] all writes failed:", err2);
+        }
       }
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // CLOSE / CLEANUP
+  // ═══════════════════════════════════════════════════════════════
   _closeOverlay() {
     if (this._currentOverlay) {
       try { this._currentOverlay.remove(); } catch {}
