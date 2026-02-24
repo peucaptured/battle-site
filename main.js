@@ -2292,7 +2292,7 @@ function renderSheetsInspectorCard(wrap) {
   if (!moves.length) {
     mvH = `<span class="muted">Sem golpes nesta ficha.</span>`;
   } else {
-    for (const mv of moves) {
+    moves.forEach((mv, mvIdx) => {
       const n = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
       // Usa stats com boosts ativos (se boost de Stgr/Int ativo, reflete no dano)
       const sum = _mvSum(mv, boostedSt);
@@ -2312,10 +2312,15 @@ function renderSheetsInspectorCard(wrap) {
         ? `<div class="dmg-row dmg-type-row"><span class="dmg-row-lbl">Tipo vs <em>${escapeHtml(_calcTarget.name)}</em></span><span class="dmg-row-val ${typeBonus > 0 ? 'dmg-pos' : typeBonus < 0 ? 'dmg-neg' : ''}">${typeBonus >= 0 ? '+' : ''}${typeBonus}</span></div>`
         : `<div class="dmg-row dmg-muted-row"><span class="dmg-row-lbl">Tipo <span class="muted">(selecione alvo na arena)</span></span><span class="dmg-row-val muted">±?</span></div>`;
 
-      const autoTotal = rk + stabBonus + typeBonus;
+      // Recupera modificadores persistidos entre trocas de aba
+      const modKey = `${pid}::${mvIdx}`;
+      const savedMod = _sheetsMods[modKey] || { acc: 0, dmg: 0 };
+      const autoTotal = rk + stabBonus + typeBonus + savedMod.dmg;
+      const aceiroTotal = acc + (statBoosts.acerto||0) + savedMod.acc;
 
       mvH += `
-        <div class="move-expander open${stabClass}"${isStab ? ` style="--stab-color:${mvColor}"` : ""}>
+        <div class="move-expander open${stabClass}"${isStab ? ` style="--stab-color:${mvColor}"` : ""}
+          data-mod-key="${escapeAttr(modKey)}">
           <div class="move-header">
             <span class="arrow">▶</span>
             <span class="move-h-name" style="${mvColor ? `color:${mvColor}` : ""}">${escapeHtml(n)}</span>
@@ -2328,6 +2333,7 @@ function renderSheetsInspectorCard(wrap) {
             <div class="mv-desc-text">${escapeHtml(desc)}</div>
             <div class="dmg-calc"
               data-dmg-calc
+              data-mod-key="${escapeAttr(modKey)}"
               data-base-rk="${rk}"
               data-base-acc="${acc}"
               data-stab="${stabBonus}"
@@ -2346,22 +2352,22 @@ function renderSheetsInspectorCard(wrap) {
               <div class="dmg-modifiers">
                 <label class="dmg-mod-lbl">
                   <span>Mod. Acerto</span>
-                  <input class="dmg-mod-input" type="number" value="0" data-mod="acc" step="1" placeholder="0">
+                  <input class="dmg-mod-input" type="number" value="${savedMod.acc}" data-mod="acc" step="1" placeholder="0">
                 </label>
                 <label class="dmg-mod-lbl">
                   <span>Mod. Dano</span>
-                  <input class="dmg-mod-input" type="number" value="0" data-mod="dmg" step="1" placeholder="0">
+                  <input class="dmg-mod-input" type="number" value="${savedMod.dmg}" data-mod="dmg" step="1" placeholder="0">
                 </label>
               </div>
               <div class="dmg-result">
-                <span class="dmg-res-chip dmg-acc-chip">Acerto: <strong class="dmg-live-acc">A+${acc + (statBoosts.acerto||0)}</strong></span>
+                <span class="dmg-res-chip dmg-acc-chip">Acerto: <strong class="dmg-live-acc">A+${aceiroTotal}</strong></span>
                 <span class="dmg-res-chip dmg-dmg-chip">Dano: <strong class="dmg-live-dmg">R${autoTotal}</strong></span>
               </div>
             </div>
           </div>
         </div>
       `;
-    }
+    });
   }
 
   const art = _artUrlFromPidForSheets(pid, ps.shiny) || _spriteUrlFromPidForSheets(pid) || "";
@@ -2426,18 +2432,21 @@ function renderSheetsInspectorCard(wrap) {
     });
   });
 
-  // ── Calculadora de dano — atualização ao vivo ──────────────────────
+  // ── Calculadora de dano — atualização ao vivo + persistência de mods ──
   wrap.querySelectorAll("[data-dmg-calc]").forEach((calcDiv) => {
     const baseRk      = parseInt(calcDiv.dataset.baseRk)      || 0;
     const baseAcc     = parseInt(calcDiv.dataset.baseAcc)     || 0;
     const stab        = parseInt(calcDiv.dataset.stab)        || 0;
     const typeB       = parseInt(calcDiv.dataset.typeBonus)   || 0;
     const aceiroBoost = parseInt(calcDiv.dataset.aceiroBoost) || 0;
+    const modKey      = calcDiv.dataset.modKey || "";
     const liveAcc  = calcDiv.querySelector(".dmg-live-acc");
     const liveDmg  = calcDiv.querySelector(".dmg-live-dmg");
     const update = () => {
       const modAcc = parseInt(calcDiv.querySelector('[data-mod="acc"]')?.value) || 0;
       const modDmg = parseInt(calcDiv.querySelector('[data-mod="dmg"]')?.value) || 0;
+      // Persiste para sobreviver a trocas de aba
+      if (modKey) _sheetsMods[modKey] = { acc: modAcc, dmg: modDmg };
       // Acerto: base do golpe + boost de acerto global + modificador manual
       if (liveAcc) liveAcc.textContent = `A+${baseAcc + aceiroBoost + modAcc}`;
       // Dano: base (já inclui stat boost) + STAB + tipo + modificador manual
@@ -2445,7 +2454,7 @@ function renderSheetsInspectorCard(wrap) {
     };
     calcDiv.querySelectorAll(".dmg-mod-input").forEach(inp => inp.addEventListener("input", update));
   });
-  // ──────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
 
   // ── Handlers de boost temporário ──────────────────────────────────
   const boostPanel = wrap.querySelector(".stat-boost-panel");
@@ -5717,6 +5726,9 @@ let _allSheetsLatest = [];   // lista (desc por updated_at) do trainer logado
 let _partyStates = {};
 let _sheetsSelectedPid = null;
 let _sheetsLastError = "";
+// Persiste modificadores temporários de dano/acerto por golpe entre trocas de aba
+// chave: `${pid}::${moveIndex}`, valor: { acc: 0, dmg: 0 }
+const _sheetsMods = {};
 
 function safePidValue(x) {
   let v = safeStr(x);

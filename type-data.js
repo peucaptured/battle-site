@@ -97,73 +97,111 @@ export const TYPE_CHART = {
 };
 
 /**
- * Retorna o multiplicador de dano do golpe (tipo atacante) contra um defensor (array de tipos).
- * Imunidate: 0, fraco: 0.5, normal: 1, super: 2 (ou 4 para dual-weak)
+ * DELTA_CHART — tabela de tipos.json convertida para uso direto.
+ * Chaves em lowercase (EN). Valores: +2, -2, -6, etc.
+ * Entradas ausentes = 0 (neutro).
+ *
+ * Sistema aditivo (M&M):
+ *   +2 = super efetivo (x2)
+ *   +4 = duplamente super efetivo (x4) — só por soma
+ *   -2 = resiste (x1/2)
+ *   -4 = duplamente resiste (x1/4) — só por soma
+ *   -6 = imune (x0) — tem prioridade absoluta sobre qualquer soma
  */
-export function getTypeAdvantage(attackType, defenderTypes) {
-  const atk = normalizeType(attackType);
-  if (!atk || !TYPE_CHART[atk]) return 1;
-  const chart = TYPE_CHART[atk];
-  let mult = 1;
-  for (const dt of (defenderTypes || [])) {
-    const def = normalizeType(dt);
-    if (def && chart[def] !== undefined) mult *= chart[def];
-  }
-  return mult;
-}
+const DELTA_CHART = {
+  "normal":    { "rock": -2, "ghost": -6, "steel": -2 },
+  "fire":      { "grass": +2, "ice": +2, "bug": +2, "steel": +2, "fire": -2, "water": -2, "rock": -2, "dragon": -2 },
+  "water":     { "fire": +2, "ground": +2, "rock": +2, "water": -2, "grass": -2, "dragon": -2 },
+  "electric":  { "water": +2, "flying": +2, "electric": -2, "grass": -2, "dragon": -2, "ground": -6 },
+  "grass":     { "water": +2, "ground": +2, "rock": +2, "fire": -2, "grass": -2, "poison": -2, "flying": -2, "bug": -2, "dragon": -2, "steel": -2 },
+  "ice":       { "grass": +2, "ground": +2, "flying": +2, "dragon": +2, "fire": -2, "water": -2, "ice": -2, "steel": -2 },
+  "fighting":  { "normal": +2, "ice": +2, "rock": +2, "dark": +2, "steel": +2, "poison": -2, "flying": -2, "psychic": -2, "bug": -2, "fairy": -2, "ghost": -6 },
+  "poison":    { "grass": +2, "fairy": +2, "poison": -2, "ground": -2, "rock": -2, "ghost": -2, "steel": -6 },
+  "ground":    { "fire": +2, "electric": +2, "poison": +2, "rock": +2, "steel": +2, "grass": -2, "bug": -2, "flying": -6 },
+  "flying":    { "grass": +2, "fighting": +2, "bug": +2, "electric": -2, "rock": -2, "steel": -2 },
+  "psychic":   { "fighting": +2, "poison": +2, "psychic": -2, "steel": -2, "dark": -6 },
+  "bug":       { "grass": +2, "psychic": +2, "dark": +2, "fire": -2, "fighting": -2, "poison": -2, "flying": -2, "ghost": -2, "steel": -2, "fairy": -2 },
+  "rock":      { "fire": +2, "ice": +2, "flying": +2, "bug": +2, "fighting": -2, "ground": -2, "steel": -2 },
+  "ghost":     { "psychic": +2, "ghost": +2, "dark": -2, "normal": -6 },
+  "dragon":    { "dragon": +2, "steel": -2, "fairy": -6 },
+  "dark":      { "psychic": +2, "ghost": +2, "fighting": -2, "dark": -2, "fairy": -2 },
+  "steel":     { "ice": +2, "rock": +2, "fairy": +2, "fire": -2, "water": -2, "electric": -2, "steel": -2 },
+  "fairy":     { "fighting": +2, "dragon": +2, "dark": +2, "fire": -2, "poison": -2, "steel": -2 },
+};
 
 /**
- * Converte multiplicador de efetividade para bônus de dano M&M:
- *   vantagem 2x  -> +2
- *   vantagem 4x  -> +4
- *   resistência /2 -> -2
- *   resistência /4 -> -4
- *   imunidade 0x -> -6
- *   neutro -> 0
+ * Retorna o delta M&M de um tipo atacante contra um array de tipos defensores.
+ * - Se qualquer tipo defensor causar imunidade (-6), retorna -6.
+ * - Caso contrário, soma os deltas e limita entre -4 e +4.
  */
 export function getTypeDamageBonus(attackType, defenderTypes) {
-  const mult = getTypeAdvantage(attackType, defenderTypes);
-  if (mult === 0) return -6;
-  if (mult >= 4) return +4;
-  if (mult >= 2) return +2;
-  if (mult <= 0.25) return -4;
-  if (mult < 1) return -2;
-  return 0;
+  const atk = (normalizeType(attackType) || "").toLowerCase();
+  const chart = DELTA_CHART[atk] || {};
+
+  let delta = 0;
+  let hasImmunity = false;
+
+  for (const dt of (defenderTypes || [])) {
+    const def = (normalizeType(dt) || "").toLowerCase();
+    const d = (def && chart[def] !== undefined) ? chart[def] : 0;
+    if (d === -6) {
+      hasImmunity = true;
+    } else {
+      delta += d;
+    }
+  }
+
+  if (hasImmunity) return -6;
+  // Limita o delta entre -4 e +4 (sem imunidade)
+  return Math.max(-4, Math.min(4, delta));
 }
 
 /**
- * Retorna lista de tipos (EN) que o type dado bate super efetivo (2x).
+ * Retorna o multiplicador de dano (legacy/compat): usa DELTA_CHART internamente.
+ */
+export function getTypeAdvantage(attackType, defenderTypes) {
+  const delta = getTypeDamageBonus(attackType, defenderTypes);
+  if (delta === -6) return 0;
+  if (delta === +4) return 4;
+  if (delta === +2) return 2;
+  if (delta === -2) return 0.5;
+  if (delta === -4) return 0.25;
+  return 1;
+}
+
+/**
+ * Retorna lista de tipos (EN capitalizado) que o type dado bate super efetivo (+2 delta).
  */
 export function getSuperEffectiveAgainst(type) {
-  const atk = normalizeType(type);
-  if (!atk || !TYPE_CHART[atk]) return [];
-  return Object.entries(TYPE_CHART[atk])
-    .filter(([, v]) => v === 2)
-    .map(([t]) => t);
+  const atk = (normalizeType(type) || "").toLowerCase();
+  const chart = DELTA_CHART[atk] || {};
+  return Object.entries(chart)
+    .filter(([, v]) => v === +2)
+    .map(([t]) => t.charAt(0).toUpperCase() + t.slice(1));
 }
 
 /**
  * Retorna lista de tipos (EN) que batem super efetivo neste type (fraquezas).
  */
 export function getWeakAgainst(type) {
-  const def = normalizeType(type);
+  const def = (normalizeType(type) || "").toLowerCase();
   if (!def) return [];
   const weaknesses = [];
-  for (const [atk, targets] of Object.entries(TYPE_CHART)) {
-    if (targets[def] === 2) weaknesses.push(atk);
+  for (const [atk, targets] of Object.entries(DELTA_CHART)) {
+    if (targets[def] === +2) weaknesses.push(atk.charAt(0).toUpperCase() + atk.slice(1));
   }
   return weaknesses;
 }
 
 /**
- * Retorna lista de tipos (EN) que causam dano 0 neste type (imunidades).
+ * Retorna lista de tipos (EN) que causam imunidade (-6) neste type.
  */
 export function getImmuneTo(type) {
-  const def = normalizeType(type);
+  const def = (normalizeType(type) || "").toLowerCase();
   if (!def) return [];
   const immune = [];
-  for (const [atk, targets] of Object.entries(TYPE_CHART)) {
-    if (targets[def] === 0) immune.push(atk);
+  for (const [atk, targets] of Object.entries(DELTA_CHART)) {
+    if (targets[def] === -6) immune.push(atk.charAt(0).toUpperCase() + atk.slice(1));
   }
   return immune;
 }
