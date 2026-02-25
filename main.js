@@ -3749,23 +3749,10 @@ function bindArenaInteractionsCanvas() {
     const y = ev.clientY - rect.top;
     const tile = screenToTile(x, y);
     if (!tile) return;
-    const mineAtTile = getPiecesAt(tile.row, tile.col).filter((p) => isPieceMine(p));
-    if (!mineAtTile.length) return;
-
-    let p = mineAtTile[0];
-    if (mineAtTile.length > 1) {
-      const selectedId = safeStr(appState.selectedPieceId);
-      const selectedAtTile = mineAtTile.find((it) => safeStr(it?.id) === selectedId);
-      if (!selectedAtTile) {
-        // Em tiles com múltiplos pokémons, não auto-seleciona no mousedown.
-        // O click simples abre o picker para escolher quem vai para o Inspector.
-        return;
-      }
-      p = selectedAtTile;
-    }
-
-    const id = safeStr(p?.id);
-    if (!id) return;
+    const p = getPieceAt(tile.row, tile.col);
+    if (!p) return;
+    if (!isPieceMine(p)) return;
+    const id = safeStr(p.id);
     selectPiece(id);
     appState.drag.active = true;
     appState.drag.downX = x;
