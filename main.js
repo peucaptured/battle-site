@@ -3981,7 +3981,19 @@ document.addEventListener("keydown", (ev) => {
   hidePieceContextMenu();
   hidePiecePickerMenu();
 
-  // 2) cancela modo posicionamento (pokébola armada)
+  // 2) cancela movimento por clique/arrasto
+  if (appState.drag.active || appState.selectedPieceId) {
+    appState.drag.active = false;
+    appState.drag.justDropped = false;
+    appState.drag.pieceId = null;
+    appState.drag.startRow = null;
+    appState.drag.startCol = null;
+    selectPiece(null);
+    setStatus("ok", "movimento cancelado");
+    return;
+  }
+
+  // 3) cancela modo posicionamento (pokébola armada)
   if (getPlacingPokemonPid()) {
     clearPokemonPlacingMode();
     updateSidePanels();
