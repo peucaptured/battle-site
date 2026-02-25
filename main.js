@@ -2028,17 +2028,17 @@ function renderInspectorConditionsPanelHTML(piece, { isMine }) {
 
       <div class="ins-conds-grid">
         <div class="ins-conds-col">
-          <div class="muted">1st degree</div>
+          <div class="ins-conds-degree">1st degree</div>
           <select multiple size="8" data-ins-cond="mm-deg1" ${isMine ? "" : "disabled"}></select>
           <div class="ins-conds-desc" data-ins-desc="mm-deg1"></div>
         </div>
         <div class="ins-conds-col">
-          <div class="muted">2nd degree</div>
+          <div class="ins-conds-degree">2nd degree</div>
           <select multiple size="8" data-ins-cond="mm-deg2" ${isMine ? "" : "disabled"}></select>
           <div class="ins-conds-desc" data-ins-desc="mm-deg2"></div>
         </div>
         <div class="ins-conds-col">
-          <div class="muted">3rd degree</div>
+          <div class="ins-conds-degree">3rd degree</div>
           <select multiple size="8" data-ins-cond="mm-deg3" ${isMine ? "" : "disabled"}></select>
           <div class="ins-conds-desc" data-ins-desc="mm-deg3"></div>
         </div>
@@ -6341,28 +6341,106 @@ function _injectSheetsStyleOnce() {
   #inspector_root .stat-boost-title, #inspector_root .stat-boost-name, #inspector_root .stat-boost-val { font-size: 11px; }
 
   /* ── Inspector: Condições (tracking) ─────────────────────── */
-  #inspector_root .ins-conds { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.08); }
-  #inspector_root .ins-conds-title { font-weight: 900; font-size: .9rem; margin-bottom: 8px; }
-  #inspector_root .ins-conds-subtitle { font-weight: 900; font-size: .85rem; margin-top: 10px; margin-bottom: 6px; }
+  #inspector_root .ins-conds {
+    margin-top: 10px;
+    padding: 12px;
+    border-radius: 16px;
+    border: 1px solid rgba(130, 169, 255, .22);
+    background: linear-gradient(180deg, rgba(15,25,50,.55) 0%, rgba(8,14,34,.75) 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  #inspector_root .ins-conds-title {
+    font-weight: 900;
+    font-size: .96rem;
+    margin-bottom: 10px;
+    letter-spacing: .01em;
+  }
+  #inspector_root .ins-conds-subtitle {
+    font-weight: 900;
+    font-size: .84rem;
+    margin-top: 12px;
+    margin-bottom: 6px;
+    opacity: .92;
+  }
   #inspector_root .ins-conds-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
   @media (min-width: 520px) { #inspector_root .ins-conds-grid { grid-template-columns: repeat(3, 1fr); } }
+  #inspector_root .ins-conds-col {
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 14px;
+    background: rgba(255,255,255,.03);
+    padding: 8px;
+  }
+  #inspector_root .ins-conds-degree {
+    font-size: .8rem;
+    font-weight: 800;
+    color: rgba(203, 213, 225, .95);
+    margin-bottom: 6px;
+  }
   #inspector_root .ins-conds-col select {
     width: 100%;
-    padding: 6px 8px;
-    border-radius: 12px;
-    border: 1px solid rgba(255,255,255,.12);
-    background: rgba(0,0,0,.22);
+    padding: 8px;
+    border-radius: 10px;
+    border: 1px solid rgba(148,163,184,.35);
+    background: rgba(7,14,34,.8);
     color: inherit;
     font-size: .82rem;
+    line-height: 1.32;
+    scrollbar-color: rgba(148,163,184,.85) rgba(15,23,42,.55);
   }
-  #inspector_root .ins-conds-actions { display:flex; gap:8px; margin-top: 8px; flex-wrap: wrap; }
-  #inspector_root .ins-conds-desc { margin-top: 6px; font-size: .78rem; opacity: .95; }
-  #inspector_root .cond-desc-item { padding: 6px 8px; border-radius: 12px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); margin-top: 6px; }
+  #inspector_root .ins-conds-col select option { padding: 2px 0; }
+  #inspector_root .ins-conds-col select:focus {
+    outline: none;
+    border-color: rgba(96, 165, 250, .8);
+    box-shadow: 0 0 0 2px rgba(96,165,250,.2);
+  }
+  #inspector_root .ins-conds-actions {
+    display:flex;
+    gap:8px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  #inspector_root .ins-conds-actions .btn {
+    min-width: 0;
+    flex: 1 1 150px;
+  }
+  #inspector_root .ins-conds-desc { margin-top: 8px; font-size: .77rem; opacity: .95; }
+  #inspector_root .cond-desc-item {
+    padding: 6px 8px;
+    border-radius: 10px;
+    background: rgba(255,255,255,.045);
+    border: 1px solid rgba(255,255,255,.08);
+    margin-top: 6px;
+  }
   #inspector_root .cond-desc-title { font-weight: 900; margin-bottom: 2px; }
-  #inspector_root .ins-pkm-list { display:flex; flex-direction: column; gap: 6px; }
-  #inspector_root .pkm-cond { display:flex; gap: 8px; align-items:center; padding: 6px 8px; border-radius: 12px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); }
-  #inspector_root .pkm-cond input { transform: translateY(1px); }
-  #inspector_root .ins-conds-current { margin-top: 10px; }
+  #inspector_root .ins-pkm-list {
+    display:flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 200px;
+    overflow: auto;
+    padding-right: 2px;
+    scrollbar-color: rgba(148,163,184,.85) rgba(15,23,42,.55);
+  }
+  #inspector_root .pkm-cond {
+    display:flex;
+    gap: 8px;
+    align-items:center;
+    padding: 6px 8px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.08);
+    background: rgba(255,255,255,.03);
+    transition: border-color .2s ease, background-color .2s ease;
+  }
+  #inspector_root .pkm-cond:has(input:checked) {
+    border-color: rgba(96,165,250,.7);
+    background: rgba(59,130,246,.12);
+  }
+  #inspector_root .pkm-cond input { transform: translateY(1px); accent-color: #60a5fa; }
+  #inspector_root .ins-conds-current {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed rgba(148,163,184,.35);
+  }
 
   @media (max-width: 900px) {
     #inspector_root .inspector-title, .ficha-v2 .section-title { font-size: 28px; }
