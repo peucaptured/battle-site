@@ -6323,7 +6323,7 @@ function _injectSheetsStyleOnce() {
   
   #inspector_root .ins-conds-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: 1fr;
     gap: 12px;
   }
   
