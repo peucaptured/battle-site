@@ -1,0 +1,424 @@
+{
+  "system": "Mutants & Masterminds 3E",
+  "catalog": "afflictions_and_pokemon_status_with_degrees",
+  "affliction_core": {
+    "power": "Affliction",
+    "how_it_works_pt": "Affliction impõe condições em até 3 graus. O alvo faz um teste de resistência (Fortitude, Will ou Dodge) e falhas maiores levam a condições mais severas (1º, 2º, 3º grau)."
+  },
+  "conditions_mm": [
+    {
+      "id": "dazed",
+      "name_en": "Dazed",
+      "name_pt": "Atordoado",
+      "what_it_does_pt": "Fica abalado e só consegue agir de forma limitada.",
+      "mechanics_pt": "No turno, faz apenas UMA ação padrão OU uma ação de movimento.",
+      "affliction_degree": 1,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "stunned",
+      "name_en": "Stunned",
+      "name_pt": "Estonteado",
+      "what_it_does_pt": "Fica travado/sem reação.",
+      "mechanics_pt": "Perde as ações do turno.",
+      "affliction_degree": 2,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "hindered",
+      "name_en": "Hindered",
+      "name_pt": "Prejudicado (movimento)",
+      "what_it_does_pt": "Mobilidade atrapalhada.",
+      "mechanics_pt": "Movimento reduzido (geralmente metade).",
+      "affliction_degree": 1,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "immobile",
+      "name_en": "Immobile",
+      "name_pt": "Imóvel",
+      "what_it_does_pt": "Não consegue se deslocar.",
+      "mechanics_pt": "Sem movimento por meios normais.",
+      "affliction_degree": 2,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "prone",
+      "name_en": "Prone",
+      "name_pt": "Caído",
+      "what_it_does_pt": "Está no chão (derrubado).",
+      "mechanics_pt": "Penalidades situacionais; levantar geralmente custa ação de movimento.",
+      "affliction_degree": 2,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "vulnerable",
+      "name_en": "Vulnerable",
+      "name_pt": "Vulnerável",
+      "what_it_does_pt": "Fica mais exposto e fácil de acertar/surpreender.",
+      "mechanics_pt": "Perde benefícios de defesa ativa em várias situações (depende do uso na mesa).",
+      "affliction_degree": 1,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "defenseless",
+      "name_en": "Defenseless",
+      "name_pt": "Indefeso",
+      "what_it_does_pt": "Não consegue se defender adequadamente.",
+      "mechanics_pt": "Defesas ativas efetivamente caem a 0 contra ataques.",
+      "affliction_degree": 2,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "impaired",
+      "name_en": "Impaired",
+      "name_pt": "Prejudicado (Impaired)",
+      "what_it_does_pt": "Desempenho reduzido em algo (físico/mental/social etc.).",
+      "mechanics_pt": "-2 em testes relacionados (ou conforme definido pelo efeito).",
+      "affliction_degree": 1,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "disabled",
+      "name_en": "Disabled",
+      "name_pt": "Debilitado",
+      "what_it_does_pt": "Versão mais severa de Prejudicado.",
+      "mechanics_pt": "-5 em testes relacionados (ou conforme definido pelo efeito).",
+      "affliction_degree": 2,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "compelled",
+      "name_en": "Compelled",
+      "name_pt": "Compelido",
+      "what_it_does_pt": "Sofre uma compulsão e tende a cumprir uma instrução.",
+      "mechanics_pt": "Deve seguir uma conduta/ação especificada (limitada e razoável).",
+      "affliction_degree": 2,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "controlled",
+      "name_en": "Controlled",
+      "name_pt": "Controlado",
+      "what_it_does_pt": "Vontade suprimida por controle externo.",
+      "mechanics_pt": "O controlador decide as ações do alvo (com limites narrativos/da mesa).",
+      "affliction_degree": 3,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "entranced",
+      "name_en": "Entranced",
+      "name_pt": "Em transe",
+      "what_it_does_pt": "Hipnotizado/focado e desligado do ambiente.",
+      "mechanics_pt": "Alheio ao redor; pode ser quebrado por estímulos fortes.",
+      "affliction_degree": 1,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "fatigued",
+      "name_en": "Fatigued",
+      "name_pt": "Fadigado",
+      "what_it_does_pt": "Cansaço relevante.",
+      "mechanics_pt": "Penalidades e restrições típicas de fadiga (conforme a regra da mesa).",
+      "affliction_degree": 1,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "exhausted",
+      "name_en": "Exhausted",
+      "name_pt": "Exausto",
+      "what_it_does_pt": "Cansaço severo.",
+      "mechanics_pt": "Penalidades e restrições mais fortes que Fadigado.",
+      "affliction_degree": 2,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "fearful",
+      "name_en": "Fearful",
+      "name_pt": "Amedrontado",
+      "what_it_does_pt": "Medo atrapalha ações e decisões.",
+      "mechanics_pt": "Penalidades enquanto a fonte do medo está presente (comportamento de evitar/enfraquecer).",
+      "degree_suggestions": {
+        "1": "dazed (fearful)",
+        "2": "stunned (panicked)",
+        "3": "incapacitated (terror)"
+      },
+      "degree_source": "Degree suggestion / not in default Affliction table"
+    },
+    {
+      "id": "panicked",
+      "name_en": "Panicked",
+      "name_pt": "Em pânico",
+      "what_it_does_pt": "Medo extremo: tende a fugir.",
+      "mechanics_pt": "Prioriza escapar/evitar a fonte do medo.",
+      "degree_suggestions": {
+        "1": "dazed (fearful)",
+        "2": "stunned (panicked)",
+        "3": "incapacitated (terror)"
+      },
+      "degree_source": "Degree suggestion / not in default Affliction table"
+    },
+    {
+      "id": "asleep",
+      "name_en": "Asleep",
+      "name_pt": "Dormindo",
+      "what_it_does_pt": "Dormindo (sono induzido ou natural).",
+      "mechanics_pt": "Incapaz de agir; normalmente indefeso até acordar.",
+      "affliction_degree": 3,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "blind",
+      "name_en": "Blind",
+      "name_pt": "Cego",
+      "what_it_does_pt": "Não enxerga.",
+      "mechanics_pt": "Falha em tarefas que exigem visão; grandes penalidades em combate/percepção visual.",
+      "degree_suggestions": {
+        "1": "impaired (visual)",
+        "2": "disabled (visual)",
+        "3": "unaware (visual)"
+      },
+      "degree_source": "Degree suggestion / not in default Affliction table"
+    },
+    {
+      "id": "deaf",
+      "name_en": "Deaf",
+      "name_pt": "Surdo",
+      "what_it_does_pt": "Não ouve.",
+      "mechanics_pt": "Falha/penalidades em tarefas que exigem audição.",
+      "degree_suggestions": {
+        "1": "impaired (hearing)",
+        "2": "disabled (hearing)",
+        "3": "unaware (hearing)"
+      },
+      "degree_source": "Degree suggestion / not in default Affliction table"
+    },
+    {
+      "id": "bound",
+      "name_en": "Bound",
+      "name_pt": "Amarrado/Preso",
+      "what_it_does_pt": "Preso por cordas/teias/algemas/vinhas etc.",
+      "mechanics_pt": "Movimento e ações físicas ficam limitadas; pode exigir teste/ação para se soltar.",
+      "note_degree_pt": "Não está na tabela padrão do efeito Affliction; costuma ser usado como condição específica de efeitos como Snare/Grab ou como condição extra em um Affliction com aprovação do mestre.",
+      "degree_source": "Degree suggestion / not in default Affliction table"
+    },
+    {
+      "id": "restrained",
+      "name_en": "Restrained",
+      "name_pt": "Contido",
+      "what_it_does_pt": "Contido de forma firme.",
+      "mechanics_pt": "Limita movimento e tende a piorar defesa/escapar (depende da fonte do efeito).",
+      "note_degree_pt": "Não está na tabela padrão do efeito Affliction; costuma aparecer em Snare/Grab (ou como condição extra) conforme o descritor.",
+      "degree_source": "Degree suggestion / not in default Affliction table"
+    },
+    {
+      "id": "paralyzed",
+      "name_en": "Paralyzed",
+      "name_pt": "Paralisado",
+      "what_it_does_pt": "Não consegue mover o corpo (travado).",
+      "mechanics_pt": "Não realiza ações físicas; normalmente indefeso.",
+      "affliction_degree": 3,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "transformed",
+      "name_en": "Transformed",
+      "name_pt": "Transformado",
+      "what_it_does_pt": "Forma alterada (animal/objeto/versão fraca etc.).",
+      "mechanics_pt": "Perde/ganha capacidades conforme a forma; pode bloquear poderes/equipamentos.",
+      "affliction_degree": 3,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    },
+    {
+      "id": "insane",
+      "name_en": "Insane",
+      "name_pt": "Insano",
+      "what_it_does_pt": "Ruptura/colapso mental.",
+      "mechanics_pt": "Perde controle racional; comportamento incoerente/compulsivo (geralmente 3º grau mental).",
+      "affliction_degree": null,
+      "degree_source": "Not listed in default Affliction table"
+    },
+    {
+      "id": "incapacitated",
+      "name_en": "Incapacitated",
+      "name_pt": "Incapacitado",
+      "what_it_does_pt": "Fora de combate (desmaia/catatonia/apagado).",
+      "mechanics_pt": "Não pode agir (comum como 3º grau).",
+      "affliction_degree": 3,
+      "degree_source": "Affliction Resistance Check table (1/2/3 degrees)"
+    }
+  ],
+  "pokemon_status_builds": [
+    {
+      "id": "poison",
+      "name_pt": "Poison (Envenenado)",
+      "power_template": "Affliction (geralmente Linked ao golpe que aplica)",
+      "rules_pt": [
+        "Ao ser envenenado, começa a receber 2 de dano no final do turno.",
+        "Esse dano dobra a cada turno até alcançar o rank do golpe aplicado.",
+        "Observação do PDF: Custom -1/r se refere apenas a golpes que têm como efeito secundário causar Poison."
+      ],
+      "affliction_degraus": {
+        "tipo": "damage_over_time",
+        "estagios": {
+          "inicio": {
+            "dano_por_turno": 2,
+            "notes_pt": "Começa com 2 de dano no final do turno."
+          },
+          "progressao": {
+            "multiplicador": "dobra_a_cada_turno",
+            "limite": "até alcançar o rank do golpe"
+          }
+        },
+        "source_pdf_page": 7
+      }
+    },
+    {
+      "id": "burn",
+      "name_pt": "Burn (Queimadura)",
+      "power_template": "Affliction (geralmente Linked ao dano principal do golpe)",
+      "rules_pt": [
+        "Geralmente, além do Burn, vem no mesmo Linked a fonte primária do dano (ex.: Ember: dano + Burn no mesmo Linked)."
+      ],
+      "affliction_degraus": {
+        "tipo": "damage_burst_plus_linked",
+        "estagios": {
+          "aplicacao": {
+            "notes_pt": "Burn tenta causar grande quantidade de dano de uma única vez."
+          },
+          "linked": {
+            "notes_pt": "Geralmente vem linkado ao dano primário do golpe (ex.: Ember)."
+          }
+        },
+        "source_pdf_page": 7
+      }
+    },
+    {
+      "id": "paralyze",
+      "name_pt": "Paralyze (Paralisado)",
+      "power_template": "Affliction (geralmente Linked ao dano principal do golpe)",
+      "rules_pt": [
+        "Funciona parecido com os jogos.",
+        "A maior diferença é que a chance de flinch não se mantém constante; uma ideia válida é investir em Cumulative ou Progressive.",
+        "Geralmente, além do Paralyze, vem no mesmo Linked a fonte primária do dano (ex.: Thunder: dano + Paralyzed no mesmo Linked)."
+      ],
+      "suggested_extras": [
+        "Cumulative",
+        "Progressive"
+      ],
+      "affliction_degraus": {
+        "degraus": {
+          "1": {
+            "condition_id": "fatigued",
+            "condition_pt": "Fadigado",
+            "notes_pt": "1º grau (Chance de Flinch)."
+          },
+          "2": {
+            "condition_id": "immobile",
+            "condition_pt": "Imóvel",
+            "notes_pt": "2º grau (Chance de Flinch)."
+          },
+          "3": {
+            "condition_id": "paralyzed",
+            "condition_pt": "Paralisado",
+            "notes_pt": "3º grau (Chance de Flinch)."
+          }
+        },
+        "resisted_by": "Fortitude",
+        "source_pdf_page": 9
+      }
+    },
+    {
+      "id": "freeze",
+      "name_pt": "Freeze (Congelado)",
+      "power_template": "Affliction (+ debuff associado, conforme a build da mesa)",
+      "rules_pt": [
+        "Funciona parecido com Legends Arceus: o pokémon congelado fica transformado em gelo e tem o Ataque Especial reduzido."
+      ],
+      "affliction_degraus": {
+        "degraus": {
+          "1": {
+            "condition_id": "dazed",
+            "condition_pt": "Atordoado",
+            "notes_pt": "1º grau (Congelamento)."
+          },
+          "2": {
+            "condition_id": "stunned",
+            "condition_pt": "Estonteado",
+            "notes_pt": "2º grau (Congelamento)."
+          },
+          "3": {
+            "condition_id": "transformed",
+            "condition_pt": "Transformado",
+            "notes_pt": "3º grau (Transformado em gelo)."
+          }
+        },
+        "resisted_by": "Fortitude",
+        "source_pdf_page": 10,
+        "custom_notes_pt": "Golpes de fogo removem (Custom)."
+      }
+    },
+    {
+      "id": "confusion",
+      "name_pt": "Confusion (Confuso)",
+      "power_template": "Affliction (com dano fixo embutido no próprio Affliction)",
+      "rules_pt": [
+        "Confusion recebeu um buff: além de favorecer o oponente a lhe causar dano, você recebe um dano fixo similar ao do Burn.",
+        "Consideração importante: o dano do Confusion não está associado a um Damage separado; ele entra no Affliction.",
+        "OBS do PDF: o CUSTOM se refere apenas a golpes físicos."
+      ],
+      "affliction_degraus": {
+        "degraus": {
+          "1": {
+            "condition_id": "vulnerable",
+            "condition_pt": "Vulnerável",
+            "notes_pt": "1º grau (Confusão)."
+          },
+          "2": {
+            "condition_id": "defenseless",
+            "condition_pt": "Indefeso",
+            "notes_pt": "2º grau (Confusão)."
+          }
+        },
+        "limited_degree": 2,
+        "resisted_by": "Will",
+        "source_pdf_page": 11,
+        "custom_notes_pt": "CUSTOM se refere apenas a golpes físicos (PDF)."
+      }
+    },
+    {
+      "id": "sleep",
+      "name_pt": "Sleep (Dormindo)",
+      "power_template": "Affliction",
+      "rules_pt": [
+        "Está idêntico aos jogos e é sugestivo como se faz.",
+        "Todos os status podem ser modificados adicionando extras como Progressive e Cumulative (consultar o mestre para outros extras)."
+      ],
+      "suggested_extras": [
+        "Progressive",
+        "Cumulative"
+      ],
+      "affliction_degraus": {
+        "degraus": {
+          "1": {
+            "condition_id": "fatigued",
+            "condition_pt": "Fadigado",
+            "notes_pt": "1º grau (Sono)."
+          },
+          "2": {
+            "condition_id": "exhausted",
+            "condition_pt": "Exausto",
+            "notes_pt": "2º grau (Sono)."
+          },
+          "3": {
+            "condition_id": "asleep",
+            "condition_pt": "Dormindo",
+            "notes_pt": "3º grau (Sono)."
+          }
+        },
+        "resisted_by": "Will",
+        "source_pdf_page": 12
+      }
+    }
+  ]
+}
