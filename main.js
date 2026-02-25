@@ -2028,19 +2028,19 @@ function renderInspectorConditionsPanelHTML(piece, { isMine }) {
 
       <div class="ins-conds-grid">
         <div class="ins-conds-col">
-          <div class="ins-conds-degree">1st degree</div>
-          <select multiple size="8" data-ins-cond="mm-deg1" ${isMine ? "" : "disabled"}></select>
-          <div class="ins-conds-desc" data-ins-desc="mm-deg1"></div>
+          <div class="ins-conds-degree">1º Grau</div>
+          <div class="custom-cond-list" data-ins-cond="mm-deg1" ${isMine ? "" : "data-disabled='true'"}></div>
+          <div class="ins-conds-desc" id="desc-mm-deg1">Passe o mouse para ler...</div>
         </div>
         <div class="ins-conds-col">
-          <div class="ins-conds-degree">2nd degree</div>
-          <select multiple size="8" data-ins-cond="mm-deg2" ${isMine ? "" : "disabled"}></select>
-          <div class="ins-conds-desc" data-ins-desc="mm-deg2"></div>
+          <div class="ins-conds-degree">2º Grau</div>
+          <div class="custom-cond-list" data-ins-cond="mm-deg2" ${isMine ? "" : "data-disabled='true'"}></div>
+          <div class="ins-conds-desc" id="desc-mm-deg2">Passe o mouse para ler...</div>
         </div>
         <div class="ins-conds-col">
-          <div class="ins-conds-degree">3rd degree</div>
-          <select multiple size="8" data-ins-cond="mm-deg3" ${isMine ? "" : "disabled"}></select>
-          <div class="ins-conds-desc" data-ins-desc="mm-deg3"></div>
+          <div class="ins-conds-degree">3º Grau</div>
+          <div class="custom-cond-list" data-ins-cond="mm-deg3" ${isMine ? "" : "data-disabled='true'"}></div>
+          <div class="ins-conds-desc" id="desc-mm-deg3">Passe o mouse para ler...</div>
         </div>
       </div>
 
@@ -2050,8 +2050,8 @@ function renderInspectorConditionsPanelHTML(piece, { isMine }) {
       </div>
 
       <div class="ins-conds-subtitle">Condições Pokémon</div>
-      <div class="ins-pkm-list" data-ins-cond="pkm" ${isMine ? "" : "data-readonly=1"}></div>
-      <div class="ins-conds-desc" data-ins-desc="pkm"></div>
+      <div class="custom-cond-list pkm-list" data-ins-cond="pkm" ${isMine ? "" : "data-disabled='true'"}></div>
+      <div class="ins-conds-desc" id="desc-pkm">Passe o mouse para ler...</div>
 
       <div class="ins-conds-current">
         <div class="muted">Aplicadas agora:</div>
@@ -2076,10 +2076,11 @@ async function mountInspectorConditionsPanel(wrap, piece, { isMine }) {
   const mmAll = Array.isArray(catalog?.conditions_mm) ? catalog.conditions_mm : [];
   const pkmAll = Array.isArray(catalog?.pokemon_status_builds) ? catalog.pokemon_status_builds : [];
 
-  const selects = {
-    "mm-deg1": wrap.querySelector('select[data-ins-cond="mm-deg1"]'),
-    "mm-deg2": wrap.querySelector('select[data-ins-cond="mm-deg2"]'),
-    "mm-deg3": wrap.querySelector('select[data-ins-cond="mm-deg3"]'),
+  // 1. Filtragem por Graus (Degrees)
+  const degFilters = {
+    "mm-deg1": mmAll.filter(c => c.affliction_degree === 1),
+    "mm-deg2": mmAll.filter(c => c.affliction_degree === 2),
+    "mm-deg3": mmAll.filter(c => c.affliction_degree === 3 || c.id === "controlled") 
   };
 
   const mmState = _getPieceMmConditions(piece);
@@ -2089,25 +2090,75 @@ async function mountInspectorConditionsPanel(wrap, piece, { isMine }) {
     "mm-deg3": new Set(mmState.deg3),
   };
 
-  const mmSorted = mmAll
-    .slice()
-    .filter((c) => c && (c.id != null))
-    .sort((a, b) => String(a?.name_pt || a?.name_en || a?.id || "").localeCompare(String(b?.name_pt || b?.name_en || b?.id || ""), "pt"));
+  // 2. Renderizar as Listas Customizadas (Substituindo o <select>)
+  Object.keys(degFilters).forEach(key => {
+    const listContainer = wrap.querySelector(`select[data-ins-cond="${key}"]`);
+    if (!listContainer) return;
 
-  // Todos do JSON em cada degree (conforme pedido)
-  for (const key of Object.keys(selects)) {
-    const sel = selects[key];
-    if (!sel) continue;
-    sel.innerHTML = mmSorted
-      .map((c) => {
-        const id = safeStr(c.id);
-        const label = `${safeStr(c.name_pt) || id}${safeStr(c.name_en) ? ` (${safeStr(c.name_en)})` : ""}`;
-        const isSel = selected[key].has(id);
-        return `<option value="${escapeAttr(id)}" ${isSel ? "selected" : ""}>${escapeHtml(label)}</option>`;
-      })
-      .join("");
-    sel.disabled = !isMine;
-  }
+    // Transformamos o select em uma lista de itens clicáveis para melhor UX
+    const optionsHtml = degFilters[key].map(c => {
+      const isSel = selected[key].has(c.id);
+      return `
+        <div class="cond-item ${isSel ? 'selected' : ''}" 
+             data-id="${c.id}" 
+             data-degree="${key}">
+          ${c.name_pt || c.id}
+        </div>
+      `;
+    }).join("");
+    
+    // Substitui o select por um container de itens
+    listContainer.parentElement.innerHTML = `
+      <div class="ins-conds-degree">${key.replace('mm-deg', '')}º Grau</div>
+      <div class="custom-cond-list" data-degree-key="${key}">
+        ${optionsHtml}
+      </div>
+      <div class="ins-conds-desc" id="desc-${key}">Passe o mouse para ler...</div>
+    `;
+  });
+
+  // 3. Lógica de Hover e Clique
+  wrap.querySelectorAll('.cond-item').forEach(item => {
+    const condId = item.dataset.id;
+    const degKey = item.dataset.degree;
+    const condData = mmAll.find(c => c.id === condId);
+
+    // HOVER: Mostra a descrição ao passar o mouse
+    item.addEventListener('mouseenter', () => {
+      const descBox = wrap.querySelector(`#desc-${degKey}`);
+      if (condData && descBox) {
+        descBox.innerHTML = `
+          <strong>${condData.name_pt}</strong>: ${condData.what_it_does_pt}<br/>
+          <small style="color: #60a5fa">${condData.mechanics_pt || ''}</small>
+        `;
+      }
+    });
+
+    // CLIQUE: Seleciona/Deseleciona
+    item.addEventListener('click', () => {
+      if (!isMine) return;
+      item.classList.toggle('selected');
+      const isNowSelected = item.classList.contains('selected');
+      if (isNowSelected) selected[degKey].add(condId);
+      else selected[degKey].delete(condId);
+    });
+  });
+
+  // 4. Botão Salvar (Atualizado para a nova estrutura)
+  wrap.querySelector('[data-ins-act="conds-save"]')?.addEventListener("click", async () => {
+    if (!isMine) return;
+    const mm_conditions = {
+      deg1: Array.from(selected["mm-deg1"]),
+      deg2: Array.from(selected["mm-deg2"]),
+      deg3: Array.from(selected["mm-deg3"]),
+    };
+    const pokemon_conditions = Array.from(wrap.querySelectorAll('input[type="checkbox"][data-pkm-id]:checked'))
+      .map(x => x.getAttribute("data-pkm-id"));
+
+    await setPieceConditions(piece.id, mm_conditions, pokemon_conditions);
+    updateSidePanels();
+  });
+}
 
   // Pokémon: multi seleção via checkboxes
   const pkmWrap = wrap.querySelector('[data-ins-cond="pkm"]');
@@ -6340,7 +6391,7 @@ function _injectSheetsStyleOnce() {
   #inspector_root .stat-boost-grid { grid-template-columns: repeat(3,1fr); gap: 4px; }
   #inspector_root .stat-boost-title, #inspector_root .stat-boost-name, #inspector_root .stat-boost-val { font-size: 11px; }
 
-  /* ── Inspector: Condições (tracking) ─────────────────────── */
+/* ── Inspector: Condições (tracking) ─────────────────────── */
   #inspector_root .ins-conds {
     margin-top: 10px;
     padding: 12px;
@@ -6349,100 +6400,121 @@ function _injectSheetsStyleOnce() {
     background: linear-gradient(180deg, rgba(15,25,50,.55) 0%, rgba(8,14,34,.75) 100%);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
   }
-  #inspector_root .ins-conds-title {
-    font-weight: 900;
-    font-size: .96rem;
-    margin-bottom: 10px;
-    letter-spacing: .01em;
+  #inspector_root .ins-conds-title { font-weight: 900; font-size: .96rem; margin-bottom: 10px; letter-spacing: .01em; }
+  #inspector_root .ins-conds-subtitle { font-weight: 900; font-size: .84rem; margin-top: 12px; margin-bottom: 6px; opacity: .92; }
+  
+  #inspector_root .ins-conds-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
   }
-  #inspector_root .ins-conds-subtitle {
-    font-weight: 900;
-    font-size: .84rem;
-    margin-top: 12px;
-    margin-bottom: 6px;
-    opacity: .92;
-  }
-  #inspector_root .ins-conds-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
-  @media (min-width: 520px) { #inspector_root .ins-conds-grid { grid-template-columns: repeat(3, 1fr); } }
+  
   #inspector_root .ins-conds-col {
     border: 1px solid rgba(255,255,255,.08);
     border-radius: 14px;
     background: rgba(255,255,255,.03);
     padding: 8px;
+    display: flex;
+    flex-direction: column;
   }
+  
   #inspector_root .ins-conds-degree {
+    font-size: .75rem;
+    font-weight: 950;
+    text-transform: uppercase;
+    color: #94a3b8;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+
+  /* Listas Customizadas (Substituem os Selects) */
+  #inspector_root .custom-cond-list {
+    height: 180px;
+    overflow-y: auto;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    scrollbar-color: rgba(148,163,184,.6) rgba(15,23,42,.4);
+  }
+  
+  #inspector_root .custom-cond-list.pkm-list {
+    height: 140px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 4px;
+    padding: 6px;
+  }
+
+  #inspector_root .cond-item {
+    padding: 6px 10px;
     font-size: .8rem;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    transition: all 0.2s;
+    user-select: none;
+  }
+
+  #inspector_root .cond-item:hover {
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+  }
+
+  #inspector_root .cond-item.selected {
+    background: rgba(56, 189, 248, 0.25);
+    border-left: 3px solid #38bdf8;
+    color: #bae6fd;
     font-weight: 800;
-    color: rgba(203, 213, 225, .95);
-    margin-bottom: 6px;
   }
-  #inspector_root .ins-conds-col select {
-    width: 100%;
-    padding: 8px;
-    border-radius: 10px;
-    border: 1px solid rgba(148,163,184,.35);
-    background: rgba(7,14,34,.8);
-    color: inherit;
-    font-size: .82rem;
-    line-height: 1.32;
-    scrollbar-color: rgba(148,163,184,.85) rgba(15,23,42,.55);
+  
+  #inspector_root .cond-item.pkm-item {
+    border: 1px solid rgba(255,255,255,.05);
+    border-radius: 6px;
+    text-align: center;
   }
-  #inspector_root .ins-conds-col select option { padding: 2px 0; }
-  #inspector_root .ins-conds-col select:focus {
-    outline: none;
-    border-color: rgba(96, 165, 250, .8);
-    box-shadow: 0 0 0 2px rgba(96,165,250,.2);
+
+  #inspector_root .custom-cond-list[data-disabled='true'] .cond-item {
+    pointer-events: none;
+    opacity: 0.6;
   }
+
+  /* Caixa de Descrição Dinâmica */
+  #inspector_root .ins-conds-desc {
+    min-height: 65px;
+    font-size: .75rem;
+    line-height: 1.35;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    border-left: 3px solid rgba(148, 163, 184, 0.5);
+    color: #cbd5e1;
+    transition: border-color 0.2s;
+  }
+  
+  #inspector_root .ins-conds-col:hover .ins-conds-desc {
+    border-left-color: #38bdf8;
+  }
+
   #inspector_root .ins-conds-actions {
     display:flex;
     gap:8px;
-    margin-top: 10px;
+    margin-top: 14px;
     flex-wrap: wrap;
   }
+  
   #inspector_root .ins-conds-actions .btn {
     min-width: 0;
     flex: 1 1 150px;
   }
-  #inspector_root .ins-conds-desc { margin-top: 8px; font-size: .77rem; opacity: .95; }
-  #inspector_root .cond-desc-item {
-    padding: 6px 8px;
-    border-radius: 10px;
-    background: rgba(255,255,255,.045);
-    border: 1px solid rgba(255,255,255,.08);
-    margin-top: 6px;
-  }
-  #inspector_root .cond-desc-title { font-weight: 900; margin-bottom: 2px; }
-  #inspector_root .ins-pkm-list {
-    display:flex;
-    flex-direction: column;
-    gap: 6px;
-    max-height: 200px;
-    overflow: auto;
-    padding-right: 2px;
-    scrollbar-color: rgba(148,163,184,.85) rgba(15,23,42,.55);
-  }
-  #inspector_root .pkm-cond {
-    display:flex;
-    gap: 8px;
-    align-items:center;
-    padding: 6px 8px;
-    border-radius: 10px;
-    border: 1px solid rgba(255,255,255,.08);
-    background: rgba(255,255,255,.03);
-    transition: border-color .2s ease, background-color .2s ease;
-  }
-  #inspector_root .pkm-cond:has(input:checked) {
-    border-color: rgba(96,165,250,.7);
-    background: rgba(59,130,246,.12);
-  }
-  #inspector_root .pkm-cond input { transform: translateY(1px); accent-color: #60a5fa; }
+
   #inspector_root .ins-conds-current {
     margin-top: 12px;
     padding-top: 10px;
     border-top: 1px dashed rgba(148,163,184,.35);
   }
-
+  
   @media (max-width: 900px) {
+    /* MANTÉM A RESPONSIVIDADE ANTIGA DA FICHA */
     #inspector_root .inspector-title, .ficha-v2 .section-title { font-size: 28px; }
     .ficha-v2 .sheet-name { font-size: 34px; }
     .ficha-v2 .sheet-sub, .ficha-v2 .hp-row { font-size: 24px; }
@@ -6450,6 +6522,10 @@ function _injectSheetsStyleOnce() {
     .ficha-v2 .stat-val { font-size: 28px; }
     .ficha-v2 .move-h-name { font-size: 24px; }
     .ficha-v2 .sheet-art { width: 118px; height: 118px; }
+
+    /* ADICIONA A RESPONSIVIDADE DAS NOVAS CONDIÇÕES */
+    #inspector_root .ins-conds-grid { grid-template-columns: 1fr; }
+    #inspector_root .custom-cond-list { height: 120px; }
   }
 
   /* ── Tipo dos golpes ──────────────────────────────────────── */
