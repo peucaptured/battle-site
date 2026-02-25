@@ -174,6 +174,23 @@ function getCanvasPos(e) {
   };
 }
 
+
+function getArenaView() {
+  return window.__arenaView || null;
+}
+
+function screenToWorld(x, y) {
+  const v = getArenaView();
+  if (!v || !Number.isFinite(v.scale) || v.scale <= 0) return { u: x, v: y, ok: false };
+  return { u: (x - v.offX) / v.scale, v: (y - v.offY) / v.scale, ok: true };
+}
+
+function worldToScreen(u, v_) {
+  const v = getArenaView();
+  if (!v || !Number.isFinite(v.scale) || v.scale <= 0) return { x: u, y: v_, ok: false };
+  return { x: v.offX + u * v.scale, y: v.offY + v_ * v.scale, ok: true };
+}
+
 // ── Drawing logic ─────────────────────────────────────────────────────────
 function redrawAll() {
   if (!_drawCtx || !_drawCanvas) return;
@@ -190,12 +207,9 @@ function redrawAll() {
 
 function drawStroke(ctx, stroke) {
   const pts = stroke.points;
-  if (!pts) return;
+  if (!pts || pts.length < 4) return;
 
-  // suporta legado [[x,y],...] e novo [x0,y0,...]
-  const isNested = Array.isArray(pts[0]);
-  const len = isNested ? pts.length : pts.length / 2;
-  if (len < 2) return;
+  const isWorld = stroke.space === "world";
 
   ctx.save();
   if (stroke.tool === "eraser") {
@@ -210,13 +224,22 @@ function drawStroke(ctx, stroke) {
   ctx.lineJoin = "round";
 
   ctx.beginPath();
-  if (isNested) {
-    ctx.moveTo(pts[0][0], pts[0][1]);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-  } else {
-    ctx.moveTo(pts[0], pts[1]);
-    for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+
+  function getXY(i) {
+    const a = pts[i], b = pts[i + 1];
+    if (!isWorld) return { x: a, y: b }; // legado: screen pixels
+    const s = worldToScreen(a, b);
+    return { x: s.x, y: s.y };
   }
+
+  const p0 = getXY(0);
+  ctx.moveTo(p0.x, p0.y);
+
+  for (let i = 2; i < pts.length; i += 2) {
+    const p = getXY(i);
+    ctx.lineTo(p.x, p.y);
+  }
+
   ctx.stroke();
   ctx.restore();
 }
@@ -234,8 +257,9 @@ function onPointerDown(e) {
     color:  _color,
     width:  _lineWidth,
     tool:   _tool,
-    points: [pos.x, pos.y],
-  };
+    const w = screenToWorld(pos.x, pos.y);
+    points: [w.u, w.v],
+    space: "world",  };
   redrawAll();
 }
 
@@ -245,7 +269,8 @@ function onPointerMove(e) {
   e.stopPropagation();
 
   const pos = getCanvasPos(e);
-  _currentStroke.points.push(pos.x, pos.y);
+  const w = screenToWorld(pos.x, pos.y);
+  _currentStroke.points.push(w.u, w.v);
   redrawAll();
 }
 
