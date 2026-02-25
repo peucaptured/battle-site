@@ -26,6 +26,9 @@ import {
   updateDoc,
   addDoc,
   collection,
+  query,
+  orderBy,
+  limit,
   onSnapshot,
   serverTimestamp,
   arrayUnion,
@@ -94,6 +97,264 @@ function normalizeStats(stats) {
   norm.fortitude = norm.fort;
   norm.toughness = norm.thg;
   return { ...raw, ...norm };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// What‑If panel (local only — does NOT write to Firestore)
+//
+// Integra o "Combat Guide / What‑If" dentro do Combat.js sem mexer no
+// fluxo do combate. O painel lê o battle atual e permite sobrescrever
+// entradas localmente (localStorage) para simular cenários pós‑combate.
+// ═══════════════════════════════════════════════════════════════════════
+
+function _wiClamp(n, a, b) { n = Number(n); return Number.isFinite(n) ? Math.max(a, Math.min(b, n)) : a; }
+function _wiPick(obj, keys, fb = undefined) {
+  for (const k of keys) {
+    if (!obj) break;
+    if (Object.prototype.hasOwnProperty.call(obj, k)) return obj[k];
+  }
+  return fb;
+}
+function _wiLast(arr) { return Array.isArray(arr) && arr.length ? arr[arr.length - 1] : null; }
+function _wiNowId() { return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`; }
+
+function _wiParseAttackRoll(battle) {
+  const d20 = safeInt(battle?.d20, NaN);
+  if (Number.isFinite(d20) && d20 > 0) return d20;
+  const logs = battle?.logs || [];
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const t = safeStr(logs[i]);
+    const m = t.match(/d20\s*=\s*(\d{1,2})/i);
+    if (m) return safeInt(m[1], 0);
+  }
+  return 0;
+}
+
+function _wiNormalizeDefKey(k) {
+  const s = safeStr(k).toLowerCase();
+  if (s === "toughness") return "thg";
+  if (s === "fortitude") return "fort";
+  return s;
+}
+
+function _wiParseDefenseFromLogs(battle) {
+  const logs = battle?.logs || [];
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const t = safeStr(logs[i]);
+    // "🛡️ 12+6=18 (THG) vs CD 22. ..."
+    let m = t.match(/🛡️\s*(\d{1,2})\s*\+\s*([+-]?\d+)\s*=\s*(\d+)\s*\(\s*([A-Z]{2,5})\s*\)\s*vs\s*CD\s*(\d+)/i);
+    if (m) {
+      return {
+        roll: safeInt(m[1], 0),
+        stat: safeInt(m[2], 0),
+        total: safeInt(m[3], 0),
+        defType: safeStr(m[4]).toLowerCase(),
+        dc: safeInt(m[5], 0),
+        source: "log",
+        logLine: t,
+      };
+    }
+    // AOE dodge step: "(18 vs 17)" inside a Dodge line
+    m = t.match(/\(\s*(\d+)\s*vs\s*(\d+)\s*\)/i);
+    if (m && /dodge/i.test(t)) {
+      const total = safeInt(m[1], 0);
+      const dc = safeInt(m[2], 0);
+      return { roll: 0, stat: 0, total, defType: "dodge", dc, source: "log", logLine: t };
+    }
+  }
+  return { roll: 0, stat: 0, total: 0, defType: "", dc: 0, source: "none", logLine: "" };
+}
+
+function _wiStatusLabel(st) {
+  const s = safeStr(st);
+  if (!s || s === "idle") return "Idle";
+  const map = {
+    setup: "Setup",
+    hit_confirmed: "Acerto confirmado (rank)",
+    waiting_defense: "Aguardando resistência",
+    aoe_defense: "Área (Dodge) → resistência",
+    missed: "Errou",
+  };
+  return map[s] || s;
+}
+
+function _wiBadgeClassForStatus(st) {
+  const s = safeStr(st);
+  if (!s || s === "idle") return "ok";
+  if (s === "waiting_defense" || s === "hit_confirmed" || s === "aoe_defense") return "warn";
+  if (s === "missed") return "err";
+  return "";
+}
+
+function _wiGetStoreKey(rid) {
+  const r = safeStr(rid) || "no_rid";
+  return `combat_whatif_v1:${r}`;
+}
+function _wiLoadOverrides(rid) {
+  try {
+    const raw = localStorage.getItem(_wiGetStoreKey(rid));
+    if (!raw) return {};
+    const obj = JSON.parse(raw);
+    return obj && typeof obj === "object" ? obj : {};
+  } catch { return {}; }
+}
+function _wiSaveOverrides(rid, obj) {
+  try { localStorage.setItem(_wiGetStoreKey(rid), JSON.stringify(obj || {})); } catch {}
+}
+
+function _wiBuildSnapshot(battle, overrides) {
+  overrides = overrides || {};
+
+  const status = safeStr(battle?.status || "idle");
+  const attacker = safeStr(battle?.attacker);
+  const attackerPid = safeStr(battle?.attacker_pid);
+  const targetOwner = safeStr(battle?.target_owner);
+  const targetPid = safeStr(battle?.target_pid);
+
+  const atkRoll = _wiParseAttackRoll(battle);
+  const atkMod = safeInt(_wiPick(overrides, ["atk_mod"], battle?.atk_mod), 0);
+  const aceiroBonus = safeInt(_wiPick(overrides, ["aceiro_bonus", "acerto_bonus"], battle?.aceiro_bonus), 0);
+  const defenseVal = safeInt(_wiPick(overrides, ["defense_val"], battle?.defense_val), 0);
+  const needed = safeInt(_wiPick(overrides, ["needed"], battle?.needed), (defenseVal + 10));
+  const sneakAttack = !!_wiPick(overrides, ["sneak_attack"], battle?.sneak_attack);
+
+  const critBonus = safeInt(_wiPick(overrides, ["crit_bonus"], battle?.crit_bonus), 0);
+  const totalAtk = atkRoll + atkMod + aceiroBonus;
+  const hit =
+    atkRoll === 1 ? false :
+    atkRoll === 20 ? true :
+    totalAtk >= needed;
+
+  const atkMove = battle?.attack_move || {};
+  const moveName = safeStr(atkMove?.name || "");
+  const moveType = safeStr(atkMove?.move_type || "");
+  const moveRank = safeInt(_wiPick(overrides, ["move_rank", "rank"], atkMove?.rank), safeInt(atkMove?.rank, 0));
+  const statVal = safeInt(_wiPick(overrides, ["move_stat_value"], atkMove?.stat_value), safeInt(atkMove?.stat_value, 0));
+  const stabBonus = safeInt(_wiPick(overrides, ["stab_bonus"], atkMove?.stab_bonus), safeInt(atkMove?.stab_bonus, 0));
+  const typeBonus = safeInt(_wiPick(overrides, ["type_bonus"], atkMove?.type_bonus), safeInt(atkMove?.type_bonus, 0));
+  const modDano = safeInt(_wiPick(overrides, ["move_mod_dano", "move_damage_mod"], atkMove?.modDano), 0);
+
+  const dmgBase = safeInt(_wiPick(overrides, ["dmg_base"], battle?.dmg_base), safeInt(battle?.dmg_base, safeInt(atkMove?.damage, 0)));
+  const isEffect = !!_wiPick(overrides, ["is_effect"], battle?.is_effect);
+  const computedMoveDamage = (moveRank + statVal + stabBonus + typeBonus + modDano);
+
+  const dcBase = isEffect ? 10 : 15;
+  const dc = safeInt(_wiPick(overrides, ["dc"], (dcBase + dmgBase + critBonus)), (dcBase + dmgBase + critBonus));
+
+  const d = _wiParseDefenseFromLogs(battle);
+  const defType = _wiNormalizeDefKey(_wiPick(overrides, ["def_type"], d.defType || ""));
+  const defRoll = safeInt(d.roll, 0); // locked (dice)
+  const defStat = safeInt(_wiPick(overrides, ["def_stat"], d.stat), safeInt(d.stat, 0));
+  const defTotal = (defRoll > 0 || d.source === "log")
+    ? (defRoll + defStat)
+    : safeInt(_wiPick(overrides, ["def_total"], d.total), safeInt(d.total, 0));
+
+  const diff = dc - defTotal;
+  const barsLost = diff <= 0 ? 0 : Math.ceil(diff / 5);
+
+  return {
+    status,
+    attacker,
+    attackerPid,
+    targetOwner,
+    targetPid,
+    attack: {
+      roll: atkRoll,
+      atkMod,
+      aceiroBonus,
+      total: totalAtk,
+      defenseVal,
+      needed,
+      sneakAttack,
+      hit,
+      critBonus,
+    },
+    move: {
+      name: moveName,
+      moveType,
+      rank: moveRank,
+      statVal,
+      stabBonus,
+      typeBonus,
+      modDano,
+      dmgBase,
+      computedMoveDamage,
+    },
+    defense: {
+      fromLog: d.source === "log",
+      logLine: d.logLine || "",
+      type: defType,
+      roll: defRoll,
+      stat: defStat,
+      total: defTotal,
+      dcParsed: safeInt(d.dc, 0),
+    },
+    dc: { base: dcBase, dc, isEffect },
+    outcome: { diff, barsLost },
+  };
+}
+
+function _wiInjectStylesOnce() {
+  const id = "combat-whatif-style";
+  if (document.getElementById(id)) return;
+  const st = document.createElement("style");
+  st.id = id;
+  st.textContent = `
+/* combat what-if UI */
+.cbw-wrap { display:flex; flex-direction:column; gap:10px; }
+.cbw-top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.cbw-title { font-weight:950; letter-spacing:.2px; }
+.cbw-sub { font-size:12px; opacity:.72; }
+.cbw-badge { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; border:1px solid rgba(120,210,255,.18); background:rgba(6,10,22,.55); box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(0,0,0,.25); font-weight:850; font-size:12px; white-space:nowrap; user-select:none; }
+.cbw-badge.ok { background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.45); }
+.cbw-badge.warn { background: rgba(251,191,36,.18); border-color: rgba(251,191,36,.45); }
+.cbw-badge.err { background: rgba(248,113,113,.18); border-color: rgba(248,113,113,.45); }
+.cbw-card { border-radius: 18px; padding: 14px 14px; background: rgba(12,18,35,.52); border: 1px solid rgba(120, 210, 255, .14); box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(0,0,0,.25); }
+.cbw-h { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.cbw-h .t { font-weight:950; }
+.cbw-grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+@media (max-width: 820px){ .cbw-grid { grid-template-columns: 1fr; } }
+.cbw-row { display:flex; gap:10px; align-items:center; justify-content:space-between; padding:10px; border-radius:14px; background: rgba(2,6,23,.42); border: 1px solid rgba(148,163,184,.14); }
+.cbw-row .k { font-size:12px; opacity:.75; font-weight:800; }
+.cbw-row .v { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-weight:900; }
+.cbw-row .vv { font-weight:900; }
+.cbw-in { width: 110px; padding: 8px 10px; border-radius: 12px; border: 1px solid rgba(120,210,255,.18); background: rgba(6,10,22,.55); color: rgba(232,240,255,.92); font-weight:900; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.cbw-in[disabled] { opacity:.55; }
+.cbw-pill { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; background: rgba(6,10,22,.55); border: 1px solid rgba(120, 210, 255, .14); font-weight:850; font-size:12px; }
+.cbw-muted { opacity:.72; font-size:12px; }
+.cbw-hr { height:1px; background: rgba(120,210,255,.12); margin: 10px 0; }
+.cbw-btn { cursor:pointer; border: 1px solid rgba(120,210,255,.18); background: rgba(56,189,248,.12); color: rgba(232,240,255,.95); padding: 8px 10px; border-radius: 12px; font-weight:900; }
+.cbw-btn.secondary { background: rgba(148,163,184,.08); }
+.cbw-btn:active { transform: translateY(1px); }
+.cbw-log { white-space: pre-wrap; font-size:12px; opacity:.86; line-height:1.35; }
+.cbw-ok { color: rgba(34,197,94,1); }
+.cbw-bad { color: rgba(248,113,113,1); }
+.cbw-foot { display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+.cbw-tiny { font-size:11px; opacity:.65; }
+  `;
+  document.head.appendChild(st);
+}
+
+function _wiFieldInput(label, key, value, { disabled = false, hint = "" } = {}) {
+  return `
+    <div class="cbw-row">
+      <div style="min-width:0">
+        <div class="k">${escHtml(label)}</div>
+        ${hint ? `<div class="cbw-tiny">${escHtml(hint)}</div>` : ""}
+      </div>
+      <input class="cbw-in" data-whatif="${escHtml(key)}" type="number" value="${Number.isFinite(Number(value)) ? escHtml(value) : 0}" ${disabled ? "disabled" : ""}/>
+    </div>
+  `;
+}
+
+function _wiBoolToggle(label, key, checked) {
+  const id = `cbw_${key}_${_wiNowId()}`;
+  return `
+    <div class="cbw-row" style="justify-content:flex-start">
+      <input id="${escHtml(id)}" type="checkbox" data-whatif-bool="${escHtml(key)}" ${checked ? "checked" : ""} style="transform:scale(1.05)"/>
+      <label for="${escHtml(id)}" class="vv" style="cursor:pointer">${escHtml(label)}</label>
+    </div>
+  `;
 }
 
 // ─── _move_stat_value (replica do app.py) ───────────────────────────
@@ -236,6 +497,8 @@ export class CombatUI {
       try { unsub(); } catch {}
       this._sheetUnsubs.delete(trainerName);
     }
+
+    // What‑If DOM listeners permanecem (são locais e não têm custo relevante)
   }
 
   // ─── Load sheets for a trainer ────────────────────────────────────
@@ -427,13 +690,28 @@ export class CombatUI {
         <div class="pill mono" id="combat_phase_pill">idle</div>
       </div>
       <div id="combat_body"></div>
+      <div id="cb_whatif_root" style="margin-top:12px"></div>
       <!-- Hidden: main.js writes to these, keep them alive to prevent crashes -->
       <pre id="battle_preview" style="display:none">—</pre>
     `;
     this._body = this.container.querySelector("#combat_body");
+    this._whatIfRoot = this.container.querySelector("#cb_whatif_root");
     this._phasePill = this.container.querySelector("#combat_phase_pill");
     this._lastRenderKey = ""; // tracks last rendered state to avoid redundant re-renders
     this._rendering = false;  // prevents concurrent renders
+
+    // What‑If UI state
+    this._wiOverrides = {};
+    this._wiLastSig = "";
+    this._wiBoundOnInput = (e) => this._wiOnInput(e);
+    this._wiBoundOnClick = (e) => this._wiOnClick(e);
+
+    // DOM listeners are permanent (panel is local; no Firestore)
+    if (this._whatIfRoot) {
+      this._whatIfRoot.addEventListener("input", this._wiBoundOnInput);
+      this._whatIfRoot.addEventListener("change", this._wiBoundOnInput);
+      this._whatIfRoot.addEventListener("click", this._wiBoundOnClick);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -492,9 +770,284 @@ export class CombatUI {
         case "waiting_defense": this._renderWaitingDefense(battle, by); break;
         default:           this._body.innerHTML = `<div class="card"><div class="muted">Status desconhecido: ${escHtml(status)}</div></div>`;
       }
+
+      // Always render What‑If panel (local-only). It does NOT interfere with the combat flow.
+      this._renderWhatIfPanel(battle, { isPlayer, by, role });
     } finally {
       this._rendering = false;
     }
+  }
+
+  // ───────────────────────────────────────────────────────────────
+  // What‑If panel (local only)
+  // ───────────────────────────────────────────────────────────────
+  _wiLoad() {
+    const rid = safeStr(this.getRid()) || "";
+    this._wiOverrides = _wiLoadOverrides(rid);
+    this._wiOverrides.__rid = rid;
+    _wiSaveOverrides(rid, this._wiOverrides);
+  }
+
+  _wiSave() {
+    const rid = safeStr(this.getRid()) || "";
+    if (!rid) return;
+    _wiSaveOverrides(rid, this._wiOverrides);
+  }
+
+  _wiOnClick(e) {
+    const root = this._whatIfRoot;
+    if (!root) return;
+    const btn = e.target?.closest?.("[data-action]");
+    if (!btn) return;
+    const act = btn.dataset.action;
+    if (act === "reset-whatif") {
+      this._wiOverrides = { __rid: safeStr(this.getRid()) || "" };
+      this._wiSave();
+      this._wiLastSig = "";
+      this._renderWhatIfPanel(this.getBattle() || {}, { isPlayer: true, by: this.getBy(), role: this.getRole() }, true);
+      return;
+    }
+    if (act === "copy-json") {
+      const battle = this.getBattle() || {};
+      const snap = _wiBuildSnapshot(battle, this._wiOverrides);
+      const payload = { overrides: this._wiOverrides, snapshot: snap };
+      try {
+        navigator.clipboard?.writeText?.(JSON.stringify(payload, null, 2));
+        const old = btn.textContent;
+        btn.textContent = "✅ Copiado!";
+        setTimeout(() => (btn.textContent = old || "📋 Copiar What‑If"), 1200);
+      } catch {
+        window.prompt("Copie o JSON:", JSON.stringify(payload, null, 2));
+      }
+    }
+  }
+
+  _wiOnInput(e) {
+    const inEl = e.target;
+    if (!inEl) return;
+    const rid = safeStr(this.getRid()) || "";
+    if (!rid) return;
+
+    const k = inEl.dataset?.whatif;
+    if (k) {
+      this._wiOverrides[k] = safeInt(inEl.value, 0);
+      this._wiSave();
+      this._renderWhatIfPanel(this.getBattle() || {}, { isPlayer: true, by: this.getBy(), role: this.getRole() }, true);
+      return;
+    }
+
+    const kb = inEl.dataset?.whatifBool;
+    if (kb) {
+      this._wiOverrides[kb] = !!inEl.checked;
+      this._wiSave();
+      this._renderWhatIfPanel(this.getBattle() || {}, { isPlayer: true, by: this.getBy(), role: this.getRole() }, true);
+    }
+  }
+
+  _renderWhatIfPanel(battle, ctx = {}, force = false) {
+    _wiInjectStylesOnce();
+
+    const root = this._whatIfRoot;
+    if (!root) return;
+
+    const rid = safeStr(this.getRid()) || "";
+    const by = safeStr(ctx.by ?? this.getBy()) || "";
+    const isPlayer = !!ctx.isPlayer;
+
+    // Spectators: keep it hidden (avoid clutter / spoilers)
+    if (!isPlayer) {
+      root.innerHTML = "";
+      return;
+    }
+
+    // Load overrides when RID changes / first render
+    if (!this._wiOverrides || typeof this._wiOverrides !== "object" || this._wiOverrides.__rid !== rid) {
+      this._wiLoad();
+    }
+
+    const sig = JSON.stringify({
+      rid,
+      by,
+      battle: battle ? {
+        status: battle.status,
+        attacker: battle.attacker,
+        attacker_pid: battle.attacker_pid,
+        target_owner: battle.target_owner,
+        target_pid: battle.target_pid,
+        atk_mod: battle.atk_mod,
+        aceiro_bonus: battle.aceiro_bonus,
+        defense_val: battle.defense_val,
+        needed: battle.needed,
+        d20: battle.d20,
+        crit_bonus: battle.crit_bonus,
+        dmg_base: battle.dmg_base,
+        is_effect: battle.is_effect,
+        attack_move: battle.attack_move ? {
+          name: battle.attack_move.name,
+          move_type: battle.attack_move.move_type,
+          rank: battle.attack_move.rank,
+          stat_value: battle.attack_move.stat_value,
+          stab_bonus: battle.attack_move.stab_bonus,
+          type_bonus: battle.attack_move.type_bonus,
+          damage: battle.attack_move.damage,
+        } : null,
+        logsLast: _wiLast(battle.logs || []),
+        logsLen: Array.isArray(battle.logs) ? battle.logs.length : 0,
+      } : null,
+      overrides: this._wiOverrides,
+    });
+
+    if (!force && sig === this._wiLastSig) return;
+    this._wiLastSig = sig;
+
+    if (!rid) {
+      root.innerHTML = `
+        <div class="cbw-wrap">
+          <div class="cbw-card">
+            <div class="cbw-title">🧪 What‑If (Simulador)</div>
+            <div class="cbw-muted" style="margin-top:6px">Entre em uma sala (RID) para ver o painel.</div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    if (!battle || Object.keys(battle || {}).length === 0) {
+      root.innerHTML = `
+        <div class="cbw-wrap">
+          <div class="cbw-card">
+            <div class="cbw-top">
+              <div>
+                <div class="cbw-title">🧪 What‑If (Simulador)</div>
+                <div class="cbw-sub">RID: <span class="vv">${escHtml(rid)}</span> • você: <span class="vv">${escHtml(by || "—")}</span></div>
+              </div>
+              <div class="cbw-badge ok">Sem battle</div>
+            </div>
+            <div class="cbw-muted" style="margin-top:10px">Quando um ataque ocorrer, o painel detalha os números e permite simular cenários.</div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    const snap = _wiBuildSnapshot(battle, this._wiOverrides);
+    const status = snap.status;
+    const badgeCls = _wiBadgeClassForStatus(status);
+    const atk = snap.attack;
+    const mv = snap.move;
+    const df = snap.defense;
+    const dc = snap.dc;
+    const out = snap.outcome;
+
+    const hitTxt = atk.hit ? `ACERTOU ✅` : `ERROU ❌`;
+    const critTxt = atk.roll === 20 ? `CRÍTICO (d20=20) +${atk.critBonus}` : (atk.critBonus ? `crit +${atk.critBonus}` : "sem crítico");
+    const resTxt = (df.total <= 0 && status !== "idle") ? "—" : (out.barsLost <= 0 ? "SUCESSO ✅ (0 barras)" : `FALHA ❌ (${out.barsLost} barra${out.barsLost === 1 ? "" : "s"})`);
+    const resCls = (df.total <= 0) ? "" : (out.barsLost <= 0 ? "cbw-ok" : "cbw-bad");
+    const lastLog = safeStr(_wiLast(battle.logs || []) || "");
+
+    // Small sanity warning when battle.attack_move.damage differs from breakdown
+    const battleMoveDamage = safeInt(battle?.attack_move?.damage, 0);
+    const computedWarn = (mv.computedMoveDamage && battleMoveDamage && mv.computedMoveDamage !== battleMoveDamage)
+      ? `<div class="cbw-tiny">⚠️ Dano do golpe no battle (${battleMoveDamage}) difere do breakdown (${mv.computedMoveDamage}). No What‑If você pode ajustar as peças.</div>`
+      : "";
+
+    root.innerHTML = `
+      <div class="cbw-wrap">
+        <div class="cbw-card">
+          <div class="cbw-top">
+            <div>
+              <div class="cbw-title">🧪 What‑If (Simulador pós‑combate)</div>
+              <div class="cbw-sub">RID: <span class="vv">${escHtml(rid)}</span> • você: <span class="vv">${escHtml(by || "—")}</span></div>
+              <div class="cbw-sub" style="margin-top:4px">Etapa: <span class="vv">${escHtml(_wiStatusLabel(status))}</span></div>
+            </div>
+            <div class="cbw-badge ${badgeCls}">${escHtml(_wiStatusLabel(status))}</div>
+          </div>
+
+          <div class="cbw-hr"></div>
+
+          <div class="cbw-grid">
+            <div class="cbw-card" style="padding:12px">
+              <div class="cbw-h"><div class="t">🎯 Ataque</div><div class="cbw-pill">${escHtml(hitTxt)}</div></div>
+              ${_wiFieldInput("atk_mod (do golpe)", "atk_mod", atk.atkMod)}
+              ${_wiFieldInput("bônus de acerto (boost)", "aceiro_bonus", atk.aceiroBonus)}
+              ${_wiFieldInput("defesa alvo (Parry/Dodge)", "defense_val", atk.defenseVal)}
+              ${_wiFieldInput("necessário (def+10)", "needed", atk.needed, { hint: "Se você usa outra CD de acerto, edite aqui." })}
+              ${_wiBoolToggle("Golpe furtivo (metade da defesa)", "sneak_attack", atk.sneakAttack)}
+              ${_wiFieldInput("crítico (bonus)", "crit_bonus", atk.critBonus, { hint: critTxt })}
+              <div class="cbw-row">
+                <div class="k">d20 (fixo)</div>
+                <div class="v">${escHtml(atk.roll)} + ${escHtml(atk.atkMod)} + ${escHtml(atk.aceiroBonus)} = ${escHtml(atk.total)}</div>
+              </div>
+            </div>
+
+            <div class="cbw-card" style="padding:12px">
+              <div class="cbw-h"><div class="t">💥 Dano / CD</div><div class="cbw-pill">CD ${escHtml(dc.dc)}</div></div>
+              ${_wiBoolToggle("É efeito? (Affliction: base 10)", "is_effect", dc.isEffect)}
+              ${_wiFieldInput("rank do golpe", "move_rank", mv.rank)}
+              ${_wiFieldInput("stat do golpe", "move_stat_value", mv.statVal)}
+              ${_wiFieldInput("STAB bônus", "stab_bonus", mv.stabBonus)}
+              ${_wiFieldInput("Tipo bônus", "type_bonus", mv.typeBonus)}
+              ${_wiFieldInput("mod_dano (extra)", "move_mod_dano", mv.modDano)}
+              ${_wiFieldInput("dmg_base (rank confirmado)", "dmg_base", mv.dmgBase)}
+              ${_wiFieldInput("CD final", "dc", dc.dc, { hint: `base ${dc.base} + dmg_base ${mv.dmgBase} + crit ${atk.critBonus}` })}
+              <div class="cbw-row">
+                <div class="k">breakdown</div>
+                <div class="v">${escHtml(mv.rank)} + ${escHtml(mv.statVal)} + ${escHtml(mv.stabBonus)} + ${escHtml(mv.typeBonus)} + ${escHtml(mv.modDano)} = ${escHtml(mv.computedMoveDamage)}</div>
+              </div>
+              ${computedWarn}
+              <div class="cbw-tiny">Golpe: <span class="vv">${escHtml(mv.name || "—")}</span> • Tipo: <span class="vv">${escHtml(mv.moveType || "—")}</span></div>
+            </div>
+
+            <div class="cbw-card" style="padding:12px">
+              <div class="cbw-h"><div class="t">🛡️ Resistência</div><div class="cbw-pill">${escHtml(df.type || "—")}</div></div>
+              <div class="cbw-row">
+                <div class="k">d20 (fixo)</div>
+                <div class="v">${escHtml(df.roll)}</div>
+              </div>
+              ${_wiFieldInput("stat (THG/Dodge/etc)", "def_stat", df.stat, { hint: df.fromLog ? "Extraído do log (ajustável)" : "Sem log confiável — ajuste manual" })}
+              <div class="cbw-row">
+                <div class="k">Total resistência</div>
+                <div class="v">${escHtml(df.roll)} + ${escHtml(df.stat)} = ${escHtml(df.roll + df.stat)}</div>
+              </div>
+              <div class="cbw-row">
+                <div class="k">Comparação</div>
+                <div class="v">${escHtml(df.total)} vs CD ${escHtml(dc.dc)} → <span class="${resCls}">${escHtml(resTxt)}</span></div>
+              </div>
+              <div class="cbw-row">
+                <div class="k">Diferença</div>
+                <div class="v">CD ${escHtml(dc.dc)} − ${escHtml(df.total)} = ${escHtml(out.diff)} → barras = ${escHtml(out.barsLost)}</div>
+              </div>
+            </div>
+
+            <div class="cbw-card" style="padding:12px">
+              <div class="cbw-h"><div class="t">📌 Referências</div><div class="cbw-pill">info</div></div>
+              <div class="cbw-row"><div class="k">Atacante</div><div class="v">${escHtml(snap.attacker || "—")} <span class="cbw-muted">${escHtml(snap.attackerPid ? `(${snap.attackerPid})` : "")}</span></div></div>
+              <div class="cbw-row"><div class="k">Alvo</div><div class="v">${escHtml(snap.targetOwner || "—")} <span class="cbw-muted">${escHtml(snap.targetPid ? `(${snap.targetPid})` : "")}</span></div></div>
+              <div class="cbw-card" style="padding:12px;margin-top:10px">
+                <div class="cbw-muted" style="font-weight:900;margin-bottom:6px">Log (última linha)</div>
+                <div class="cbw-log">${escHtml(lastLog || "—")}</div>
+              </div>
+              ${df.logLine ? `
+                <div class="cbw-card" style="padding:12px;margin-top:10px">
+                  <div class="cbw-muted" style="font-weight:900;margin-bottom:6px">Log de resistência usado</div>
+                  <div class="cbw-log">${escHtml(df.logLine)}</div>
+                </div>
+              ` : ""}
+            </div>
+          </div>
+
+          <div class="cbw-hr"></div>
+
+          <div class="cbw-foot">
+            <div class="cbw-tiny">🔒 O What‑If é local (não escreve no Firestore). Para o combate real, use os botões do mapa (arena).</div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <button class="cbw-btn secondary" data-action="reset-whatif">↩ Reset What‑If</button>
+              <button class="cbw-btn" data-action="copy-json">📋 Copiar What‑If</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -527,53 +1080,24 @@ export class CombatUI {
       return `<div class="cb-result-log-line">${icon} ${escHtml(cleanLine)}</div>`;
     }).join("");
 
+    // ✅ Painel antigo ("Nenhum combate ativo / Nova Batalha") foi ocultado.
+    // A criação de combate deve partir do mapa (arena).
     const resultHtml = prevLogs.length > 0
       ? `
         <div class="cb-result-card">
-          <div class="cb-result-title">🩸 Resultado: -${barsLost} Barras</div>
+          <div class="cb-result-title">🩸 Último resultado: -${barsLost} Barras</div>
           <div class="cb-result-log">${logItemsHtml}</div>
           <div class="cb-result-actions">
-            <button class="btn" id="cb_end_battle">Encerrar Combate</button>
+            <button class="btn" id="cb_end_battle">Limpar Resultado</button>
             ${secondaryHtml}
           </div>
         </div>
       `
-      : "";
+      : `
+        <div class="card"><div class="muted">Nenhum combate ativo. Inicie o ataque pelo mapa (arena).</div></div>
+      `;
 
-    this._body.innerHTML = `
-      <div class="card">
-        <div style="font-weight:950;margin-bottom:8px">Nenhum combate ativo</div>
-        <div class="muted" style="margin-bottom:12px">Inicie um novo ataque contra um oponente.</div>
-        ${resultHtml}
-        <button class="btn" id="cb_new_battle">⚔️ Nova Batalha (Atacar)</button>
-      </div>
-    `;
-
-    // ── Botão Nova Batalha ──
-    const btn = this._body.querySelector("#cb_new_battle");
-    btn.addEventListener("click", async () => {
-      console.log("[CombatUI] 🔴 CLIQUE em Nova Batalha!");
-      console.log("[CombatUI]   by =", by);
-      console.log("[CombatUI]   getDb() =", this.getDb());
-      console.log("[CombatUI]   getRid() =", this.getRid());
-      btn.disabled = true;
-      btn.textContent = "⏳ Iniciando...";
-      btn.style.opacity = "0.6";
-      try {
-        const ref = this._battleRef();
-        console.log("[CombatUI]   ref =", ref);
-        if (!ref) { btn.disabled = false; btn.textContent = "⚔️ Nova Batalha (Atacar)"; btn.style.opacity = ""; return; }
-        this._lastRenderKey = "";
-        // Use merge:true to preserve turn_state, initiative, preprep, etc.
-        await setDoc(ref, { status: "setup", attacker: by, attack_move: null, logs: [] }, { merge: true });
-        console.log("[CombatUI]   ✅ setDoc concluído com sucesso!");
-      } catch (e) {
-        console.error("[CombatUI]   ❌ ERRO no setDoc:", e);
-        btn.disabled = false;
-        btn.textContent = "⚔️ Nova Batalha (Atacar)";
-        btn.style.opacity = "";
-      }
-    });
+    this._body.innerHTML = resultHtml;
 
     const endBtn = this._body.querySelector("#cb_end_battle");
     if (endBtn) {
