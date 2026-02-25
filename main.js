@@ -3585,19 +3585,8 @@ function _ensurePickerEl() {
   _pickerEl.className = "piece-context-menu";
   _pickerEl.style.display = "none";
   _pickerEl.style.flexDirection = "column";
-  _pickerEl.style.maxHeight = "300px";
+  _pickerEl.style.maxHeight = "200px";
   _pickerEl.style.overflowY = "auto";
-  
-  // Garantindo estilos absolutos para o menu ficar bonito e sobreposto
-  _pickerEl.style.position = "absolute";
-  _pickerEl.style.zIndex = "9999";
-  _pickerEl.style.background = "rgba(17, 24, 39, 0.98)";
-  _pickerEl.style.border = "1px solid rgba(255, 255, 255, 0.15)";
-  _pickerEl.style.borderRadius = "12px";
-  _pickerEl.style.padding = "8px";
-  _pickerEl.style.boxShadow = "0 10px 40px rgba(0, 0, 0, 0.8)";
-  _pickerEl.style.gap = "4px";
-
   canvasWrap?.appendChild(_pickerEl);
   _pickerEl.addEventListener("click", (ev) => {
     const btn = ev.target?.closest("[data-picker-id]");
@@ -3614,7 +3603,7 @@ function _ensurePickerEl() {
     if (afterPick === "context" && isPieceMine(piece)) {
       openPieceContextMenu(piece, cx, cy);
     } else {
-      selectPiece(pickedId); // Abre o Inspector para a peça escolhida
+      selectPiece(pickedId);
     }
   });
   return _pickerEl;
@@ -3623,39 +3612,18 @@ function _ensurePickerEl() {
 function openPiecePickerMenu(piecesArr, clientX, clientY, opts) {
   const el = _ensurePickerEl();
   _pickerState = { pieces: piecesArr, afterPick: (opts && opts.afterPick) || "select", clientX, clientY };
-  
-  const headerHtml = `<div style="padding: 4px 8px 8px; font-size: 13px; font-weight: 900; color: #cbd5e1; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 6px;">Inspecionar qual Pokémon?</div>`;
-  
-  el.innerHTML = headerHtml + piecesArr.map(p => {
+  el.innerHTML = piecesArr.map(p => {
     const name = (p?.revealed ? (dexNameFromPid(safeStr(p.pid)) || safeStr(p.pid)) : "???").slice(0, 16);
     const size = p?.sizeCategory || "medium";
     const mine = isPieceMine(p);
-    
-    // Pegando Sprite para ajudar na identificação
-    const owner = safeStr(p.owner);
-    const pid = safeStr(p.pid);
-    const ps = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
-    const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!ps.shiny });
-    const imgHtml = spriteUrl 
-      ? `<img src="${escapeAttr(spriteUrl)}" style="width:24px;height:24px;object-fit:contain;border-radius:6px;background:rgba(0,0,0,0.2);">` 
-      : `<div style="width:24px;height:24px;border-radius:6px;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font-size:10px;">#</div>`;
-
-    return `<button type="button" class="btn ghost" data-picker-id="${safeStr(p.id)}" style="display:flex;align-items:center;gap:10px;text-align:left;padding:8px 12px;font-size:14px;width:100%;border-radius:8px;cursor:pointer;background:rgba(255,255,255,0.03);border:1px solid transparent;transition:all 0.2s;">
-      ${imgHtml}
-      <div style="flex:1;line-height:1.2;">
-        <div style="font-weight:900;color:#f8fafc;">${mine ? "★ " : ""}${name}</div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:2px;">${size} • ID: ${safeStr(p.id).slice(-4)}</div>
-      </div>
-    </button>`;
+    return `<button type="button" data-picker-id="${safeStr(p.id)}" style="text-align:left;padding:4px 8px;font-size:13px;">${mine ? "★ " : ""}${name} <span style="opacity:0.5;font-size:11px;">(${size})</span></button>`;
   }).join("");
-
   const wrapRect = canvasWrap.getBoundingClientRect();
   const localX = Math.max(0, Math.min(wrapRect.width - 8, clientX - wrapRect.left));
   const localY = Math.max(0, Math.min(wrapRect.height - 8, clientY - wrapRect.top));
   el.style.display = "flex";
   el.style.left = `${localX}px`;
   el.style.top = `${localY}px`;
-  
   // Ajusta overflow
   requestAnimationFrame(() => {
     if (!_pickerEl) return;
@@ -3759,11 +3727,6 @@ function bindArenaInteractionsCanvas() {
     if (appState.drag.active) {
       appState.drag.x = x;
       appState.drag.y = y;
-      const dx = x - (appState.drag.downX ?? x);
-      const dy = y - (appState.drag.downY ?? y);
-      if (!appState.drag.moved && (dx*dx + dy*dy) > 25) { // 5px
-        appState.drag.moved = true;
-}
     }
   });
 
@@ -3772,7 +3735,7 @@ function bindArenaInteractionsCanvas() {
     hoverBadge.textContent = `tile: —`;
   });
 
-canvas.addEventListener("mousedown", (ev) => {
+  canvas.addEventListener("mousedown", (ev) => {
     if (getPlacingPokemonPid()) return;
     if (appState.placingTrainer) return;
     if (ev.button !== 0) return;
@@ -3781,36 +3744,12 @@ canvas.addEventListener("mousedown", (ev) => {
     const y = ev.clientY - rect.top;
     const tile = screenToTile(x, y);
     if (!tile) return;
-
-    const candidates = getPiecesAt(tile.row, tile.col);
-    if (candidates.length === 0) return;
-
-    let pieceToDrag = null;
-
-    if (candidates.length === 1) {
-      pieceToDrag = candidates[0];
-    } else {
-      // Múltiplos pokémons no tile.
-      // Para não atrapalhar o menu do Inspector, só iniciaremos
-      // o arraste no mousedown se o pokémon *já estiver* selecionado.
-      const selPiece = candidates.find(p => p.id === appState.selectedPieceId);
-      if (selPiece && isPieceMine(selPiece)) {
-        pieceToDrag = selPiece;
-      } else {
-        // Ignora o clique inicial; deixa o evento de `click` subsequente abrir o Menu.
-        return;
-      }
-    }
-
-    if (!pieceToDrag || !isPieceMine(pieceToDrag)) return;
-
-    const id = safeStr(pieceToDrag.id);
+    const p = getPieceAt(tile.row, tile.col);
+    if (!p) return;
+    if (!isPieceMine(p)) return;
+    const id = safeStr(p.id);
     selectPiece(id);
-    
     appState.drag.active = true;
-    appState.drag.downX = x;
-    appState.drag.downY = y;
-    appState.drag.moved = false;
     appState.drag.justDropped = false;
     appState.drag.pieceId = id;
     appState.drag.startRow = tile.row;
@@ -3822,11 +3761,6 @@ canvas.addEventListener("mousedown", (ev) => {
   window.addEventListener("mouseup", (ev) => {
     if (!appState.drag.active) return;
     appState.drag.active = false;
-    if (!appState.drag.moved) {
-      appState.drag.active = false;
-      appState.drag.justDropped = false;
-      return; // deixa o click acontecer e abrir o picker
-    }
     appState.drag.justDropped = true;
     const rect = canvas.getBoundingClientRect();
     const x = ev.clientX - rect.left;
