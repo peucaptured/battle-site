@@ -1982,6 +1982,248 @@ function renderSelectedControlsCard() {
 }
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Inspector — Condições (tracking) — usa afflictions.json
+// - M&M: conditions_mm (cada condição tem id, name_pt/en, what_it_does_pt, mechanics_pt)
+// - Pokémon: pokemon_status_builds (id, name_pt, rules_pt, etc.)
+// Persistência: public_state/state.pieces[*].mm_conditions / pokemon_conditions
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _AFFLICTIONS_CATALOG = null;
+let _AFFLICTIONS_CATALOG_PROMISE = null;
+
+async function _loadAfflictionsCatalogOnce() {
+  if (_AFFLICTIONS_CATALOG) return _AFFLICTIONS_CATALOG;
+  if (_AFFLICTIONS_CATALOG_PROMISE) return _AFFLICTIONS_CATALOG_PROMISE;
+  _AFFLICTIONS_CATALOG_PROMISE = (async () => {
+    // OBS: este arquivo precisa estar acessível pelo servidor (mesma pasta pública do main.js)
+    const res = await fetch("./afflictions.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(`afflictions.json HTTP ${res.status}`);
+    const j = await res.json();
+    _AFFLICTIONS_CATALOG = j;
+    return j;
+  })();
+  return _AFFLICTIONS_CATALOG_PROMISE;
+}
+
+function _getPieceMmConditions(p) {
+  const mm = (p && typeof p === "object") ? p.mm_conditions : null;
+  return {
+    deg1: Array.isArray(mm?.deg1) ? mm.deg1.map(safeStr).filter(Boolean) : [],
+    deg2: Array.isArray(mm?.deg2) ? mm.deg2.map(safeStr).filter(Boolean) : [],
+    deg3: Array.isArray(mm?.deg3) ? mm.deg3.map(safeStr).filter(Boolean) : [],
+  };
+}
+
+function _getPiecePokemonConditions(p) {
+  return Array.isArray(p?.pokemon_conditions) ? p.pokemon_conditions.map(safeStr).filter(Boolean) : [];
+}
+
+function renderInspectorConditionsPanelHTML(piece, { isMine }) {
+  const mm = _getPieceMmConditions(piece);
+  const pkm = _getPiecePokemonConditions(piece);
+  return `
+    <div class="ins-conds">
+      <div class="ins-conds-title">Condições</div>
+
+      <div class="ins-conds-grid">
+        <div class="ins-conds-col">
+          <div class="muted">1st degree</div>
+          <select multiple size="8" data-ins-cond="mm-deg1" ${isMine ? "" : "disabled"}></select>
+          <div class="ins-conds-desc" data-ins-desc="mm-deg1"></div>
+        </div>
+        <div class="ins-conds-col">
+          <div class="muted">2nd degree</div>
+          <select multiple size="8" data-ins-cond="mm-deg2" ${isMine ? "" : "disabled"}></select>
+          <div class="ins-conds-desc" data-ins-desc="mm-deg2"></div>
+        </div>
+        <div class="ins-conds-col">
+          <div class="muted">3rd degree</div>
+          <select multiple size="8" data-ins-cond="mm-deg3" ${isMine ? "" : "disabled"}></select>
+          <div class="ins-conds-desc" data-ins-desc="mm-deg3"></div>
+        </div>
+      </div>
+
+      <div class="ins-conds-actions">
+        <button type="button" class="btn secondary" data-ins-act="conds-save" ${isMine ? "" : "disabled"}>💾 Salvar</button>
+        <button type="button" class="btn danger" data-ins-act="conds-clear" ${isMine ? "" : "disabled"}>🧹 Limpar tudo</button>
+      </div>
+
+      <div class="ins-conds-subtitle">Condições Pokémon</div>
+      <div class="ins-pkm-list" data-ins-cond="pkm" ${isMine ? "" : "data-readonly=1"}></div>
+      <div class="ins-conds-desc" data-ins-desc="pkm"></div>
+
+      <div class="ins-conds-current">
+        <div class="muted">Aplicadas agora:</div>
+        <div class="chip-row">
+          ${(mm.deg1.concat(mm.deg2, mm.deg3).length || pkm.length)
+            ? `${mm.deg1.map((id) => `<span class="chip warn">1°: ${escapeHtml(id)}</span>`).join("")}
+               ${mm.deg2.map((id) => `<span class="chip warn">2°: ${escapeHtml(id)}</span>`).join("")}
+               ${mm.deg3.map((id) => `<span class="chip warn">3°: ${escapeHtml(id)}</span>`).join("")}
+               ${pkm.map((id) => `<span class="chip">PKM: ${escapeHtml(id)}</span>`).join("")}`
+            : `<span class="muted">Nenhuma.</span>`}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function mountInspectorConditionsPanel(wrap, piece, { isMine }) {
+  const panel = wrap.querySelector(".ins-conds");
+  if (!panel) return;
+
+  const catalog = await _loadAfflictionsCatalogOnce();
+  const mmAll = Array.isArray(catalog?.conditions_mm) ? catalog.conditions_mm : [];
+  const pkmAll = Array.isArray(catalog?.pokemon_status_builds) ? catalog.pokemon_status_builds : [];
+
+  const selects = {
+    "mm-deg1": wrap.querySelector('select[data-ins-cond="mm-deg1"]'),
+    "mm-deg2": wrap.querySelector('select[data-ins-cond="mm-deg2"]'),
+    "mm-deg3": wrap.querySelector('select[data-ins-cond="mm-deg3"]'),
+  };
+
+  const mmState = _getPieceMmConditions(piece);
+  const selected = {
+    "mm-deg1": new Set(mmState.deg1),
+    "mm-deg2": new Set(mmState.deg2),
+    "mm-deg3": new Set(mmState.deg3),
+  };
+
+  const mmSorted = mmAll
+    .slice()
+    .filter((c) => c && (c.id != null))
+    .sort((a, b) => String(a?.name_pt || a?.name_en || a?.id || "").localeCompare(String(b?.name_pt || b?.name_en || b?.id || ""), "pt"));
+
+  // Todos do JSON em cada degree (conforme pedido)
+  for (const key of Object.keys(selects)) {
+    const sel = selects[key];
+    if (!sel) continue;
+    sel.innerHTML = mmSorted
+      .map((c) => {
+        const id = safeStr(c.id);
+        const label = `${safeStr(c.name_pt) || id}${safeStr(c.name_en) ? ` (${safeStr(c.name_en)})` : ""}`;
+        const isSel = selected[key].has(id);
+        return `<option value="${escapeAttr(id)}" ${isSel ? "selected" : ""}>${escapeHtml(label)}</option>`;
+      })
+      .join("");
+    sel.disabled = !isMine;
+  }
+
+  // Pokémon: multi seleção via checkboxes
+  const pkmWrap = wrap.querySelector('[data-ins-cond="pkm"]');
+  const pkmSelected = new Set(_getPiecePokemonConditions(piece));
+  const pkmSorted = pkmAll
+    .slice()
+    .filter((s) => s && (s.id != null))
+    .sort((a, b) => String(a?.name_pt || a?.id || "").localeCompare(String(b?.name_pt || b?.id || ""), "pt"));
+
+  if (pkmWrap) {
+    pkmWrap.innerHTML = pkmSorted
+      .map((s) => {
+        const id = safeStr(s.id);
+        const checked = pkmSelected.has(id);
+        const disabled = isMine ? "" : "disabled";
+        return `
+          <label class="pkm-cond">
+            <input type="checkbox" data-pkm-id="${escapeAttr(id)}" ${checked ? "checked" : ""} ${disabled}>
+            <span>${escapeHtml(safeStr(s.name_pt) || id)}</span>
+          </label>
+        `;
+      })
+      .join("");
+  }
+
+  function renderMMDesc(which) {
+    const sel = selects[which];
+    const out = wrap.querySelector(`[data-ins-desc="${which}"]`);
+    if (!sel || !out) return;
+    const ids = Array.from(sel.selectedOptions || []).map((o) => safeStr(o.value)).filter(Boolean);
+    if (!ids.length) {
+      out.innerHTML = `<div class="muted">Selecione uma ou mais condições.</div>`;
+      return;
+    }
+    out.innerHTML = ids
+      .map((id) => {
+        const c = mmAll.find((x) => safeStr(x?.id) === id);
+        if (!c) return `
+          <div class="cond-desc-item">
+            <div class="cond-desc-title">${escapeHtml(id)}</div>
+          </div>
+        `;
+        const t = safeStr(c.name_pt) || safeStr(c.name_en) || id;
+        const en = safeStr(c.name_en);
+        const does = safeStr(c.what_it_does_pt) || safeStr(c.what_it_does_en);
+        const mech = safeStr(c.mechanics_pt) || safeStr(c.mechanics_en);
+        return `
+          <div class="cond-desc-item">
+            <div class="cond-desc-title">${escapeHtml(t)}${en && t !== en ? ` <span class="muted">(${escapeHtml(en)})</span>` : ""}</div>
+            ${does ? `<div>${escapeHtml(does)}</div>` : ""}
+            ${mech ? `<div class="muted">${escapeHtml(mech)}</div>` : ""}
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  ["mm-deg1", "mm-deg2", "mm-deg3"].forEach((k) => {
+    selects[k]?.addEventListener("change", () => renderMMDesc(k));
+    renderMMDesc(k);
+  });
+
+  function renderPkmDesc() {
+    const out = wrap.querySelector('[data-ins-desc="pkm"]');
+    if (!out) return;
+    const checked = Array.from(wrap.querySelectorAll('input[type="checkbox"][data-pkm-id]:checked'))
+      .map((x) => safeStr(x.getAttribute("data-pkm-id")))
+      .filter(Boolean);
+    if (!checked.length) {
+      out.innerHTML = `<div class="muted">Nenhuma condição Pokémon selecionada.</div>`;
+      return;
+    }
+    out.innerHTML = checked
+      .map((id) => {
+        const s = pkmAll.find((x) => safeStr(x?.id) === id);
+        if (!s) return `<div class="cond-desc-item"><div class="cond-desc-title">${escapeHtml(id)}</div></div>`;
+        const nm = safeStr(s.name_pt) || id;
+        const rules = Array.isArray(s.rules_pt) ? s.rules_pt : [];
+        return `
+          <div class="cond-desc-item">
+            <div class="cond-desc-title">${escapeHtml(nm)}</div>
+            ${rules.length ? `<ul>${rules.map((r) => `<li>${escapeHtml(String(r))}</li>`).join("")}</ul>` : `<div class="muted">(sem regras)</div>`}
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  wrap.querySelectorAll('input[type="checkbox"][data-pkm-id]').forEach((cb) => {
+    cb.addEventListener("change", renderPkmDesc);
+  });
+  renderPkmDesc();
+
+  // Salvar / Limpar
+  wrap.querySelector('[data-ins-act="conds-save"]')?.addEventListener("click", async () => {
+    if (!isMine) return;
+    const getSelected = (k) => Array.from(selects[k]?.selectedOptions || []).map((o) => safeStr(o.value)).filter(Boolean);
+    const mm_conditions = {
+      deg1: getSelected("mm-deg1"),
+      deg2: getSelected("mm-deg2"),
+      deg3: getSelected("mm-deg3"),
+    };
+    const pokemon_conditions = Array.from(wrap.querySelectorAll('input[type="checkbox"][data-pkm-id]:checked'))
+      .map((x) => safeStr(x.getAttribute("data-pkm-id")))
+      .filter(Boolean);
+    await setPieceConditions(piece.id, mm_conditions, pokemon_conditions);
+    updateSidePanels();
+  });
+
+  wrap.querySelector('[data-ins-act="conds-clear"]')?.addEventListener("click", async () => {
+    if (!isMine) return;
+    await setPieceConditions(piece.id, { deg1: [], deg2: [], deg3: [] }, []);
+    updateSidePanels();
+  });
+}
+
 function renderInspectorCard() {
   updateMovementTurnState();
   const wrap = document.createElement("div");
@@ -2077,6 +2319,10 @@ function renderInspectorCard() {
   const offenseH = _typeOffenseHtml(insTypes);
   const matchupH = _typeMatchupHtml(insTypes);
 
+  // Tracking de condições (M&M por degree + Pokémon)
+  // UI: painel opcional no Inspector. Persistência: public_state/state.pieces[*].mm_conditions / pokemon_conditions
+  const condsOpen = !!appState.inspectorCondsOpen;
+
 const psOwner = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
 const sheetHasSpeed = isMine ? [
   readSpeedFromStats(sh2?.stats), readSpeedFromStats(sh2?.pokemon?.stats),
@@ -2105,6 +2351,8 @@ const sheetHasSpeed = isMine ? [
         ${offenseH}
         ${matchupH}
 
+        ${condsOpen ? renderInspectorConditionsPanelHTML(p, { isMine }) : ""}
+
         <div class="ins-hp-section">
           <div class="ins-hp-label-row">
             <span class="ins-hp-title">HP</span>
@@ -2128,6 +2376,7 @@ const sheetHasSpeed = isMine ? [
           <button type="button" class="btn primary" data-ins-act="move">Mover</button>
           <button type="button" class="btn ${freeMove ? "primary" : "secondary"}" data-ins-act="free" ${isMine ? "" : "disabled"}>🧭 Deslocamento livre ${freeMove ? "ON" : "OFF"}</button>
           <button type="button" class="btn ${mvBudget.dash ? "primary" : "secondary"}" data-ins-act="dash" ${isMine ? "" : "disabled"}>${mvBudget.dash ? "⚡ Standard gasta (x2)" : "⚡ Abrir mão da Standard (x2)"}</button>
+          <button type="button" class="btn ${condsOpen ? "primary" : "secondary"}" data-ins-act="toggle-conds">🧷 Condições</button>
           <button type="button" class="btn secondary" data-ins-act="toggle" ${isMine ? "" : "disabled"}>Ocultar</button>
           <button type="button" class="btn danger" data-ins-act="remove" ${isMine ? "" : "disabled"}>Retirar da arena</button>
         </div>
@@ -2161,6 +2410,18 @@ const sheetHasSpeed = isMine ? [
     else setStatus("ok", "deslocamento voltou ao valor base");
     updateSidePanels();
   });
+
+  // Condições — tracking apenas
+  wrap.querySelector('[data-ins-act="toggle-conds"]')?.addEventListener("click", () => {
+    appState.inspectorCondsOpen = !appState.inspectorCondsOpen;
+    updateSidePanels();
+  });
+  if (condsOpen) {
+    mountInspectorConditionsPanel(wrap, p, { isMine }).catch((e) => {
+      console.error(e);
+      setStatus("err", "Falha ao carregar condições (afflictions.json)");
+    });
+  }
   wrap.querySelector('[data-ins-act="toggle"]')?.addEventListener("click", async () => {
     await togglePieceRevealed(selId);
   });
@@ -3504,6 +3765,53 @@ async function togglePieceRevealed(pieceId) {
     setStatus("ok", "visibilidade atualizada");
   } catch (e) {
     setStatus("err", `falha ao alternar visibilidade: ${e?.message || e}`);
+  }
+}
+
+// Condições (tracking) — persistência em public_state/state
+// piece.mm_conditions = {deg1:[],deg2:[],deg3:[]}
+// piece.pokemon_conditions = []
+async function setPieceConditions(pieceId, mm_conditions, pokemon_conditions) {
+  const pid = safeStr(pieceId);
+  if (!pid) return;
+  const ref = getStateDocRef();
+  if (!ref) {
+    setStatus("err", "conecte antes de alterar peças");
+    return;
+  }
+
+  const mm = (mm_conditions && typeof mm_conditions === "object")
+    ? {
+        deg1: Array.isArray(mm_conditions.deg1) ? mm_conditions.deg1.map(safeStr).filter(Boolean) : [],
+        deg2: Array.isArray(mm_conditions.deg2) ? mm_conditions.deg2.map(safeStr).filter(Boolean) : [],
+        deg3: Array.isArray(mm_conditions.deg3) ? mm_conditions.deg3.map(safeStr).filter(Boolean) : [],
+      }
+    : { deg1: [], deg2: [], deg3: [] };
+
+  const pkm = Array.isArray(pokemon_conditions) ? pokemon_conditions.map(safeStr).filter(Boolean) : [];
+
+  try {
+    await runTransaction(currentDb, async (tx) => {
+      const snap = await tx.get(ref);
+      const data = snap.exists() ? snap.data() : {};
+      const pieces = Array.isArray(data?.pieces) ? data.pieces : [];
+
+      const nextPieces = pieces.map((p) => ({ ...(p || {}) }));
+      const idx = nextPieces.findIndex((p) => safeStr(p?.id) === pid);
+      if (idx < 0) throw new Error("peça não encontrada no state");
+
+      const cur = nextPieces[idx] || {};
+      if (!isPieceMine(cur)) throw new Error("você só pode editar condições das suas peças");
+
+      cur.mm_conditions = mm;
+      cur.pokemon_conditions = pkm;
+      nextPieces[idx] = cur;
+
+      tx.set(ref, { pieces: nextPieces, updatedAt: serverTimestamp() }, { merge: true });
+    });
+    setStatus("ok", "condições atualizadas");
+  } catch (e) {
+    setStatus("err", `falha ao atualizar condições: ${e?.message || e}`);
   }
 }
 
@@ -6031,6 +6339,30 @@ function _injectSheetsStyleOnce() {
   #inspector_root .stat-boost-panel { margin: 6px 0; }
   #inspector_root .stat-boost-grid { grid-template-columns: repeat(3,1fr); gap: 4px; }
   #inspector_root .stat-boost-title, #inspector_root .stat-boost-name, #inspector_root .stat-boost-val { font-size: 11px; }
+
+  /* ── Inspector: Condições (tracking) ─────────────────────── */
+  #inspector_root .ins-conds { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.08); }
+  #inspector_root .ins-conds-title { font-weight: 900; font-size: .9rem; margin-bottom: 8px; }
+  #inspector_root .ins-conds-subtitle { font-weight: 900; font-size: .85rem; margin-top: 10px; margin-bottom: 6px; }
+  #inspector_root .ins-conds-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+  @media (min-width: 520px) { #inspector_root .ins-conds-grid { grid-template-columns: repeat(3, 1fr); } }
+  #inspector_root .ins-conds-col select {
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,.12);
+    background: rgba(0,0,0,.22);
+    color: inherit;
+    font-size: .82rem;
+  }
+  #inspector_root .ins-conds-actions { display:flex; gap:8px; margin-top: 8px; flex-wrap: wrap; }
+  #inspector_root .ins-conds-desc { margin-top: 6px; font-size: .78rem; opacity: .95; }
+  #inspector_root .cond-desc-item { padding: 6px 8px; border-radius: 12px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); margin-top: 6px; }
+  #inspector_root .cond-desc-title { font-weight: 900; margin-bottom: 2px; }
+  #inspector_root .ins-pkm-list { display:flex; flex-direction: column; gap: 6px; }
+  #inspector_root .pkm-cond { display:flex; gap: 8px; align-items:center; padding: 6px 8px; border-radius: 12px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); }
+  #inspector_root .pkm-cond input { transform: translateY(1px); }
+  #inspector_root .ins-conds-current { margin-top: 10px; }
 
   @media (max-width: 900px) {
     #inspector_root .inspector-title, .ficha-v2 .section-title { font-size: 28px; }
