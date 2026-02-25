@@ -5846,9 +5846,29 @@ function draw() {
         if (r === Number(selPiece.row) && c === Number(selPiece.col)) continue;
         const xh = ox + c * tile;
         const yh = oy + r * tile;
-        if (reach.has(`${r}:${c}`)) ctx.fillStyle = "rgba(244,114,182,0.22)";
-        else ctx.fillStyle = "rgba(239,68,68,0.18)";
-        ctx.fillRect(xh + 1, yh + 1, tile - 2, tile - 2);
+        const canReach = reach.has(`${r}:${c}`);
+        if (canReach) {
+          // Alcance possível: ciano/verde (mais claro e distinto do "bloqueado")
+          ctx.fillStyle = "rgba(45, 212, 191, 0.24)";
+          ctx.fillRect(xh + 1, yh + 1, tile - 2, tile - 2);
+
+          ctx.strokeStyle = "rgba(20, 184, 166, 0.52)";
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(xh + 2, yh + 2, tile - 4, tile - 4);
+        } else {
+          // Fora de alcance: cinza-azulado com hatch discreto (evita o vermelho "erro")
+          ctx.fillStyle = "rgba(100, 116, 139, 0.16)";
+          ctx.fillRect(xh + 1, yh + 1, tile - 2, tile - 2);
+
+          ctx.strokeStyle = "rgba(148, 163, 184, 0.26)";
+          ctx.lineWidth = 1;
+          for (let i = -tile; i < tile; i += 8) {
+            ctx.beginPath();
+            ctx.moveTo(xh + i, yh + tile - 1);
+            ctx.lineTo(xh + i + tile, yh + 1);
+            ctx.stroke();
+          }
+        }
       }
     }
   }
