@@ -89,7 +89,6 @@ function getDrawingsRef() {
 }
 
 async function saveStrokes() {
-  _pendingSave = false;           // <-- move pra cima
   const ref = getDrawingsRef();
   if (!ref) return;
   try {
