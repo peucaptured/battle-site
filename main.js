@@ -9,7 +9,7 @@ import {
   onSnapshot,
   addDoc,
   serverTimestamp,
-  query,
+  query,// Mantém window.currentRid e window.currentDb sincronizados com appState
   orderBy,
   limit,
   getDocs,
@@ -2076,11 +2076,11 @@ async function mountInspectorConditionsPanel(wrap, piece, { isMine }) {
   const mmAll = Array.isArray(catalog?.conditions_mm) ? catalog.conditions_mm : [];
   const pkmAll = Array.isArray(catalog?.pokemon_status_builds) ? catalog.pokemon_status_builds : [];
 
-  // 1. Filtragem por Graus (Degrees)
+  // 1. Filtragem por Graus (Ajustado para ler as roles de graus do Mutants & Masterminds)
   const degFilters = {
-    "mm-deg1": mmAll.filter(c => c.affliction_degree === 1),
-    "mm-deg2": mmAll.filter(c => c.affliction_degree === 2),
-    "mm-deg3": mmAll.filter(c => c.affliction_degree === 3 || c.id === "controlled") 
+    "mm-deg1": mmAll.filter(c => c.affliction_degree === 1 || (c.degree_suggestions && c.degree_suggestions["1"])),
+    "mm-deg2": mmAll.filter(c => c.affliction_degree === 2 || (c.degree_suggestions && c.degree_suggestions["2"]) || c.id === "bound" || c.id === "restrained"),
+    "mm-deg3": mmAll.filter(c => c.affliction_degree === 3 || c.affliction_degree === null || (c.degree_suggestions && c.degree_suggestions["3"]))
   };
 
   const mmState = _getPieceMmConditions(piece);
@@ -2090,61 +2090,90 @@ async function mountInspectorConditionsPanel(wrap, piece, { isMine }) {
     "mm-deg3": new Set(mmState.deg3),
   };
 
-  // 2. Renderizar as Listas Customizadas (Substituindo o <select>)
+  // 2. Renderizar M&M Condições (Custom List)
   Object.keys(degFilters).forEach(key => {
-    const listContainer = wrap.querySelector(`select[data-ins-cond="${key}"]`);
+    const listContainer = wrap.querySelector(`[data-ins-cond="${key}"]`);
     if (!listContainer) return;
 
-    // Transformamos o select em uma lista de itens clicáveis para melhor UX
-    const optionsHtml = degFilters[key].map(c => {
+    const sorted = degFilters[key].sort((a, b) => String(a?.name_pt || a?.id).localeCompare(String(b?.name_pt || b?.id), "pt"));
+    listContainer.innerHTML = sorted.map(c => {
       const isSel = selected[key].has(c.id);
-      return `
-        <div class="cond-item ${isSel ? 'selected' : ''}" 
-             data-id="${c.id}" 
-             data-degree="${key}">
-          ${c.name_pt || c.id}
-        </div>
-      `;
+      const label = `${safeStr(c.name_pt) || c.id}${safeStr(c.name_en) && c.name_en !== c.name_pt ? ` <small class="muted">(${safeStr(c.name_en)})</small>` : ""}`;
+      return `<div class="cond-item ${isSel ? 'selected' : ''}" data-id="${escapeAttr(c.id)}" data-degree="${key}">${label}</div>`;
     }).join("");
-    
-    // Substitui o select por um container de itens
-    listContainer.parentElement.innerHTML = `
-      <div class="ins-conds-degree">${key.replace('mm-deg', '')}º Grau</div>
-      <div class="custom-cond-list" data-degree-key="${key}">
-        ${optionsHtml}
-      </div>
-      <div class="ins-conds-desc" id="desc-${key}">Passe o mouse para ler...</div>
-    `;
   });
 
-  // 3. Lógica de Hover e Clique
-  wrap.querySelectorAll('.cond-item').forEach(item => {
+  // 3. Renderizar Pokémon Condições (Custom List)
+  const pkmWrap = wrap.querySelector('[data-ins-cond="pkm"]');
+  const pkmSelected = new Set(_getPiecePokemonConditions(piece));
+  const pkmSorted = pkmAll.slice().filter((s) => s && (s.id != null)).sort((a, b) => String(a?.name_pt || a?.id || "").localeCompare(String(b?.name_pt || b?.id || ""), "pt"));
+  if (pkmWrap) {
+    pkmWrap.innerHTML = pkmSorted.map(s => {
+      const id = safeStr(s.id);
+      const isSel = pkmSelected.has(id);
+      return `<div class="cond-item pkm-item ${isSel ? 'selected' : ''}" data-pkm-id="${escapeAttr(id)}">${escapeHtml(safeStr(s.name_pt) || id)}</div>`;
+    }).join("");
+  }
+
+  // 4. Lógica de Hover e Clique (M&M)
+  wrap.querySelectorAll('.cond-item[data-degree]').forEach(item => {
     const condId = item.dataset.id;
     const degKey = item.dataset.degree;
     const condData = mmAll.find(c => c.id === condId);
 
-    // HOVER: Mostra a descrição ao passar o mouse
     item.addEventListener('mouseenter', () => {
       const descBox = wrap.querySelector(`#desc-${degKey}`);
       if (condData && descBox) {
+        const does = safeStr(condData.what_it_does_pt) || safeStr(condData.what_it_does_en);
+        const mech = safeStr(condData.mechanics_pt) || safeStr(condData.mechanics_en);
         descBox.innerHTML = `
-          <strong>${condData.name_pt}</strong>: ${condData.what_it_does_pt}<br/>
-          <small style="color: #60a5fa">${condData.mechanics_pt || ''}</small>
+          <strong style="color:#fff">${escapeHtml(condData.name_pt || condId)}</strong><br/>
+          ${does ? `${escapeHtml(does)}<br/>` : ""}
+          ${mech ? `<span style="color: #60a5fa">${escapeHtml(mech)}</span>` : ""}
         `;
       }
     });
-
-    // CLIQUE: Seleciona/Deseleciona
+    item.addEventListener('mouseleave', () => {
+       const descBox = wrap.querySelector(`#desc-${degKey}`);
+       if(descBox) descBox.innerHTML = "Passe o mouse para ler...";
+    });
     item.addEventListener('click', () => {
       if (!isMine) return;
       item.classList.toggle('selected');
-      const isNowSelected = item.classList.contains('selected');
-      if (isNowSelected) selected[degKey].add(condId);
+      if (item.classList.contains('selected')) selected[degKey].add(condId);
       else selected[degKey].delete(condId);
     });
   });
 
-  // 4. Botão Salvar (Atualizado para a nova estrutura)
+  // 5. Lógica de Hover e Clique (Pokémon)
+  wrap.querySelectorAll('.pkm-item').forEach(item => {
+    const pkmId = item.dataset.pkmId;
+    const pkmData = pkmAll.find(s => s.id === pkmId);
+
+    item.addEventListener('mouseenter', () => {
+      const descBox = wrap.querySelector(`#desc-pkm`);
+      if (pkmData && descBox) {
+        const rules = Array.isArray(pkmData.rules_pt) ? pkmData.rules_pt : [];
+        const rulesHtml = rules.map(r => `• ${escapeHtml(String(r))}`).join("<br/>");
+        descBox.innerHTML = `
+          <strong style="color:#fff">${escapeHtml(pkmData.name_pt || pkmId)}</strong><br/>
+          <span style="color: #60a5fa">${rulesHtml || '(sem regras)'}</span>
+        `;
+      }
+    });
+    item.addEventListener('mouseleave', () => {
+       const descBox = wrap.querySelector(`#desc-pkm`);
+       if(descBox) descBox.innerHTML = "Passe o mouse para ler...";
+    });
+    item.addEventListener('click', () => {
+      if (!isMine) return;
+      item.classList.toggle('selected');
+      if (item.classList.contains('selected')) pkmSelected.add(pkmId);
+      else pkmSelected.delete(pkmId);
+    });
+  });
+
+  // 6. Botões Salvar / Limpar
   wrap.querySelector('[data-ins-act="conds-save"]')?.addEventListener("click", async () => {
     if (!isMine) return;
     const mm_conditions = {
@@ -2152,37 +2181,19 @@ async function mountInspectorConditionsPanel(wrap, piece, { isMine }) {
       deg2: Array.from(selected["mm-deg2"]),
       deg3: Array.from(selected["mm-deg3"]),
     };
-    const pokemon_conditions = Array.from(wrap.querySelectorAll('input[type="checkbox"][data-pkm-id]:checked'))
-      .map(x => x.getAttribute("data-pkm-id"));
-
+    const pokemon_conditions = Array.from(pkmSelected);
     await setPieceConditions(piece.id, mm_conditions, pokemon_conditions);
+    updateSidePanels();
+  });
+
+  wrap.querySelector('[data-ins-act="conds-clear"]')?.addEventListener("click", async () => {
+    if (!isMine) return;
+    await setPieceConditions(piece.id, { deg1: [], deg2: [], deg3: [] }, []);
     updateSidePanels();
   });
 }
 
-  // Pokémon: multi seleção via checkboxes
-  const pkmWrap = wrap.querySelector('[data-ins-cond="pkm"]');
-  const pkmSelected = new Set(_getPiecePokemonConditions(piece));
-  const pkmSorted = pkmAll
-    .slice()
-    .filter((s) => s && (s.id != null))
-    .sort((a, b) => String(a?.name_pt || a?.id || "").localeCompare(String(b?.name_pt || b?.id || ""), "pt"));
-
-  if (pkmWrap) {
-    pkmWrap.innerHTML = pkmSorted
-      .map((s) => {
-        const id = safeStr(s.id);
-        const checked = pkmSelected.has(id);
-        const disabled = isMine ? "" : "disabled";
-        return `
-          <label class="pkm-cond">
-            <input type="checkbox" data-pkm-id="${escapeAttr(id)}" ${checked ? "checked" : ""} ${disabled}>
-            <span>${escapeHtml(safeStr(s.name_pt) || id)}</span>
-          </label>
-        `;
-      })
-      .join("");
-  }
+  
 
   function renderMMDesc(which) {
     const sel = selects[which];
