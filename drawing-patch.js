@@ -251,17 +251,19 @@ function onPointerDown(e) {
 
   _isDrawing = true;
   const pos = getCanvasPos(e);
-  _currentStroke = {
-    id:     _uid(),
-    by:     _by || "anon",
-    color:  _color,
-    width:  _lineWidth,
-    tool:   _tool,
-    const w = screenToWorld(pos.x, pos.y);
-    points: [w.u, w.v],
-    space: "world",  };
-  redrawAll();
-}
+const w = screenToWorld(pos.x, pos.y);
+
+_currentStroke = {
+  id: _uid(),
+  by: _by || "anon",
+  color: _color,
+  width: _lineWidth,
+  tool: _tool,
+  points: [w.u, w.v],
+  space: "world",
+};
+
+redrawAll();
 
 function onPointerMove(e) {
   if (!_isDrawing || !_currentStroke) return;
@@ -269,8 +271,15 @@ function onPointerMove(e) {
   e.stopPropagation();
 
   const pos = getCanvasPos(e);
-  const w = screenToWorld(pos.x, pos.y);
-  _currentStroke.points.push(w.u, w.v);
+
+  // se o stroke é "world", converte; senão, usa pixel (legado)
+  if (_currentStroke.space === "world") {
+    const w = screenToWorld(pos.x, pos.y);
+    _currentStroke.points.push(w.u, w.v);
+  } else {
+    _currentStroke.points.push(pos.x, pos.y);
+  }
+
   redrawAll();
 }
 
