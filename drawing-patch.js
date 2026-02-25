@@ -264,7 +264,7 @@ _currentStroke = {
 };
 
 redrawAll();
-
+}
 function onPointerMove(e) {
   if (!_isDrawing || !_currentStroke) return;
   e.preventDefault();
