@@ -2766,6 +2766,8 @@ const view = {
   showGrid: true,
 };
 
+window.__arenaView = view; // expõe o view para patches (drawing, etc)
+
 
 // DOM fallback grid cache
 let domGridSize = 0;
