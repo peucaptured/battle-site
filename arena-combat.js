@@ -506,6 +506,19 @@ const CSS_TEXT = `
 .ac-ctx-sep {
   height: 1px; background: rgba(148,163,184,.15); margin: 4px 8px;
 }
+.ac-ctx-title {
+  padding: 8px 10px 6px;
+  font-size: 11px;
+  font-weight: 800;
+  color: rgba(148,163,184,.82);
+}
+.ac-ctx-meta {
+  margin-left: auto;
+  font-size: 10px;
+  color: rgba(148,163,184,.65);
+  text-transform: uppercase;
+  letter-spacing: .02em;
+}
 
 /* ── Mini turn timeline ── */
 .ac-timeline {
@@ -870,36 +883,55 @@ _calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid) {
     const canvas = document.getElementById("arena");
     if (!canvas) return;
 
-    const _getEnemyPiece = (ev) => {
+    const _getEnemyPieces = (ev) => {
       if (window.appState?.placingPid) return null;
       const rect = canvas.getBoundingClientRect();
       const x = ev.clientX - rect.left;
       const y = ev.clientY - rect.top;
       const tile = window.screenToTile?.(x, y);
       if (!tile) return null;
-      const piece = window.getPieceAt?.(tile.row, tile.col);
-      if (!piece) return null;
+      const all = (window.getPiecesAt?.(tile.row, tile.col) || []).filter(Boolean);
+      if (!all.length) return null;
       const by = this.getBy();
-      const owner = safeStr(piece.owner);
       const role = this.getRole();
       const isPlayer = (role === "owner" || role === "challenger");
       const canStartCombat = !!window.canCurrentPlayerStartCombat?.();
-      if (!isPlayer || !canStartCombat || owner === by || !owner) return null;
-      return piece;
+      if (!isPlayer || !canStartCombat) return null;
+      return all.filter((piece) => {
+        const owner = safeStr(piece.owner);
+        const isPokemon = safeStr(piece.kind) !== "trainer";
+        return !!owner && owner !== by && isPokemon;
+      });
     };
 
     canvas.addEventListener("mousedown", (ev) => {
       if (ev.button !== 0) return;
-      if (_getEnemyPiece(ev)) ev.stopImmediatePropagation();
+      const enemies = _getEnemyPieces(ev);
+      if (Array.isArray(enemies) && enemies.length > 0) ev.stopImmediatePropagation();
     }, true);
 
     canvas.addEventListener("click", (ev) => {
       if (window.appState?.drag?.justDropped) return;
-      const piece = _getEnemyPiece(ev);
-      if (!piece) return;
+      const enemies = _getEnemyPieces(ev);
+      if (!Array.isArray(enemies) || enemies.length === 0) return;
       ev.stopImmediatePropagation();
-      this._closeAll();
-      window.selectPiece?.(safeStr(piece.id));
+      if (enemies.length === 1) {
+        this._closeAll();
+        window.selectPiece?.(safeStr(enemies[0].id));
+        return;
+      }
+      this._showPieceChoiceMenu(
+        enemies,
+        ev.clientX,
+        ev.clientY,
+        {
+          title: "Há mais de um pokémon aqui. Com qual deseja interagir?",
+          onSelect: (piece) => {
+            this._closeAll();
+            window.selectPiece?.(safeStr(piece.id));
+          },
+        },
+      );
     }, true);
   }
 
@@ -918,13 +950,73 @@ _calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid) {
 
       this._closeAll();
 
-      const piece = window.getPieceAt?.(tile.row, tile.col);
       const wrapRect = this.container.getBoundingClientRect();
       const cx = ev.clientX - wrapRect.left;
       const cy = ev.clientY - wrapRect.top;
+      const piecesOnTile = (window.getPiecesAt?.(tile.row, tile.col) || []).filter(Boolean);
+      const interactable = piecesOnTile.filter((piece) => safeStr(piece.kind) !== "trainer");
 
-      this._showContextMenu(piece, tile, cx, cy);
+      if (interactable.length <= 1) {
+        this._showContextMenu(interactable[0] || null, tile, cx, cy);
+        return;
+      }
+
+      this._showPieceChoiceMenu(interactable, ev.clientX, ev.clientY, {
+        title: "Escolha um pokémon para abrir as ações",
+        onSelect: (piece) => this._showContextMenu(piece, tile, cx, cy),
+      });
     }, true);
+  }
+
+  _showPieceChoiceMenu(pieces, clientX, clientY, opts = {}) {
+    const list = Array.isArray(pieces) ? pieces.filter(Boolean) : [];
+    if (!list.length) return;
+    if (list.length === 1) {
+      opts?.onSelect?.(list[0]);
+      return;
+    }
+
+    this._closeAll();
+
+    const title = safeStr(opts.title) || "Escolha o pokémon";
+    const wrapRect = this.container.getBoundingClientRect();
+    const x = clientX - wrapRect.left;
+    const y = clientY - wrapRect.top;
+
+    const el = document.createElement("div");
+    el.className = "ac-context";
+    el.innerHTML = [
+      `<div class="ac-ctx-title">${escHtml(title)}</div>`,
+      ...list.map((piece) => {
+        const name = displayName(safeStr(piece.pid));
+        const owner = safeStr(piece.owner) || "sem dono";
+        return `<div class="ac-ctx-item" data-piece-id="${escHtml(safeStr(piece.id))}"><span class="ac-ctx-icon">🎯</span>${escHtml(name)}<span class="ac-ctx-meta">${escHtml(owner)}</span></div>`;
+      }),
+    ].join("");
+
+    const pos = this._clampPos(x, y, 260, 44 + list.length * 36);
+    el.style.left = `${pos.x}px`;
+    el.style.top = `${pos.y}px`;
+    this._overlayRoot.appendChild(el);
+    this._currentContext = el;
+
+    el.querySelectorAll(".ac-ctx-item[data-piece-id]").forEach((itemEl) => {
+      itemEl.addEventListener("click", () => {
+        const id = safeStr(itemEl.dataset.pieceId);
+        const picked = list.find((piece) => safeStr(piece.id) === id) || null;
+        if (!picked) return;
+        this._closeContext();
+        opts?.onSelect?.(picked);
+      });
+    });
+
+    const closeHandler = (e) => {
+      if (!el.contains(e.target)) {
+        this._closeContext();
+        document.removeEventListener("click", closeHandler, true);
+      }
+    };
+    setTimeout(() => document.addEventListener("click", closeHandler, true), 10);
   }
 
   _showContextMenu(piece, tile, x, y) {
