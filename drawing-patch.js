@@ -89,6 +89,7 @@ function getDrawingsRef() {
 }
 
 async function saveStrokes() {
+  _pendingSave = false;           // <-- move pra cima
   const ref = getDrawingsRef();
   if (!ref) return;
   try {
@@ -189,7 +190,12 @@ function redrawAll() {
 
 function drawStroke(ctx, stroke) {
   const pts = stroke.points;
-  if (!pts || pts.length < 2) return;
+  if (!pts) return;
+
+  // suporta legado [[x,y],...] e novo [x0,y0,...]
+  const isNested = Array.isArray(pts[0]);
+  const len = isNested ? pts.length : pts.length / 2;
+  if (len < 2) return;
 
   ctx.save();
   if (stroke.tool === "eraser") {
@@ -199,19 +205,21 @@ function drawStroke(ctx, stroke) {
     ctx.globalCompositeOperation = "source-over";
     ctx.strokeStyle = stroke.color || "#ff4444";
   }
-  ctx.lineWidth   = stroke.width || 4;
-  ctx.lineCap     = "round";
-  ctx.lineJoin    = "round";
+  ctx.lineWidth = stroke.width || 4;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
 
   ctx.beginPath();
-  ctx.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 1; i < pts.length; i++) {
-    ctx.lineTo(pts[i][0], pts[i][1]);
+  if (isNested) {
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  } else {
+    ctx.moveTo(pts[0], pts[1]);
+    for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
   }
   ctx.stroke();
   ctx.restore();
 }
-
 // ── Event handlers ────────────────────────────────────────────────────────
 function onPointerDown(e) {
   if (!_drawMode) return;
@@ -226,7 +234,7 @@ function onPointerDown(e) {
     color:  _color,
     width:  _lineWidth,
     tool:   _tool,
-    points: [[pos.x, pos.y]],
+    points: [pos.x, pos.y],
   };
   redrawAll();
 }
@@ -237,7 +245,7 @@ function onPointerMove(e) {
   e.stopPropagation();
 
   const pos = getCanvasPos(e);
-  _currentStroke.points.push([pos.x, pos.y]);
+  _currentStroke.points.push(pos.x, pos.y);
   redrawAll();
 }
 
