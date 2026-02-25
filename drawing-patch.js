@@ -16,7 +16,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import {
-  doc, onSnapshot, setDoc, getDoc,
+  doc, onSnapshot, setDoc, runTransaction,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
 // ── helpers ──────────────────────────────────────────────────────────────
@@ -36,7 +36,6 @@ let _lineWidth  = 4;
 let _strokes   = [];      // all strokes from Firestore
 let _currentStroke = null; // stroke being drawn right now
 let _isDrawing = false;
-let _pendingSave = false;
 const MAX_STROKES = 80;   // limit to avoid Firestore doc size issues
 
 // ── DOM references ────────────────────────────────────────────────────────
@@ -92,7 +91,6 @@ function getDrawingsRef() {
 async function saveStrokes() {
   const ref = getDrawingsRef();
   if (!ref) return;
-  _pendingSave = false;
   try {
     await setDoc(ref, { strokes: _strokes.slice(-MAX_STROKES) }, { merge: false });
   } catch (e) {
@@ -100,10 +98,22 @@ async function saveStrokes() {
   }
 }
 
-function scheduleSave() {
-  if (_pendingSave) return;
-  _pendingSave = true;
-  setTimeout(saveStrokes, 600); // debounce 600ms
+async function appendStroke(stroke) {
+  const ref = getDrawingsRef();
+  if (!ref || !stroke) return;
+
+  try {
+    await runTransaction(_db, async (tx) => {
+      const snap = await tx.get(ref);
+      const data = snap.exists() ? (snap.data() || {}) : {};
+      const remote = Array.isArray(data.strokes) ? data.strokes : [];
+
+      const merged = [...remote, stroke];
+      tx.set(ref, { strokes: merged.slice(-MAX_STROKES) }, { merge: false });
+    });
+  } catch (e) {
+    console.error("[drawing] appendStroke error", e);
+  }
 }
 
 // ── Canvas setup ──────────────────────────────────────────────────────────
@@ -238,11 +248,15 @@ function onPointerUp(e) {
   _isDrawing = false;
 
   if (_currentStroke.points.length >= 2) {
-    _strokes.push(_currentStroke);
+    const finishedStroke = _currentStroke;
+    _strokes.push(finishedStroke);
     if (_strokes.length > MAX_STROKES) {
       _strokes = _strokes.slice(-MAX_STROKES);
     }
-    scheduleSave();
+
+    // Use transaction-based append so one user never overwrites
+    // another user's recent strokes.
+    appendStroke(finishedStroke);
   }
   _currentStroke = null;
   redrawAll();
