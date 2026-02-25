@@ -3727,6 +3727,11 @@ function bindArenaInteractionsCanvas() {
     if (appState.drag.active) {
       appState.drag.x = x;
       appState.drag.y = y;
+      const dx = x - (appState.drag.downX ?? x);
+      const dy = y - (appState.drag.downY ?? y);
+      if (!appState.drag.moved && (dx*dx + dy*dy) > 25) { // 5px
+        appState.drag.moved = true;
+}
     }
   });
 
@@ -3750,6 +3755,9 @@ function bindArenaInteractionsCanvas() {
     const id = safeStr(p.id);
     selectPiece(id);
     appState.drag.active = true;
+    appState.drag.downX = x;
+    appState.drag.downY = y;
+    appState.drag.moved = false;
     appState.drag.justDropped = false;
     appState.drag.pieceId = id;
     appState.drag.startRow = tile.row;
@@ -3761,6 +3769,11 @@ function bindArenaInteractionsCanvas() {
   window.addEventListener("mouseup", (ev) => {
     if (!appState.drag.active) return;
     appState.drag.active = false;
+    if (!appState.drag.moved) {
+      appState.drag.active = false;
+      appState.drag.justDropped = false;
+      return; // deixa o click acontecer e abrir o picker
+    }
     appState.drag.justDropped = true;
     const rect = canvas.getBoundingClientRect();
     const x = ev.clientX - rect.left;
