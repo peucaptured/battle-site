@@ -3132,6 +3132,31 @@ function getPiecesAt(row, col) {
   return candidates;
 }
 
+/**
+ * Returns v2 map objects whose footprint includes grid tile (row, col).
+ * Objects are sorted by descending sortY (topmost-rendered object first).
+ */
+function getMapObjectsAt(row, col) {
+  if (mapLayersState.version !== 2) return [];
+  const result = [];
+  for (const obj of mapLayersState.objects) {
+    const ox = Number(obj.x ?? -1);
+    const oy = Number(obj.y ?? -1);
+    const fw = Number(obj.footprint?.w ?? 1);
+    const fh = Number(obj.footprint?.h ?? 1);
+    if (col >= ox && col < ox + fw && row >= oy && row < oy + fh) {
+      result.push(obj);
+    }
+  }
+  // Sort by sortY descending so topmost (last-drawn) object is first
+  result.sort((a, b) => {
+    const sa = Number(a.y ?? 0) + (a.anchor?.ay ?? 1) * (a.footprint?.h ?? 1);
+    const sb = Number(b.y ?? 0) + (b.anchor?.ay ?? 1) * (b.footprint?.h ?? 1);
+    return sb - sa;
+  });
+  return result;
+}
+
 function getTurnKey() {
   const ts = appState?.battle?.turn_state || {};
   const round = Number(ts?.round || 0);
@@ -4324,6 +4349,171 @@ const mapDataState = {
   borderMap: null, // Map<"row,col", land_mask> for O(1) border-cell lookup
 };
 
+// ── v2 map layers state ─────────────────────────────────────────────────────
+// Populated when a v2 JSON (meta.version === 2) is loaded.
+// Sprites are loaded asynchronously via loadSprite() and tracked here.
+const mapLayersState = {
+  version: 1,          // 1 = legacy, 2 = new layers format
+  objects: [],         // Array of v2 object descriptors from JSON
+  _objSpritePool: new Map(), // id → {el: HTMLImageElement, url: string}
+  _usedObjIds: new Set(),
+};
+
+// ── Offscreen ground-layer cache ───────────────────────────────────────────
+// Caches the static (non-animated) ground layer so draw() doesn't rebuild it
+// every frame.  Rebuilt only when map key or zoom level changes.
+const _groundLayerCache = {
+  canvas: null,   // HTMLCanvasElement
+  ctx: null,
+  key: "",        // last cache key: `{mapCache.key}|{Math.round(tile)}`
+};
+
+/**
+ * Ensure the offscreen ground cache is up-to-date and return its canvas.
+ * @param {number} gs   grid size (cells)
+ * @param {number} tile tile size in pixels (current zoom)
+ * @returns {HTMLCanvasElement}
+ */
+function _ensureGroundCache(gs, tile) {
+  const tileInt = Math.round(tile);
+  const bg = mapCache.bgRec;
+  // Include PNG load state in key so cache rebuilds once the image finishes loading
+  const bgState = bg && bg.ready && !bg.failed ? "r" : bg && bg.failed ? "f" : "p";
+  const key = `${mapCache.key}|${tileInt}|${bgState}`;
+  if (key === _groundLayerCache.key && _groundLayerCache.canvas) {
+    return _groundLayerCache.canvas;
+  }
+  const w = gs * tileInt;
+  const h = gs * tileInt;
+  if (!_groundLayerCache.canvas) {
+    _groundLayerCache.canvas = document.createElement("canvas");
+  }
+  _groundLayerCache.canvas.width  = w;
+  _groundLayerCache.canvas.height = h;
+  _groundLayerCache.ctx = _groundLayerCache.canvas.getContext("2d");
+  const lctx = _groundLayerCache.ctx;
+  lctx.clearRect(0, 0, w, h);
+
+  if (bg && bg.ready && !bg.failed) {
+    lctx.globalAlpha = 0.92;
+    lctx.drawImage(bg.img, 0, 0, w, h);
+    lctx.globalAlpha = 1;
+    lctx.fillStyle = "rgba(2,6,23,0.10)";
+    lctx.fillRect(0, 0, w, h);
+  } else {
+    // drawProceduralMap already accepts an arbitrary ctx and ox/oy=0
+    drawProceduralMap(lctx, 0, 0, gs, tileInt);
+  }
+  _groundLayerCache.key = key;
+  return _groundLayerCache.canvas;
+}
+
+/**
+ * Parse v2 map JSON, populate mapLayersState, and begin loading object sprites.
+ * Resolves sprite URLs relative to the JSON URL.
+ * Safe to call on v1 JSON — does nothing in that case.
+ */
+function _initMapLayersFromData(data, jsonUrl) {
+  const ver = data?.meta?.version;
+  if (ver !== 2 || !Array.isArray(data.objects)) {
+    mapLayersState.version = 1;
+    mapLayersState.objects = [];
+    return;
+  }
+  mapLayersState.version = 2;
+  mapLayersState.objects = data.objects;
+
+  // Resolve sprite URLs and pre-load sprites
+  const base = jsonUrl || "";
+  for (const obj of data.objects) {
+    const relSprite = safeStr(obj.sprite || "");
+    if (!relSprite) continue;
+    try {
+      obj._spriteUrl = base
+        ? new URL(relSprite, base).href
+        : relSprite;
+    } catch (_) {
+      obj._spriteUrl = relSprite;
+    }
+    // Kick off preload via the existing loadSprite cache
+    if (obj._spriteUrl) loadSprite(obj._spriteUrl);
+  }
+}
+
+/**
+ * Draw one map object sprite onto ctx at grid position (ox/oy origin, tile px).
+ * Returns false if the sprite isn't loaded yet.
+ */
+function _drawMapObject(ctx, obj, ox, oy, tile) {
+  const url = obj._spriteUrl;
+  if (!url) return false;
+  const rec = loadSprite(url);
+  if (!rec || !rec.ready || rec.failed) return false;
+
+  const fw = (obj.footprint?.w ?? 1);
+  const fh = (obj.footprint?.h ?? 1);
+  const ax = obj.anchor?.ax ?? 0.5;
+  const ay = obj.anchor?.ay ?? 1.0;
+
+  // Bottom-center anchor positioning (matches biome_generator.py placement)
+  const footX = ox + (obj.x + ax * fw) * tile;
+  const footY = oy + (obj.y + ay * fh) * tile;
+  const imgW  = fw * tile;
+  const imgH  = fh * tile;
+  const drawX = footX - ax * imgW;
+  const drawY = footY - ay * imgH;
+
+  ctx.drawImage(rec.img, drawX, drawY, imgW, imgH);
+  return true;
+}
+
+/**
+ * Manage HTML <img> overlay for a map object (for z-index Y-sort via CSS stacking).
+ * Similar to the entity _spritePool pattern.
+ * Returns the HTMLImageElement entry (may not be ready yet).
+ */
+function _getObjSpriteOverlayEntry(obj, spriteOverlayEl) {
+  const id   = safeStr(obj.id || "");
+  const url  = safeStr(obj._spriteUrl || "");
+  if (!id || !url) return null;
+
+  mapLayersState._usedObjIds.add(id);
+
+  let entry = mapLayersState._objSpritePool.get(id);
+  if (!entry) {
+    const el = document.createElement("img");
+    el.className      = "spr-overlay-img";
+    el.draggable      = false;
+    el.loading        = "eager";
+    el.decoding       = "async";
+    el.alt            = "";
+    el.style.pointerEvents = "none";
+    el.onerror = function() { this.style.display = "none"; };
+    spriteOverlayEl.appendChild(el);
+    entry = { el, url: "" };
+    mapLayersState._objSpritePool.set(id, entry);
+  }
+  if (entry.url !== url) {
+    entry.el.src            = url;
+    entry.el.style.display  = "";
+    entry.url               = url;
+  }
+  return entry;
+}
+
+/**
+ * Remove stale object overlay elements (objects no longer in the active set).
+ */
+function _cleanObjSpritePool() {
+  for (const [id, entry] of mapLayersState._objSpritePool) {
+    if (!mapLayersState._usedObjIds.has(id)) {
+      entry.el.remove();
+      mapLayersState._objSpritePool.delete(id);
+    }
+  }
+  mapLayersState._usedObjIds.clear();
+}
+
 // Autotile coordinate lookup: land_mask (0-15) → {r, c} within one 5×3 frame block.
 // Mirrors Python's _BLOCK_3X3 + _BLOCK_EXT layout (N=1,E=2,S=4,W=8).
 // The ocean-autotiles-anim.png has 3 animation frames side by side, each 5 cols wide.
@@ -4540,14 +4730,20 @@ async function maybeLoadMapData() {
       } else {
         mapDataState.borderMap = null;
       }
+      // v2: initialise layer state and pre-load object sprites
+      _initMapLayersFromData(data, url);
     } else {
       mapDataState.data = null;
       mapDataState.borderMap = null;
+      mapLayersState.version = 1;
+      mapLayersState.objects = [];
     }
   } catch (e) {
     console.warn("[mapData] fetch failed:", e);
     mapDataState.data = null;
     mapDataState.borderSet = null;
+    mapLayersState.version = 1;
+    mapLayersState.objects = [];
   } finally {
     mapDataState.loading = false;
   }
@@ -5796,25 +5992,18 @@ function draw() {
   ctx.fillStyle = "rgba(0,0,0,0.18)";
   ctx.fillRect(ox - 2, oy - 2, gs * tile + 4, gs * tile + 4);
 
-  // tiles / mapa
+  // ── Pass 1: ground layer (terrain PNG or procedural) — cached ────────────
   maybeRebuildMapCache();
+  const groundCacheCanvas = _ensureGroundCache(gs, tile);
+  ctx.drawImage(groundCacheCanvas, ox, oy);
+
+  // ── Pass 2: overlayLow — animated water + shore foam ─────────────────────
   const bg = mapCache.bgRec;
   if (bg && bg.ready && !bg.failed) {
-    // Desenha PNG esticado no grid (mantém tiles por cima)
-    ctx.globalAlpha = 0.92;
-    ctx.drawImage(bg.img, ox, oy, gs * tile, gs * tile);
-    ctx.globalAlpha = 1;
-    // leve overlay para dar contraste
-    ctx.fillStyle = 'rgba(2,6,23,0.10)';
-    ctx.fillRect(ox, oy, gs * tile, gs * tile);
     // Animação de água sobre as células de terreno hídrico (terrain_grid == 2)
     drawWaterCells(ctx, ox, oy, gs, tile);
-    // Camada de ondas batendo na areia (shore foam overlay — lado areia)
-    // drawShoreOverlay(ctx, ox, oy, gs, tile); // DESATIVADO: evita 2ª faixa (seam). Use só a borda na água.
     // Espuma/bolhas no lado da água que toca a animação (lado água)
     drawWaterBorderFoam(ctx, ox, oy, gs, tile);
-  } else {
-    drawProceduralMap(ctx, ox, oy, gs, tile);
   }
 
 
@@ -5939,16 +6128,64 @@ drawTraps(ctx, ox, oy, tile);
   // Track which sprite overlay elements are used this frame
   const _usedSpriteIds = new Set();
 
-  // Ordena: z-index ascendente → Huge(1) primeiro (fundo), Tiny(4) por último (topo)
-  const sortedPieces = [...pieces].filter(p =>
-    safeStr(p?.status || "active") === "active" && isPieceVisibleToMe(p)
-  ).sort((a, b) => {
-    const za = getSizeDimensions(a?.sizeCategory || "medium").zIndex;
-    const zb = getSizeDimensions(b?.sizeCategory || "medium").zIndex;
-    return za - zb;
+  // ── Pass 3: Y-sort stack (v2 map objects + entities) ─────────────────────
+  // sortY = grid row of the item's "foot" (drawn last = visually in front).
+  // Entities:    sortY = piece.row + tileH  (bottom edge of footprint)
+  // v2 Objects:  sortY = obj.y + anchor.ay * footprint.h  (anchor foot)
+  const _yStack = [];
+
+  for (const p of pieces.filter(q =>
+      safeStr(q?.status || "active") === "active" && isPieceVisibleToMe(q))) {
+    const r = Number(p?.row);
+    if (!Number.isFinite(r)) continue;
+    const { tileH } = getSizeDimensions(p?.sizeCategory || "medium");
+    _yStack.push({ _isObj: false, piece: p, sortY: r + tileH });
+  }
+
+  // v2: interleave map objects in the draw stack for proper depth ordering
+  if (mapLayersState.version === 2) {
+    for (const obj of mapLayersState.objects) {
+      const sortY = Number(obj.y ?? 0)
+        + (obj.anchor?.ay ?? 1.0) * (obj.footprint?.h ?? 1);
+      _yStack.push({ _isObj: true, obj, sortY });
+    }
+  }
+
+  // Sort ascending: lower sortY drawn first (farther from viewer = behind)
+  // Tie-break: objects before entities so entities appear on top of same-row objects.
+  _yStack.sort((a, b) => {
+    if (a.sortY !== b.sortY) return a.sortY - b.sortY;
+    return a._isObj ? -1 : 1;
   });
 
-  for (const p of sortedPieces) {
+  for (const _item of _yStack) {
+    // ── v2 map object ───────────────────────────────────────────────────────
+    if (_item._isObj) {
+      const obj = _item.obj;
+      // Draw on canvas (fallback / shadow; also shown if HTML sprite not yet loaded)
+      _drawMapObject(ctx, obj, ox, oy, tile);
+      // HTML overlay for CSS z-index stacking with entity sprites
+      if (obj._spriteUrl) {
+        const entry = _getObjSpriteOverlayEntry(obj, _spriteOverlay);
+        if (entry) {
+          const fw   = (obj.footprint?.w ?? 1), fh = (obj.footprint?.h ?? 1);
+          const ax   = obj.anchor?.ax ?? 0.5,   ay = obj.anchor?.ay ?? 1.0;
+          const footX = ox + (obj.x + ax * fw) * tile;
+          const footY = oy + (obj.y + ay * fh) * tile;
+          const imgW  = fw * tile, imgH = fh * tile;
+          const st    = entry.el.style;
+          st.left   = (footX - ax * imgW) + "px";
+          st.top    = (footY - ay * imgH) + "px";
+          st.width  = imgW + "px";
+          st.height = imgH + "px";
+          st.zIndex = String(100 + Math.round(_item.sortY * 100));
+        }
+      }
+      continue;
+    }
+
+    // ── entity (piece) ──────────────────────────────────────────────────────
+    const p = _item.piece;
     const row = Number(p?.row);
     const col = Number(p?.col);
     if (!Number.isFinite(row) || !Number.isFinite(col)) continue;
@@ -6054,7 +6291,10 @@ drawTraps(ctx, ox, oy, tile);
       st.top    = spriteY + "px";
       st.width  = spriteW + "px";
       st.height = spriteH + "px";
-      st.zIndex = String(zIndex);
+      // v2: Y-sort z-index for consistent depth with map objects; v1: size-based
+      st.zIndex = mapLayersState.version === 2
+        ? String(100 + Math.round(_item.sortY * 100))
+        : String(zIndex);
     } else {
       // fallback glyph
       ctx.fillStyle = "rgba(226,232,240,0.85)";
@@ -6092,6 +6332,14 @@ drawTraps(ctx, ox, oy, tile);
       _spritePool.delete(pid);
     }
   }
+
+  // ── Pass 4: overlayHigh ────────────────────────────────────────────────────
+  // Reserved for elements that occlude entities (tree canopies, bridge tops, etc.).
+  // Currently empty; v2 JSON may populate layers.overlayHigh in future iterations.
+  // _drawOverlayHigh(ctx, ox, oy, gs, tile);  // TODO when overlayHigh is non-zero
+
+  // Clean up stale v2 object overlay sprites
+  _cleanObjSpritePool();
 
   // drag ghost — retângulo para large/huge, círculo para tiny/medium
   if (appState.drag.active && appState.selectedPieceId) {
