@@ -2423,6 +2423,8 @@ function renderSheetsInspectorCard(wrap) {
     if (pid && !byPid[pid]) byPid[pid] = sh;
     const lp = safePidValue(sh?.linked_pid);
     if (lp && !byPid[lp]) byPid[lp] = sh;
+    const nameKey = safePidValue(sh?.pokemon?.name);
+    if (nameKey && !byPid[nameKey]) byPid[nameKey] = sh;
   }
 
   const seen = new Set();
@@ -2432,14 +2434,14 @@ function renderSheetsInspectorCard(wrap) {
     if (!pid || seen.has(pid)) continue;
     seen.add(pid);
     const sh = byPid[pid] || byPid[(safeStr(pid).replace(/^0+/, "") || "0")];
-    if (sh) sheets.push(sh);
+    if (sh) sheets.push(Object.assign({}, sh, { _party_pid_raw: rawPid }));
   }
 
-  if (!_sheetsSelectedPid || !sheets.some((x) => safePidValue((x.pokemon || {}).id) === _sheetsSelectedPid)) {
-    _sheetsSelectedPid = safePidValue((sheets[0]?.pokemon || {}).id);
+  if (!_sheetsSelectedPid || !sheets.some((x) => _sheetResolvedPid(x, x?._party_pid_raw) === _sheetsSelectedPid)) {
+    _sheetsSelectedPid = _sheetResolvedPid(sheets[0], sheets[0]?._party_pid_raw);
   }
 
-  const sh = sheets.find((x) => safePidValue((x.pokemon || {}).id) === _sheetsSelectedPid) || sheets[0] || null;
+  const sh = sheets.find((x) => _sheetResolvedPid(x, x?._party_pid_raw) === _sheetsSelectedPid) || sheets[0] || null;
   if (!sh) {
     wrap.innerHTML = `
       <div class="inspector-empty">
@@ -2451,7 +2453,8 @@ function renderSheetsInspectorCard(wrap) {
   }
 
   const pkm = sh.pokemon || {};
-  const pid = safePidValue(pkm.id);
+  const pid = _sheetResolvedPid(sh, sh?._party_pid_raw);
+  const pidLabel = _sheetDisplayPid(sh, sh?._party_pid_raw) || "—";
   const pname = safeStr(pkm.name) || "Pokémon";
   const types = Array.isArray(pkm.types) ? pkm.types : [];
   const abilities = Array.isArray(pkm.abilities) ? pkm.abilities : [];
@@ -2474,7 +2477,7 @@ function renderSheetsInspectorCard(wrap) {
   if (thg <= 0 && cap > 0) thg = Math.round(cap / 2);
   if (dodge <= 0 && cap > 0 && thg > 0) dodge = Math.max(0, cap - thg);
 
-  const ps = ((_partyStates && _partyStates[by]) ? _partyStates[by] : {})[pid] || {};
+  const ps = _getPartyStateForSheet(by, sh, sh?._party_pid_raw);
   const hp = (ps.hp ?? 6);
   const cond = Array.isArray(ps.cond) ? ps.cond : [];
   const hpMax = 6;
@@ -2547,7 +2550,7 @@ function renderSheetsInspectorCard(wrap) {
         : `<div class="dmg-row dmg-muted-row"><span class="dmg-row-lbl">Tipo <span class="muted">(selecione alvo na arena)</span></span><span class="dmg-row-val muted">±?</span></div>`;
 
       // Recupera modificadores persistidos entre trocas de aba
-      const modKey = `${pid}::${mvIdx}`;
+      const modKey = `${pid || safeStr(sh?.sheet_id || sh?.id || pname)}::${mvIdx}`;
       const savedMod = _sheetsMods[modKey] || { acc: 0, dmg: 0 };
       const autoTotal = rk + stabBonus + typeBonus + savedMod.dmg;
       const aceiroTotal = acc + (statBoosts.acerto||0) + savedMod.acc;
@@ -2604,17 +2607,17 @@ function renderSheetsInspectorCard(wrap) {
     });
   }
 
-  const art = _artUrlFromPidForSheets(pid, ps.shiny) || _spriteUrlFromPidForSheets(pid) || "";
+  const art = _artUrlFromPidForSheets(pid || pname, ps.shiny) || _spriteUrlFromPidForSheets(pid || pname) || "";
   const inspTypeBgStyle = _fichaTypeBg(types);
 
   wrap.innerHTML = `
     <div class="inspector-head">
       <div class="inspector-title">Ficha completa</div>
-      <div class="inspector-sub mono">#${escapeHtml(pid)} • NP ${np}</div>
+      <div class="inspector-sub mono">#${escapeHtml(pidLabel)} • NP ${np}</div>
     </div>
     <div class="inspector-card ficha-v2" style="display:block;${inspTypeBgStyle}">
       <div class="sheet-header">
-        <div class="sheet-art-frame"><img class="sheet-art" src="${escapeAttr(art)}" alt="art" onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid))}'"/></div>
+        <div class="sheet-art-frame"><img class="sheet-art" src="${escapeAttr(art)}" alt="art" onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid || pname))}'"/></div>
         <div style="flex:1; min-width:0;">
           <div class="sheet-name">${escapeHtml(pname)}</div>
           <div class="pill-row" style="margin-top:6px;">${tp}</div>
@@ -7079,6 +7082,10 @@ function _artUrlFromPidForSheets(pid, shiny) {
     const slug = (typeof spriteSlugFromPokemonName === "function") ? spriteSlugFromPokemonName(nm) : slugifyPokemonName(nm);
     if (slug) return localSpriteUrl(slug, "art", isShiny) || `https://img.pokemondb.net/artwork/large/${slug}.jpg`;
   }
+  if (!/^\d+$/.test(k)) {
+    const slug = (typeof spriteSlugFromPokemonName === "function") ? spriteSlugFromPokemonName(k) : slugifyPokemonName(k);
+    if (slug) return localSpriteUrl(slug, "art", isShiny) || `https://img.pokemondb.net/artwork/large/${slug}.jpg`;
+  }
   if (/^\d+$/.test(k)) {
     const n = Number(k);
     if (Number.isFinite(n) && n > 0 && n < 20000) {
@@ -7086,6 +7093,54 @@ function _artUrlFromPidForSheets(pid, shiny) {
     }
   }
   return "";
+}
+
+function _sheetLookupCandidates(sh, fallbackPid) {
+  const out = [];
+  const push = (value) => {
+    const key = safePidValue(value);
+    if (!key || out.includes(key)) return;
+    out.push(key);
+  };
+  push(sh?.pokemon?.id);
+  push(sh?.linked_pid);
+  push(fallbackPid);
+  push(sh?.pokemon?.name);
+  return out;
+}
+
+function _sheetStateCandidates(sh, fallbackPid) {
+  const out = [];
+  const push = (value) => {
+    const key = safePidValue(value);
+    if (!key || out.includes(key)) return;
+    out.push(key);
+  };
+  push(fallbackPid);
+  push(sh?.linked_pid);
+  push(sh?.pokemon?.id);
+  push(sh?.pokemon?.name);
+  return out;
+}
+
+function _sheetResolvedPid(sh, fallbackPid) {
+  const candidates = _sheetLookupCandidates(sh, fallbackPid);
+  return candidates.find((key) => key !== "0") || candidates[0] || "";
+}
+
+function _sheetDisplayPid(sh, fallbackPid) {
+  const direct = safePidValue(sh?.pokemon?.id);
+  if (direct && direct !== "0") return direct;
+  const resolved = _sheetResolvedPid(sh, fallbackPid);
+  return /^\d+$/.test(resolved) && resolved !== "0" ? resolved : "";
+}
+
+function _getPartyStateForSheet(ownerName, sh, fallbackPid) {
+  const stateBucket = ((_partyStates && _partyStates[ownerName]) ? _partyStates[ownerName] : {}) || {};
+  for (const key of _sheetStateCandidates(sh, fallbackPid)) {
+    if (Object.prototype.hasOwnProperty.call(stateBucket, key)) return stateBucket[key] || {};
+  }
+  return {};
 }
 
 function _setSheetsBadges() {
@@ -7165,6 +7220,8 @@ function renderSheetsTab() {
     if (pid && !byPid[pid]) byPid[pid] = sh;
     const lp = safePidValue(sh?.linked_pid);
     if (lp && !byPid[lp]) byPid[lp] = sh;
+    const nameKey = safePidValue(sh?.pokemon?.name);
+    if (nameKey && !byPid[nameKey]) byPid[nameKey] = sh;
   }
 
   const sheets = [];
@@ -7198,15 +7255,16 @@ function renderSheetsTab() {
   }
 
   // selecionado
-  if (!_sheetsSelectedPid || !sheets.some((x) => safePidValue((x.pokemon || {}).id) === _sheetsSelectedPid)) {
-    _sheetsSelectedPid = safePidValue((sheets[0]?.pokemon || {}).id);
+  if (!_sheetsSelectedPid || !sheets.some((x) => _sheetResolvedPid(x, x?._party_pid_raw) === _sheetsSelectedPid)) {
+    _sheetsSelectedPid = _sheetResolvedPid(sheets[0], sheets[0]?._party_pid_raw);
   }
 
   // ---- render cards
   cardsGrid.innerHTML = "";
   for (const sh of sheets) {
     const pkm = sh.pokemon || {};
-    const pid = safePidValue(pkm.id);
+    const pid = _sheetResolvedPid(sh, sh?._party_pid_raw);
+    const pidLabel = _sheetDisplayPid(sh, sh?._party_pid_raw) || "—";
     const pname = safeStr(pkm.name) || "Pokémon";
     const types = Array.isArray(pkm.types) ? pkm.types : [];
     const np = sh.np ?? pkm.np ?? "—";
@@ -7239,8 +7297,8 @@ function renderSheetsTab() {
 
     const tp = (types || []).map((t) => _typePill(t)).join("");
 
-    const _psCard2 = ((_partyStates && _partyStates[by]) ? _partyStates[by] : {})[pid] || {};
-    const sprite = _artUrlFromPidForSheets(pid, _psCard2.shiny) || _spriteUrlFromPidForSheets(pid) || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
+    const _psCard2 = _getPartyStateForSheet(by, sh, sh?._party_pid_raw);
+    const sprite = _artUrlFromPidForSheets(pid || pname, _psCard2.shiny) || _spriteUrlFromPidForSheets(pid || pname) || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
 
     const card = document.createElement("div");
     card.className = `poke-card${isSel ? " selected" : ""}`;
@@ -7257,7 +7315,7 @@ function renderSheetsTab() {
           onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'"/>
         <div class="card-info">
           <div class="card-name">${escapeHtml(pname)}</div>
-          <div class="card-sub">#${escapeHtml(pid)} • NP ${escapeHtml(String(np))}</div>
+          <div class="card-sub">#${escapeHtml(pidLabel)} • NP ${escapeHtml(String(np))}</div>
           <div class="pill-row">${tp}</div>
         </div>
       </div>
@@ -7270,14 +7328,15 @@ function renderSheetsTab() {
   }
 
   // ---- render detail
-  const sh = sheets.find((x) => safePidValue((x.pokemon || {}).id) === _sheetsSelectedPid) || sheets[0];
+  const sh = sheets.find((x) => _sheetResolvedPid(x, x?._party_pid_raw) === _sheetsSelectedPid) || sheets[0];
   if (!sh) {
     detailEl.innerHTML = `<div class="sheets-empty">Selecione um card.</div>`;
     return;
   }
 
   const pkm = sh.pokemon || {};
-  const pid = safePidValue(pkm.id);
+  const pid = _sheetResolvedPid(sh, sh?._party_pid_raw);
+  const pidLabel = _sheetDisplayPid(sh, sh?._party_pid_raw) || "—";
   const pname = safeStr(pkm.name) || "Pokémon";
   const types = Array.isArray(pkm.types) ? pkm.types : [];
   const abilities = Array.isArray(pkm.abilities) ? pkm.abilities : [];
@@ -7301,7 +7360,7 @@ function renderSheetsTab() {
   if (dodge <= 0 && cap > 0 && thg > 0) dodge = Math.max(0, cap - thg);
 
   // HP/cond (se existir)
-  const ps = ((_partyStates && _partyStates[by]) ? _partyStates[by] : {})[pid] || {};
+  const ps = _getPartyStateForSheet(by, sh, sh?._party_pid_raw);
   const hp = (ps.hp ?? 6);
   const cond = Array.isArray(ps.cond) ? ps.cond : [];
   const hpMax = 6;
@@ -7386,7 +7445,7 @@ function renderSheetsTab() {
     }
   }
 
-  const art = _artUrlFromPidForSheets(pid, ps.shiny) || _spriteUrlFromPidForSheets(pid) || "";
+  const art = _artUrlFromPidForSheets(pid || pname, ps.shiny) || _spriteUrlFromPidForSheets(pid || pname) || "";
   // Fundo tipo-estilizado para a ficha
   const typeBgStyle = _fichaTypeBg(types);
 
@@ -7394,10 +7453,10 @@ function renderSheetsTab() {
     <div class="sheet-panel ficha-v2" style="${typeBgStyle}">
       <div class="sheet-header">
         <div class="sheet-art-frame"><img class="sheet-art" src="${escapeAttr(art)}" alt="art"
-          onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid))}'"/></div>
+          onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid || pname))}'"/></div>
         <div style="flex:1; min-width:0;">
           <div class="sheet-name">${escapeHtml(pname)}</div>
-          <div class="sheet-sub">#${escapeHtml(pid)} • NP ${np}</div>
+          <div class="sheet-sub">#${escapeHtml(pidLabel)} • NP ${np}</div>
           <div class="pill-row" style="margin-top:6px;">${tp}</div>
           <div class="pill-row" style="margin-top:8px;">${abilities.map((a) => `<span class="chip ability-pill">${escapeHtml(a)}</span>`).join("")}</div>${condH}
           <div style="margin-top:10px;">
