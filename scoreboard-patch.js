@@ -460,6 +460,7 @@ function buildSlots(player) {
   const tn = safeStr(player.trainer_name);
   const as = window.appState;
   const pieces = Array.isArray(as?.pieces) ? as.pieces : [];
+  const seenList = Array.isArray(as?.board?.seen) ? as.board.seen : [];
   const partyStates = (_partyStates && _partyStates[tn]) ? _partyStates[tn] : {};
 
   let party = [];
@@ -480,7 +481,8 @@ function buildSlots(player) {
       const piece = pieces.find(p =>
         safeStr(p?.owner) === tn && safeStr(p?.pid) === pid && safeStr(p?.status || "active") === "active"
       );
-      const revealed = piece ? !!piece.revealed : false;
+      const wasSeen = seenList.some((seenPid) => normalizePartyPid(seenPid) === normalizePartyPid(pid));
+      const revealed = piece ? (!!piece.revealed || wasSeen) : wasSeen;
       const hp = ps.hp != null ? Number(ps.hp) : null;
       const ko = hp != null && hp <= 0;
       const spriteUrl = getSpriteUrl(pid, { type: "art", shiny: !!ps.shiny });
@@ -567,7 +569,11 @@ function getPartyCount(player) {
 }
 
 function getCurrentTurnActor() {
-  const turnState = window.appState?.battle?.turn_state;
+  const syncTurnState = window.syncTurnStateWithCurrentBoard;
+  const rawTurnState = window.appState?.battle?.turn_state;
+  const turnState = typeof syncTurnState === "function"
+    ? syncTurnState(rawTurnState, window.appState?.pieces)
+    : rawTurnState;
   if (!turnState || safeStr(turnState.phase) !== "active") return null;
   const order = Array.isArray(turnState.order) ? turnState.order : [];
   if (!order.length) return null;
@@ -584,6 +590,7 @@ function computeHash() {
     safeStr(as.rid),
     JSON.stringify((as.players || []).map(p => safeStr(p?.trainer_name) + "|" + (p?.party_snapshot?.length || 0))),
     JSON.stringify((as.pieces || []).map(p => `${p?.owner}:${p?.pid}:${p?.revealed}:${p?.status}`)),
+    JSON.stringify(as.board?.seen || []),
     JSON.stringify(_partyStates),
     safeStr(as.placingTrainer ? "pt" : ""),
     JSON.stringify(as.battle?.turn_state || null),

@@ -692,7 +692,7 @@ function updateTopBadges() {
   if (syncBadge) syncBadge.textContent = synced;
 
   if (turnBadge) {
-    const turnState = appState.battle?.turn_state || null;
+    const turnState = syncTurnStateWithCurrentBoard(appState.battle?.turn_state || null, appState.pieces);
     if (!turnState || !Array.isArray(turnState.order) || !turnState.order.length) {
       turnBadge.textContent = "Rodada — • aguardando iniciativa";
     } else if (safeStr(turnState.phase) === "preprep_asking") {
@@ -700,8 +700,7 @@ function updateTopBadges() {
     } else if (safeStr(turnState.phase) !== "active") {
       turnBadge.textContent = `Rodada ${Number(turnState.round) || 1} • aguardando nova iniciativa`;
     } else {
-      const idx = Number(turnState.index) || 0;
-      const cur = turnState.order[idx] || null;
+      const cur = getCurrentTurnActor();
       if (!cur) {
         turnBadge.textContent = `Rodada ${Number(turnState.round) || 1} • aguardando próxima ação`;
       } else {
@@ -722,37 +721,20 @@ function getBattleDocRef() {
   return doc(currentDb, "rooms", currentRid, "public_state", "battle");
 }
 
-function getCurrentTurnActor() {
-  const turnState = appState.battle?.turn_state;
-  const phase = safeStr(turnState?.phase);
-  if (!turnState || (phase !== "active" && phase !== "preprep_asking")) return null;
-  const order = Array.isArray(turnState.order) ? turnState.order : [];
-  if (!order.length) return null;
-  const idx = Math.max(0, Number(turnState.index) || 0);
-  return order[idx] || null;
+function isPieceInTurnRotation(piece) {
+  if (!piece) return false;
+  if (safeStr(piece?.status || "active") !== "active") return false;
+  return Number.isFinite(Number(piece?.row)) && Number.isFinite(Number(piece?.col));
 }
 
-function isCurrentTurnOwnerMe() {
-  const me = safeStr(appState.by);
-  const cur = getCurrentTurnActor();
-  return !!me && !!cur && safeStr(cur.owner) === me;
+function getCurrentBoardTurnPieces(pieces = appState.pieces) {
+  const list = Array.isArray(pieces) ? pieces : [];
+  return list.filter(isPieceInTurnRotation);
 }
 
-function canCurrentPlayerPassTurn() {
-  return isCurrentTurnOwnerMe();
-}
-
-function canCurrentPlayerStartCombat() {
-  const role = safeStr(appState.role);
-  const isPlayer = role === "owner" || role === "challenger" || role === "gm";
-  return isPlayer && isCurrentTurnOwnerMe();
-}
-
-function buildTurnOrderFromCurrentBoard() {
-  const pieces = Array.isArray(appState.pieces) ? appState.pieces : [];
-  const init = appState.battle?.initiative || {};
-  const activePieces = pieces.filter((p) => safeStr(p?.status || "active") === "active");
-
+function buildTurnOrderFromPieces(pieces, initiativeStore = appState.battle?.initiative || {}) {
+  const activePieces = getCurrentBoardTurnPieces(pieces);
+  const init = initiativeStore || {};
   const order = activePieces.map((p) => {
     const pieceId = safeStr(p?.id);
     const pieceKind = safeStr(p?.kind || "piece");
@@ -780,6 +762,81 @@ function buildTurnOrderFromCurrentBoard() {
     return a.display.localeCompare(b.display);
   });
   return order;
+}
+
+function isTurnOrderEntryOnCurrentBoard(entry, pieces = appState.pieces) {
+  const activePieces = getCurrentBoardTurnPieces(pieces);
+  const pieceId = safeStr(entry?.pieceId);
+  const pieceKind = safeStr(entry?.pieceKind || "piece");
+  const owner = safeStr(entry?.owner);
+  const pid = safeStr(entry?.pid);
+
+  return activePieces.some((piece) => {
+    const sameId = pieceId && safeStr(piece?.id) === pieceId;
+    if (sameId) {
+      const liveKind = safeStr(piece?.kind || "piece");
+      return !pieceKind || pieceKind === "piece" || liveKind === pieceKind;
+    }
+    return !!owner && !!pid && safeStr(piece?.owner) === owner && safeStr(piece?.pid) === pid;
+  });
+}
+
+function syncTurnStateWithCurrentBoard(turnState, pieces = appState.pieces) {
+  const base = turnState && typeof turnState === "object" ? turnState : {};
+  const order = Array.isArray(base.order) ? base.order : [];
+  if (!order.length) return { ...base, order: [], index: 0 };
+
+  const validFlags = order.map((entry) => isTurnOrderEntryOnCurrentBoard(entry, pieces));
+  const syncedOrder = order.filter((_, idx) => validFlags[idx]);
+  if (!syncedOrder.length) return { ...base, order: [], index: 0 };
+
+  const originalIndex = Math.max(0, Number(base.index) || 0);
+  let syncedIndex = 0;
+  if (originalIndex < order.length && validFlags[originalIndex]) {
+    syncedIndex = validFlags.slice(0, originalIndex).filter(Boolean).length;
+  } else {
+    const nextValidOriginalIndex = validFlags.findIndex((isValid, idx) => idx > originalIndex && isValid);
+    syncedIndex = nextValidOriginalIndex >= 0
+      ? validFlags.slice(0, nextValidOriginalIndex).filter(Boolean).length
+      : 0;
+  }
+  syncedIndex = Math.max(0, Math.min(syncedOrder.length - 1, syncedIndex));
+
+  return {
+    ...base,
+    order: syncedOrder,
+    index: syncedIndex,
+  };
+}
+
+function getCurrentTurnActor() {
+  const turnState = syncTurnStateWithCurrentBoard(appState.battle?.turn_state, appState.pieces);
+  const phase = safeStr(turnState?.phase);
+  if (!turnState || (phase !== "active" && phase !== "preprep_asking")) return null;
+  const order = Array.isArray(turnState.order) ? turnState.order : [];
+  if (!order.length) return null;
+  const idx = Math.max(0, Number(turnState.index) || 0);
+  return order[idx] || null;
+}
+
+function isCurrentTurnOwnerMe() {
+  const me = safeStr(appState.by);
+  const cur = getCurrentTurnActor();
+  return !!me && !!cur && safeStr(cur.owner) === me;
+}
+
+function canCurrentPlayerPassTurn() {
+  return isCurrentTurnOwnerMe();
+}
+
+function canCurrentPlayerStartCombat() {
+  const role = safeStr(appState.role);
+  const isPlayer = role === "owner" || role === "challenger" || role === "gm";
+  return isPlayer && isCurrentTurnOwnerMe();
+}
+
+function buildTurnOrderFromCurrentBoard() {
+  return buildTurnOrderFromPieces(appState.pieces, appState.battle?.initiative || {});
 }
 
 function setTab(tabName) {
@@ -928,9 +985,13 @@ passTurnBtn?.addEventListener("click", async () => {
 
   try {
     await runTransaction(currentDb, async (tx) => {
+      const stateRef = getStateDocRef();
       const snap = await tx.get(battleRef);
       const battleData = snap.exists() ? snap.data() : {};
-      const turnState = battleData?.turn_state || {};
+      const stateSnap = stateRef ? await tx.get(stateRef) : null;
+      const stateData = stateSnap?.exists?.() ? stateSnap.data() : {};
+      const livePieces = Array.isArray(stateData?.pieces) ? stateData.pieces : [];
+      const turnState = syncTurnStateWithCurrentBoard(battleData?.turn_state || {}, livePieces);
       const phase = safeStr(turnState.phase);
       const order = Array.isArray(turnState.order) ? turnState.order : [];
       if (phase === "preprep_asking") throw new Error("aguardando fase de preprep");
@@ -944,11 +1005,13 @@ passTurnBtn?.addEventListener("click", async () => {
       let nextIndex = idx + 1;
       let nextRound = Number(turnState.round) || 1;
       let nextPhase = "active";
+      let nextOrder = order;
       let roundEnded = false;
       if (nextIndex >= order.length) {
-        nextIndex = 0;
         nextRound += 1;
-        nextPhase = "preprep_asking";
+        nextOrder = buildTurnOrderFromPieces(livePieces, battleData?.initiative || {});
+        nextIndex = 0;
+        nextPhase = nextOrder.length ? "preprep_asking" : "awaiting_initiative";
         roundEnded = true;
       }
 
@@ -957,11 +1020,12 @@ passTurnBtn?.addEventListener("click", async () => {
           ...turnState,
           round: nextRound,
           index: nextIndex,
+          order: nextOrder,
           phase: nextPhase,
           updatedAt: Date.now(),
         },
       };
-      if (roundEnded) {
+      if (roundEnded && nextOrder.length) {
         _updatePayload.preprep = { phase: "asking", responses: {}, data: {} };
       }
 
@@ -2534,6 +2598,7 @@ function renderSheetsInspectorCard(wrap) {
       // Usa stats com boosts ativos (se boost de Stgr/Int ativo, reflete no dano)
       const sum = _mvSum(mv, boostedSt);
       const { rk, acc, area, br, val, label: statLabel } = sum;
+      const notesH = _sheetMoveNotesHtml(mv);
       const desc = safeStr(mv.description || mv.desc || mv.build || "Descrição não disponível.");
       // Resolve tipo do golpe: nome + fallback mv.meta.type / mv.type
       const mvType = getMoveType(n) || safeStr(mv?.meta?.type) || safeStr(mv?.type) || "";
@@ -2556,7 +2621,7 @@ function renderSheetsInspectorCard(wrap) {
       const aceiroTotal = acc + (statBoosts.acerto||0) + savedMod.acc;
 
       mvH += `
-        <div class="move-expander open${stabClass}"${isStab ? ` style="--stab-color:${mvColor}"` : ""}
+        <div class="move-expander${stabClass}"${isStab ? ` style="--stab-color:${mvColor}"` : ""}
           data-mod-key="${escapeAttr(modKey)}">
           <div class="move-header">
             <span class="arrow">▶</span>
@@ -2566,8 +2631,9 @@ function renderSheetsInspectorCard(wrap) {
             <span class="mv-pill rk">R${rk}</span>
             <span class="mv-pill area">${area ? "Área" : "Alvo"}</span>
           </div>
-          <div class="move-body" style="display:block;">
+          <div class="move-body">
             <div class="mv-desc-text">${escapeHtml(desc)}</div>
+            ${notesH}
             <div class="dmg-calc"
               data-dmg-calc
               data-mod-key="${escapeAttr(modKey)}"
@@ -6399,6 +6465,18 @@ function escapeAttr(s) {
   return escapeHtml(s);
 }
 
+function _sheetMoveNotesHtml(mv) {
+  const notes = safeStr(mv?.notes ?? mv?.Notes ?? "");
+  if (!notes.trim()) return "";
+  const notesHtml = escapeHtml(notes).replace(/\r?\n/g, "<br>");
+  return `
+    <div class="move-notes">
+      <div class="move-notes-label">Anotações</div>
+      <div class="move-notes-box">${notesHtml}</div>
+    </div>
+  `;
+}
+
 // Local overrides init (Dex/Map)
 (function initLocalOverrides(){
   setDexMap(loadDexMapFromStorage());
@@ -6553,6 +6631,9 @@ function _injectSheetsStyleOnce() {
   .ficha-v2 .move-header { background: transparent; padding: 12px 14px; }
   .ficha-v2 .move-h-name { font-size: 44px; }
   .ficha-v2 .mv-pill { font-size: 30px; padding: 3px 12px; border-width: 2px; }
+  .ficha-v2 .move-notes { margin-top: 10px; }
+  .ficha-v2 .move-notes-label { font-size: 13px; font-weight: 900; text-transform: uppercase; letter-spacing: .03em; opacity: .74; margin-bottom: 4px; }
+  .ficha-v2 .move-notes-box { padding: 8px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.14); background: rgba(20,31,56,.72); white-space: pre-wrap; line-height: 1.45; }
   .ficha-v2 .sheet-divider { margin: 12px 0; }
 
   /* ── Stat Boosts Temporários ─────────────────────────────── */
@@ -7401,6 +7482,7 @@ function renderSheetsTab() {
     for (const mv of moves) {
       const n = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
       const { rk, acc, label, val, area, br } = _mvSum(mv, st);
+      const notesH = _sheetMoveNotesHtml(mv);
       const brk = ((label === "Stgr" || label === "Int") && val) ? `R${br}+${val} ${label}` : `R${br}`;
 
       const meta = mv.meta || {};
@@ -7438,7 +7520,7 @@ function renderSheetsTab() {
             <div class="chip-row" style="margin-bottom:6px;">${tagH}</div>
             <div style="margin-bottom:4px;font-size:.82rem;opacity:.75;">${escapeHtml(brk)}</div>
             <div>${body}</div>
-            <input class="notes-input" placeholder="Anotações..." />
+            ${notesH}
           </div>
         </div>
       `;
@@ -7543,6 +7625,9 @@ window.runTransaction     = runTransaction;
 window.serverTimestamp    = serverTimestamp;
 window.getStateDocRef     = getStateDocRef;
 window.getBattleDocRef    = getBattleDocRef;
+window.getCurrentTurnActor = getCurrentTurnActor;
+window.buildTurnOrderFromCurrentBoard = buildTurnOrderFromCurrentBoard;
+window.syncTurnStateWithCurrentBoard = syncTurnStateWithCurrentBoard;
 // Mantém window.currentRid e window.currentDb sincronizados com appState
 setInterval(() => {
   window.currentRid = appState.rid || null;

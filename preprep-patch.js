@@ -33,6 +33,43 @@ import {
 const safeStr  = (v) => (v == null ? "" : String(v).trim());
 const escHtml  = (s) => safeStr(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
+function buildFreshTurnOrder() {
+  if (typeof window.buildTurnOrderFromCurrentBoard === "function") {
+    return window.buildTurnOrderFromCurrentBoard();
+  }
+
+  const pieces = window.appState?.pieces || [];
+  const init = window.appState?.battle?.initiative || {};
+  const activePieces = pieces.filter((p) =>
+    safeStr(p?.status || "active") === "active" &&
+    Number.isFinite(Number(p?.row)) &&
+    Number.isFinite(Number(p?.col))
+  );
+
+  const order = activePieces.map((p) => {
+    const pieceId = safeStr(p?.id);
+    const pieceKind = safeStr(p?.kind || "piece");
+    const pid = safeStr(p?.pid);
+    const owner = safeStr(p?.owner);
+    const legacyKey = `piece:${pieceId}`;
+    const keyedByKind = `${pieceKind}:${pieceId}`;
+    const savedInit = init?.[keyedByKind] ?? init?.[legacyKey] ?? null;
+    const initVal = Number(savedInit?.initiative);
+    const display = safeStr(
+      (window.dexMap && (window.dexMap[pid] || window.dexMap[String(Number(pid))])) ||
+      p?.name || p?.display_name || pid || pieceId
+    );
+    return { pieceId, pieceKind, pid, owner, display, initiative: Number.isFinite(initVal) ? initVal : 0 };
+  });
+
+  order.sort((a, b) => {
+    if (b.initiative !== a.initiative) return b.initiative - a.initiative;
+    const byOwner = a.owner.localeCompare(b.owner);
+    return byOwner !== 0 ? byOwner : a.display.localeCompare(b.display);
+  });
+  return order;
+}
+
 // ── state ─────────────────────────────────────────────────────────────────
 let _db  = null;
 let _rid = null;
@@ -259,30 +296,7 @@ newRoundBtn.addEventListener("click", async () => {
   newRoundBtn.disabled = true;
   newRoundBtn.textContent = "⏳...";
   try {
-    // Build a fresh turn order from current board (same as main.js does on roll)
-    const pieces = window.appState?.pieces || [];
-    const init = window.appState?.battle?.initiative || {};
-    const activePieces = pieces.filter(p => safeStr(p?.status || "active") === "active");
-    const order = activePieces.map(p => {
-      const pieceId = safeStr(p?.id);
-      const pieceKind = safeStr(p?.kind || "piece");
-      const pid = safeStr(p?.pid);
-      const owner = safeStr(p?.owner);
-      const legacyKey = `piece:${pieceId}`;
-      const keyedByKind = `${pieceKind}:${pieceId}`;
-      const savedInit = init?.[keyedByKind] ?? init?.[legacyKey] ?? null;
-      const initVal = Number(savedInit?.initiative);
-      const display = safeStr(
-        (window.dexMap && (window.dexMap[pid] || window.dexMap[String(Number(pid))])) ||
-        p?.name || p?.display_name || pid || pieceId
-      );
-      return { pieceId, pieceKind, pid, owner, display, initiative: Number.isFinite(initVal) ? initVal : 0 };
-    });
-    order.sort((a, b) => {
-      if (b.initiative !== a.initiative) return b.initiative - a.initiative;
-      const ow = a.owner.localeCompare(b.owner);
-      return ow !== 0 ? ow : a.display.localeCompare(b.display);
-    });
+    const order = buildFreshTurnOrder();
 
     const currentRound = Number(window.appState?.battle?.turn_state?.round) || 1;
     // Start preprep asking phase directly (no dice roll needed)
@@ -468,9 +482,15 @@ function renderModalWaiting() {
       const ref = getBattleRef();
       if (!ref) return;
       try {
+        const order = buildFreshTurnOrder();
         await setDoc(ref, {
           preprep: { phase: "done" },
-          turn_state: { phase: "active" },
+          turn_state: {
+            phase: order.length ? "active" : "awaiting_initiative",
+            index: 0,
+            order,
+            updatedAt: Date.now(),
+          },
         }, { merge: true });
       } catch (e) { console.error("[preprep] force-advance error", e); }
     });
@@ -743,9 +763,15 @@ async function tryAdvanceToActive() {
 
   // Transition to "active"
   try {
+    const order = buildFreshTurnOrder();
     await setDoc(ref, {
       preprep: { phase: "done" },
-      turn_state: { phase: "active" },
+      turn_state: {
+        phase: order.length ? "active" : "awaiting_initiative",
+        index: 0,
+        order,
+        updatedAt: Date.now(),
+      },
     }, { merge: true });
   } catch (e) {
     console.error("[preprep] tryAdvanceToActive error", e);
