@@ -2549,7 +2549,7 @@ function renderSheetsInspectorCard(wrap) {
   const hpCol = (hpPct > 50) ? "rgba(34,197,94,1)" : (hpPct > 25) ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
   // Boosts temporários de stat
   const statBoosts = ps.stat_boosts || {};
-  const isOnBoard = (appState.pieces || []).some(p => safeStr(p.owner) === by && safeStr(p.pid) === pid && safeStr(p.status || "active") === "active");
+  const isOnBoard = (appState.pieces || []).some(p => safeStr(p.owner) === by && pidKey(safeStr(p.pid)) === pidKey(pid) && safeStr(p.status || "active") === "active");
 
   const tp = (types || []).map((t) => _typePill(t)).join("");
   const abH = abilities.length ? `<div class="chip-row">${abilities.map((a) => `<span class="chip">${escapeHtml(a)}</span>`).join("")}</div>` : `<span class="muted">Sem abilities.</span>`;
