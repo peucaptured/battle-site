@@ -242,8 +242,8 @@ const sbRoot = document.getElementById("scoreboard");
   flex: 1;
   min-width: 0;
   overflow-x: auto;
-  overflow-y: hidden;
-  padding: 2px 0;
+  overflow-y: visible;
+  padding: 10px 0 2px;
   scrollbar-width: none;
 }
 .sb-lineup::-webkit-scrollbar { display: none; }
@@ -256,6 +256,12 @@ const sbRoot = document.getElementById("scoreboard");
   gap: 2px;
   flex: 0 0 auto;
   min-width: 30px;
+  position: relative;
+}
+.sb-held-item {
+  position: absolute;
+  left: -4px;
+  top: -8px;
 }
 .sb-poke-img {
   width: 28px;
@@ -477,6 +483,7 @@ function buildSlots(player) {
   for (let i = 0; i < 8; i++) {
     if (i < count) {
       const pid = pids[i];
+      const partyEntry = party[i];
       const ps = getPartyStateEntry(partyStates, pid);
       const piece = pieces.find(p =>
         safeStr(p?.owner) === tn && safeStr(p?.pid) === pid && safeStr(p?.status || "active") === "active"
@@ -486,7 +493,10 @@ function buildSlots(player) {
       const hp = ps.hp != null ? Number(ps.hp) : null;
       const ko = hp != null && hp <= 0;
       const spriteUrl = getSpriteUrl(pid, { type: "art", shiny: !!ps.shiny });
-      slots.push({ pid, revealed, ko, hp, spriteUrl, empty: false });
+      const heldItem = typeof window.getHeldItemForTrainerPid === "function"
+        ? window.getHeldItemForTrainerPid(tn, partyEntry || pid)
+        : null;
+      slots.push({ pid, revealed, ko, hp, spriteUrl, heldItem, empty: false });
     } else {
       slots.push({ pid: null, revealed: false, ko: false, hp: null, spriteUrl: "", empty: true });
     }
@@ -605,6 +615,11 @@ function renderIfChanged() {
   render();
 }
 
+window.requestScoreboardRefresh = () => {
+  _prevHash = "";
+  render();
+};
+
 // ── Render ──
 function render() {
   if (!sbRoot) return;
@@ -663,8 +678,12 @@ function render() {
       const hpVal = s.hp != null ? s.hp : HP_MAX;
       const hpPct = Math.max(0, Math.min(100, (hpVal / HP_MAX) * 100));
       const hpCol = s.ko ? "#64748b" : hpPct > 66 ? "#22c55e" : hpPct > 33 ? "#f59e0b" : "#ef4444";
+      const heldItemHtml = (isMe || s.revealed) && typeof window.renderHeldItemBadgeHtml === "function"
+        ? window.renderHeldItemBadgeHtml(s.heldItem, { className: "sb-held-item", size: "sm" })
+        : "";
 
       lineupHtml += `<div class="sb-poke${isTurnPokemon ? " sb-poke-turn" : ""}" title="${escapeAttr(s.pid)}">
+        ${heldItemHtml}
         <img class="${imgClass}" src="${escapeAttr(imgSrc)}" loading="lazy" onerror="this.src='${POKE_BALL_URL}'" />
         <div class="sb-poke-hp"><div class="sb-poke-hp-fill" style="width:${hpPct.toFixed(0)}%;background:${hpCol}"></div></div>
       </div>`;

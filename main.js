@@ -1786,6 +1786,207 @@ function getPartyForTrainer(trainerName) {
   return [];
 }
 
+const _heldItemEffectCache = new Map(); // api_name -> text | Promise<string>
+let _heldItemRefreshQueued = false;
+
+function _queueHeldItemUiRefresh() {
+  if (_heldItemRefreshQueued) return;
+  _heldItemRefreshQueued = true;
+  setTimeout(() => {
+    _heldItemRefreshQueued = false;
+    try { updateSidePanels(); } catch {}
+    try { renderSheetsTab(); } catch {}
+    try { window.requestScoreboardRefresh?.(); } catch {}
+  }, 0);
+}
+
+function _trainerLookupKey(name) {
+  return safeStr(name)
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function _pushPartyLookupKey(out, value) {
+  const candidates = [safeStr(value), safePidValue(value), normalizePartyPid(value)];
+  for (const candidate of candidates) {
+    const key = pidKey(candidate);
+    if (key && !out.includes(key)) out.push(key);
+  }
+}
+
+function _partyEntryLookupKeys(entryLike) {
+  const out = [];
+  if (entryLike && typeof entryLike === "object") {
+    _pushPartyLookupKey(out, entryLike?.pid);
+    _pushPartyLookupKey(out, entryLike?.pokemon?.id);
+    _pushPartyLookupKey(out, entryLike?.pokemon?.name);
+    _pushPartyLookupKey(out, entryLike?.name);
+    return out;
+  }
+  _pushPartyLookupKey(out, entryLike);
+  return out;
+}
+
+function _getPartySnapshotForTrainer(trainerName) {
+  const targetKey = _trainerLookupKey(trainerName);
+  if (!targetKey) return [];
+  for (const player of (appState.players || [])) {
+    if (_trainerLookupKey(player?.trainer_name) !== targetKey) continue;
+    const snapshot = Array.isArray(player?.party_snapshot) ? player.party_snapshot : [];
+    if (snapshot.length) return snapshot;
+  }
+  return [];
+}
+
+function getPartySnapshotEntryForTrainerPid(trainerName, pidLike) {
+  const targetKeys = _partyEntryLookupKeys(pidLike);
+  if (!targetKeys.length) return null;
+  const snapshot = _getPartySnapshotForTrainer(trainerName);
+  for (const entry of snapshot) {
+    const entryKeys = _partyEntryLookupKeys(entry);
+    if (entryKeys.some((key) => targetKeys.includes(key))) return entry;
+  }
+  return null;
+}
+
+function _slugifyHeldItemName(value) {
+  return safeStr(value)
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function _extractHeldItemEffect(raw) {
+  if (!raw) return "";
+  const direct = safeStr(
+    raw.effect ||
+    raw.short_effect ||
+    raw.shortEffect ||
+    raw.description ||
+    raw.desc ||
+    raw.tooltip ||
+    raw.flavor_text
+  );
+  if (direct) return direct;
+  const entries = Array.isArray(raw.effect_entries) ? raw.effect_entries : [];
+  const preferred = entries.find((entry) => safeStr(entry?.language?.name) === "en") || entries[0];
+  return safeStr(preferred?.short_effect || preferred?.effect || "");
+}
+
+function _getHeldItemCacheKey(item) {
+  return _slugifyHeldItemName(item?.api_name || item?.name || item?.backpack_name || "");
+}
+
+function _getHeldItemIconUrl(item) {
+  const direct = safeStr(item?.icon_url || item?.iconUrl || item?.sprite_url || item?.image_url || "");
+  if (direct) return direct;
+  const apiName = _getHeldItemCacheKey(item);
+  return apiName ? `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/${apiName}.png` : "";
+}
+
+function _ensureHeldItemEffectLoaded(item) {
+  const cacheKey = _getHeldItemCacheKey(item);
+  if (!cacheKey) return;
+  const cached = _heldItemEffectCache.get(cacheKey);
+  if (typeof cached === "string" || cached) return;
+
+  const pending = fetch(`https://pokeapi.co/api/v2/item/${encodeURIComponent(cacheKey)}`)
+    .then((resp) => (resp.ok ? resp.json() : null))
+    .then((json) => {
+      const effect = _extractHeldItemEffect(json) || "Efeito indisponivel.";
+      _heldItemEffectCache.set(cacheKey, effect);
+      _queueHeldItemUiRefresh();
+      return effect;
+    })
+    .catch(() => {
+      const fallback = "Efeito indisponivel.";
+      _heldItemEffectCache.set(cacheKey, fallback);
+      _queueHeldItemUiRefresh();
+      return fallback;
+    });
+
+  _heldItemEffectCache.set(cacheKey, pending);
+}
+
+function normalizeHeldItem(rawItem) {
+  if (!rawItem) return null;
+  const source = (typeof rawItem === "string") ? { name: rawItem } : rawItem;
+  const cacheKey = _getHeldItemCacheKey(source);
+  const cachedEffect = cacheKey && typeof _heldItemEffectCache.get(cacheKey) === "string"
+    ? _heldItemEffectCache.get(cacheKey)
+    : "";
+  const item = {
+    name: safeStr(source?.name || source?.backpack_name || source?.api_name || "Item"),
+    api_name: cacheKey,
+    icon_url: _getHeldItemIconUrl(source),
+    backpack_name: safeStr(source?.backpack_name || ""),
+    category: safeStr(source?.category || ""),
+    effect: _extractHeldItemEffect(source) || cachedEffect,
+  };
+  if (!item.effect && item.api_name) _ensureHeldItemEffectLoaded(item);
+  return item;
+}
+
+function getHeldItemForTrainerPid(trainerName, pidLike) {
+  // Source of truth for battle UI: rooms/{rid}/players/{uid}.party_snapshot[].held_item
+  const entry = getPartySnapshotEntryForTrainerPid(trainerName, pidLike);
+  return normalizeHeldItem(entry?.held_item || entry?.heldItem || null);
+}
+
+function getHeldItemEffectText(rawItem) {
+  const item = normalizeHeldItem(rawItem);
+  if (!item) return "";
+  if (item.effect) return item.effect;
+  if (item.api_name) return "Carregando efeito...";
+  return "Efeito indisponivel.";
+}
+
+function renderHeldItemBadgeHtml(rawItem, options = {}) {
+  const item = normalizeHeldItem(rawItem);
+  if (!item) return "";
+  const effect = getHeldItemEffectText(item);
+  const iconUrl = _getHeldItemIconUrl(item);
+  const sizeClass = options.size ? `held-item-badge-${options.size}` : "held-item-badge-sm";
+  const extraClass = safeStr(options.className || "");
+  const title = [item.name, effect].filter(Boolean).join(" - ");
+  return `
+    <span class="held-item-badge ${sizeClass} ${extraClass}" tabindex="0" title="${escapeAttr(title)}">
+      ${
+        iconUrl
+          ? `<img class="held-item-icon" src="${escapeAttr(iconUrl)}" alt="${escapeAttr(item.name)}" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.nextElementSibling && (this.nextElementSibling.style.display='flex');"/>`
+          : ""
+      }
+      <span class="held-item-fallback" ${iconUrl ? `style="display:none"` : ""}>i</span>
+      <span class="held-item-tooltip" role="tooltip">
+        <span class="held-item-tooltip-name">${escapeHtml(item.name)}</span>
+        <span class="held-item-tooltip-effect">${escapeHtml(effect)}</span>
+      </span>
+    </span>
+  `;
+}
+
+function renderHeldItemSummaryHtml(rawItem, options = {}) {
+  const item = normalizeHeldItem(rawItem);
+  if (!item) return "";
+  const label = safeStr(options.label || "Item equipado");
+  const effect = getHeldItemEffectText(item);
+  return `
+    <div class="held-item-row ${safeStr(options.className || "")}">
+      ${renderHeldItemBadgeHtml(item, { size: options.size || "md" })}
+      <div class="held-item-row-copy">
+        <div class="held-item-row-label">${escapeHtml(label)}</div>
+        <div class="held-item-row-name">${escapeHtml(item.name)}</div>
+        <div class="held-item-row-effect">${escapeHtml(effect)}</div>
+      </div>
+    </div>
+  `;
+}
+
 function renderPartyCard(it, ownerName) {
   const pid = safeStr(it?.pid || it?.pokemon?.id || it);
   const name = dexNameFromPid(pid) || (pid.startsWith("EXT:") ? pid.slice(4) : `PID ${pid}`);
@@ -1929,12 +2130,14 @@ function renderPartyWindow() {
     const _psSlot = ((_partyStates && _partyStates[by]) ? _partyStates[by] : {})[pid] || {};
     const _slotSlug = spriteSlugFromPokemonName(typeof resolvePokemonNameFromPid === "function" ? resolvePokemonNameFromPid(pid) : "") || "";
     const sprite = (_slotSlug ? localSpriteUrl(_slotSlug, "art", !!_psSlot.shiny) : "") || getSpriteUrlFromPid(pid);
+    const heldItem = getHeldItemForTrainerPid(by, entry || pid);
     const hp = getPartyHp(by, pid);
     const ko = hp <= 0;
     const onBoard = isPokemonAlreadyOnBoard(by, pid);
     const placing = placingPid && placingPid === pid;
     const disabled = ko && !onBoard;
     return `<button type="button" class="party-slot ${ko ? 'ko' : ''} ${placing ? 'placing' : ''}" data-slot="${idx}" data-pid="${escapeAttr(pid)}" ${disabled ? 'disabled' : ''}>
+      ${renderHeldItemBadgeHtml(heldItem, { className: "held-item-anchor-slot", size: "sm" })}
       ${sprite ? `<img src="${escapeAttr(sprite)}" alt="${escapeAttr(pid)}" loading="lazy" onerror="this.style.display='none'"/>` : ''}
     </button>`;
   }).join('');
@@ -2294,6 +2497,7 @@ function renderInspectorCard() {
   const revealed = (p?.revealed != null) ? !!p.revealed : true; // default compat: sem flag = revelado
   const canSeeIdentity = isMine || revealed;
   const name = canSeeIdentity ? (dexNameFromPid(pid) || pid) : "???";
+  const heldItem = canSeeIdentity ? getHeldItemForTrainerPid(owner, pid) : null;
   const _psInspector = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
   const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!_psInspector.shiny });
 
@@ -2380,6 +2584,7 @@ const sheetHasSpeed = isMine ? [
       <div class="inspector-body">
         <div class="inspector-name">${escapeHtml(name)}</div>
         <div class="inspector-chips">${chips}</div>
+        ${renderHeldItemSummaryHtml(heldItem, { label: "Held item", size: "md" })}
         <div class="muted" style="margin-top:6px">${escapeHtml(moveSummary)}</div>
         ${offenseH}
         ${matchupH}
@@ -2547,6 +2752,7 @@ function renderSheetsInspectorCard(wrap) {
   const hpMax = 6;
   const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
   const hpCol = (hpPct > 50) ? "rgba(34,197,94,1)" : (hpPct > 25) ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
+  const heldItem = getHeldItemForTrainerPid(by, pid || sh?._party_pid_raw || pname);
   // Boosts temporários de stat
   const statBoosts = ps.stat_boosts || {};
   const isOnBoard = (appState.pieces || []).some(p => safeStr(p.owner) === by && pidKey(safeStr(p.pid)) === pidKey(pid) && safeStr(p.status || "active") === "active");
@@ -7541,6 +7747,7 @@ function renderSheetsTab() {
           <div class="sheet-sub">#${escapeHtml(pidLabel)} • NP ${np}</div>
           <div class="pill-row" style="margin-top:6px;">${tp}</div>
           <div class="pill-row" style="margin-top:8px;">${abilities.map((a) => `<span class="chip ability-pill">${escapeHtml(a)}</span>`).join("")}</div>${condH}
+          ${renderHeldItemSummaryHtml(heldItem, { label: "Held item", size: "md", className: "sheet-held-item" })}
           <div style="margin-top:10px;">
             <div class="hp-row">
               <span>HP</span><span>${hp} / ${hpMax}</span>
@@ -7602,6 +7809,9 @@ try {
 window.appState           = appState;
 window.updateSidePanels   = updateSidePanels;
 window.getPartyForTrainer = getPartyForTrainer;
+window.getHeldItemForTrainerPid = getHeldItemForTrainerPid;
+window.renderHeldItemBadgeHtml = renderHeldItemBadgeHtml;
+window.renderHeldItemSummaryHtml = renderHeldItemSummaryHtml;
 window.selectPiece        = selectPiece;
 window.togglePieceRevealed = togglePieceRevealed;
 window.removePieceFromBoard = removePieceFromBoard;
