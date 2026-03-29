@@ -247,7 +247,11 @@ async function buildPartySnapshotFromFirestore(db, trainerName, userData, limitS
   if (!tn || !db) return [];
 
   const partyRaw = (userData && Array.isArray(userData.party)) ? userData.party : [];
-  const partyIds = partyRaw.map(normalizePartyPid).filter(Boolean);
+  const partyEntries = _normalizePartyList(partyRaw);
+  const partyIds = partyEntries.map((entry) => entry.pid).filter(Boolean);
+  const hubMeta = (userData && typeof userData.hub_pokemon_meta === "object" && userData.hub_pokemon_meta)
+    ? userData.hub_pokemon_meta
+    : {};
 
   // replica app.py: pega fichas mais recentes e casa por pokemon.id (primeira ocorrência, pois já está order desc)
   const byPid = new Map();
@@ -274,8 +278,11 @@ async function buildPartySnapshotFromFirestore(db, trainerName, userData, limitS
     });
   } catch {}
 
-  return partyIds.map((pid) => {
-    const base = { pid };
+  return partyEntries.map((entry) => {
+    const pid = entry.pid;
+    const heldItem = entry?.held_item || entry?.heldItem || _getHeldItemFromHubMeta(hubMeta, entry);
+    const base = Object.assign({}, entry);
+    if (heldItem && !base.held_item && !base.heldItem) base.held_item = heldItem;
     const extra = byPid.get(pid);
     return extra ? Object.assign(base, extra) : base;
   });
@@ -1898,6 +1905,19 @@ function normalizePartyPid(x) {
   return v;
 }
 
+function _normalizePartyEntry(entryLike) {
+  const pid = normalizePartyPid(entryLike?.pid ?? entryLike?.pokemon?.id ?? entryLike?.pokemon ?? entryLike);
+  if (!pid) return null;
+  if (entryLike && typeof entryLike === "object") {
+    return Object.assign({}, entryLike, { pid });
+  }
+  return { pid };
+}
+
+function _normalizePartyList(list) {
+  return (Array.isArray(list) ? list : []).map(_normalizePartyEntry).filter((entry) => entry?.pid);
+}
+
 function getPartyForTrainer(trainerName) {
   const tn = safeStr(trainerName);
   if (!tn) return [];
@@ -1908,7 +1928,7 @@ function getPartyForTrainer(trainerName) {
     if (partyRaw.length) {
       // se já montou snapshot com fichas, melhor
       if (Array.isArray(appState.selfPartySnapshot) && appState.selfPartySnapshot.length) return appState.selfPartySnapshot;
-      return partyRaw.map(x => ({ pid: normalizePartyPid(x) })).filter(it => it.pid);
+      return _normalizePartyList(partyRaw);
     }
   }
     // 0.5) ✅ public_state/players (arrays de pid por treinador)
@@ -1922,9 +1942,7 @@ function getPartyForTrainer(trainerName) {
       ps[safeStr(tn).toLowerCase()] ||
       ps[safeDocId(tn)];
 
-    if (Array.isArray(direct) && direct.length) {
-      return direct.map(x => ({ pid: normalizePartyPid(x) })).filter(it => it.pid);
-    }
+    if (Array.isArray(direct) && direct.length) return _normalizePartyList(direct);
 
     // byId: Cloud Functions gravam com safeId (lowercase+sem-acento); Ga'Al Dex com safe_doc_id (case).
     // Tentamos múltiplas variações de chave para cobrir ambos os casos.
@@ -1933,14 +1951,12 @@ function getPartyForTrainer(trainerName) {
     const entry = byId[safeDocId(tn)] || byId[tn] || byId[tnLower] || byId[safeStr(tn).toLowerCase()];
     const party2 = Array.isArray(entry?.party) ? entry.party : (Array.isArray(entry?.party_snapshot) ? entry.party_snapshot : []);
     if (party2.length) {
-      // party2 pode vir como strings ou objetos, normaliza:
-      return party2.map(x => ({ pid: normalizePartyPid(x?.pid ?? x) })).filter(it => it.pid);
+      return _normalizePartyList(party2);
     }
   }
 
   // 1) party_snapshot vindo da sala
-  const p = (appState.players || []).find(x => safeStr(x?.trainer_name) === tn);
-  const snapParty = (p && Array.isArray(p.party_snapshot)) ? p.party_snapshot : [];
+  const snapParty = _getPartySnapshotForTrainer(tn);
 
   // 2) users_raw/users (espelhado pelo Streamlit ou por outro processo)
   const player = (appState.players || []).find(x => safeStr(x?.trainer_name) === tn);
@@ -1963,7 +1979,7 @@ function getPartyForTrainer(trainerName) {
 
   // ✅ se users_raw tem party, ela manda (fonte de verdade)
   if (rawParty.length) {
-    return rawParty.map(x => ({ pid: normalizePartyPid(x) })).filter(it => it.pid);
+    return _normalizePartyList(rawParty);
   }
 
   // fallback: usa party_snapshot (caso users_raw não tenha)
@@ -1994,12 +2010,33 @@ function _trainerLookupKey(name) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-function _pushPartyLookupKey(out, value) {
+function _pushPartyLookupValue(out, value) {
   const candidates = [safeStr(value), safePidValue(value), normalizePartyPid(value)];
+  for (const candidate of candidates) {
+    if (candidate && !out.includes(candidate)) out.push(candidate);
+  }
+}
+
+function _pushPartyLookupKey(out, value) {
+  const candidates = [];
+  _pushPartyLookupValue(candidates, value);
   for (const candidate of candidates) {
     const key = pidKey(candidate);
     if (key && !out.includes(key)) out.push(key);
   }
+}
+
+function _partyEntryLookupValues(entryLike) {
+  const out = [];
+  if (entryLike && typeof entryLike === "object") {
+    _pushPartyLookupValue(out, entryLike?.pid);
+    _pushPartyLookupValue(out, entryLike?.pokemon?.id);
+    _pushPartyLookupValue(out, entryLike?.pokemon?.name);
+    _pushPartyLookupValue(out, entryLike?.name);
+    return out;
+  }
+  _pushPartyLookupValue(out, entryLike);
+  return out;
 }
 
 function _partyEntryLookupKeys(entryLike) {
@@ -2033,6 +2070,53 @@ function getPartySnapshotEntryForTrainerPid(trainerName, pidLike) {
   for (const entry of snapshot) {
     const entryKeys = _partyEntryLookupKeys(entry);
     if (entryKeys.some((key) => targetKeys.includes(key))) return entry;
+  }
+  return null;
+}
+
+function _getPartyEntryForTrainerPid(trainerName, pidLike) {
+  const targetKeys = _partyEntryLookupKeys(pidLike);
+  if (!targetKeys.length) return null;
+  const party = getPartyForTrainer(trainerName);
+  for (const entry of party) {
+    const entryKeys = _partyEntryLookupKeys(entry);
+    if (entryKeys.some((key) => targetKeys.includes(key))) return entry;
+  }
+  return null;
+}
+
+function _getUserDataForTrainer(trainerName) {
+  const tn = safeStr(trainerName);
+  if (!tn) return null;
+  if (_trainerLookupKey(tn) === _trainerLookupKey(appState.by) && appState.selfUserData) {
+    return appState.selfUserData;
+  }
+
+  const uidCandidates = new Set([safeDocId(tn), safeIdLower(tn)]);
+  for (const player of (appState.players || [])) {
+    if (_trainerLookupKey(player?.trainer_name) !== _trainerLookupKey(tn)) continue;
+    uidCandidates.add(safeStr(player?.uid));
+    uidCandidates.add(safeStr(player?.id));
+  }
+
+  for (const uid of uidCandidates) {
+    if (!uid) continue;
+    const entry = appState.userProfiles?.get?.(uid);
+    const raw = entry?.raw;
+    const data = raw?.data || raw;
+    if (data && typeof data === "object") return data;
+  }
+  return null;
+}
+
+function _getHeldItemFromHubMeta(hubMeta, pidLike) {
+  if (!hubMeta || typeof hubMeta !== "object") return null;
+  const targetKeys = _partyEntryLookupKeys(pidLike);
+  if (!targetKeys.length) return null;
+  for (const [rawKey, meta] of Object.entries(hubMeta)) {
+    if (!targetKeys.includes(pidKey(rawKey))) continue;
+    const heldItem = meta?.held_item || meta?.heldItem || null;
+    if (heldItem) return heldItem;
   }
   return null;
 }
@@ -2119,9 +2203,16 @@ function normalizeHeldItem(rawItem) {
 }
 
 function getHeldItemForTrainerPid(trainerName, pidLike) {
-  // Source of truth for battle UI: rooms/{rid}/players/{uid}.party_snapshot[].held_item
-  const entry = getPartySnapshotEntryForTrainerPid(trainerName, pidLike);
-  return normalizeHeldItem(entry?.held_item || entry?.heldItem || null);
+  const snapshotEntry = getPartySnapshotEntryForTrainerPid(trainerName, pidLike);
+  const snapshotItem = snapshotEntry?.held_item || snapshotEntry?.heldItem || null;
+  if (snapshotItem) return normalizeHeldItem(snapshotItem);
+
+  const partyEntry = _getPartyEntryForTrainerPid(trainerName, pidLike);
+  const partyItem = partyEntry?.held_item || partyEntry?.heldItem || null;
+  if (partyItem) return normalizeHeldItem(partyItem);
+
+  const userData = _getUserDataForTrainer(trainerName);
+  return normalizeHeldItem(_getHeldItemFromHubMeta(userData?.hub_pokemon_meta, pidLike));
 }
 
 function getHeldItemEffectText(rawItem) {
@@ -7841,6 +7932,7 @@ function renderSheetsTab() {
   const hpMax = 6;
   const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
   const hpCol = (hpPct > 50) ? "rgba(34,197,94,1)" : (hpPct > 25) ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
+  const heldItem = getHeldItemForTrainerPid(by, pid || sh?._party_pid_raw || pname);
 
   const tp = (types || []).map((t) => `
     <span class="type-pill" style="background:${_tc(t)}33;border-color:${_tc(t)}55;color:${_tc(t)}">${escapeHtml(t)}</span>
