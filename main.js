@@ -757,7 +757,7 @@ function getTrainerMedia(trainerName) {
   for (const uid of getTrainerCandidateIds(tn)) {
     const entry = appState.userProfiles?.get?.(uid);
     if (!entry) continue;
-    if (entry.profile?.avatar) applyTrainerMediaFields(media, entry.profile.avatar);
+    if (entry.profile) applyTrainerMediaFields(media, entry.profile);
 
     const raw = entry.raw?.data || entry.raw;
     if (raw?.trainer_profile) applyTrainerMediaFields(media, raw.trainer_profile);
