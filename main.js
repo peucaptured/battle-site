@@ -763,7 +763,7 @@ function getTrainerMedia(trainerName) {
   const avatarStorageSrc = media.avatarStoragePath ? storageMediaUrl(media.avatarStoragePath) : "";
   const avatarChoicePath = trainerAvatarStoragePath(tn, media.avatarChoice);
   const avatarChoiceSrc = avatarChoicePath ? storageMediaUrl(avatarChoicePath) : "";
-  media.avatarSrc = media.avatarUrl || avatarStorageSrc || avatarChoiceSrc;
+  media.avatarSrc = avatarStorageSrc || avatarChoiceSrc || media.avatarUrl;
 
   return media;
 }
@@ -1819,15 +1819,15 @@ function getSpriteUrlForPiece(p, opts) {
     const owner = safeStr(p?.owner || pidStr.replace(/^trainer_/, ""));
     const avatarObj = (p?.avatar && typeof p.avatar === "object" && !Array.isArray(p.avatar)) ? p.avatar : null;
     const avatarChoice = safeStr(p?.avatar_choice || avatarObj?.avatar_choice || (typeof p?.avatar === "string" ? p.avatar : ""));
-    const avatarUrl = safeStr(p?.avatar_url || avatarObj?.avatar_url || p?.spriteUrl || "");
-    if (avatarUrl) return avatarUrl;
-
     const avatarStorage = safeStr(
       p?.avatar_storage_path
       || avatarObj?.avatar_storage_path
       || trainerAvatarStoragePath(owner, avatarChoice)
     );
     if (avatarStorage) return storageMediaUrl(avatarStorage);
+
+    const avatarUrl = safeStr(p?.avatar_url || avatarObj?.avatar_url || p?.spriteUrl || "");
+    if (avatarUrl) return avatarUrl;
 
     return getTrainerAvatarSrc(owner, { allowProfileFallback: true });
   }

@@ -575,11 +575,11 @@ function getTrainerPhoto(player) {
 
   if (player?.avatar?.photo_thumb_b64) return `data:image/png;base64,${player.avatar.photo_thumb_b64}`;
   if (player?.avatar?.photo_storage_path) return storageMediaUrl(player.avatar.photo_storage_path);
-  if (player?.avatar?.avatar_url) return player.avatar.avatar_url;
-  if (player?.avatar?.avatar_storage_path) return storageMediaUrl(player.avatar.avatar_storage_path);
   if (player?.avatar?.avatar_choice) {
     return storageMediaUrl(`trainer_avatars/${safeDocId(tn)}/avatar_${safeDocId(player.avatar.avatar_choice)}.png`);
   }
+  if (player?.avatar?.avatar_storage_path) return storageMediaUrl(player.avatar.avatar_storage_path);
+  if (player?.avatar?.avatar_url) return player.avatar.avatar_url;
 
   return storageMediaUrl(`trainer_photos/${safeDocId(tn)}/profile.png`);
 }
@@ -840,9 +840,9 @@ async function placeTrainerAt(trainerName, row, col) {
         avatarSrc = safeStr(window.getTrainerAvatarSrc(tn));
       }
       if (!avatarSrc) {
-        avatarSrc = avatarUrl
-          || (avatarStoragePath ? storageMediaUrl(avatarStoragePath) : "")
-          || (avatarChoice ? storageMediaUrl(`trainer_avatars/${safeDocId(tn)}/avatar_${safeDocId(avatarChoice)}.png`) : "");
+        avatarSrc = (avatarStoragePath ? storageMediaUrl(avatarStoragePath) : "")
+          || (avatarChoice ? storageMediaUrl(`trainer_avatars/${safeDocId(tn)}/avatar_${safeDocId(avatarChoice)}.png`) : "")
+          || avatarUrl;
       }
 
       if (existingIdx >= 0) {
