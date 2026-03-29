@@ -818,6 +818,10 @@ function getTrainerSpriteSources(piece) {
   push(piece?.avatar_url);
   push(avatarObj?.avatar_url);
 
+  // Local pokemon sprite — same source used in panels/party bar (must match)
+  const effectiveChoice = avatarChoice || media.avatarChoice;
+  if (effectiveChoice) push(`./pokemon/${effectiveChoice}.png`);
+
   const storageCandidates = [
     media.avatarStoragePath,
     piece?.avatar_storage_path,
@@ -831,11 +835,13 @@ function getTrainerSpriteSources(piece) {
   }
 
   push(getTrainerProfilePhotoSrc(owner, { allowAvatarFallback: false }));
-  push(trainerLetterDataUrl(owner));
+
+  const letterFallback = trainerLetterDataUrl(owner);
+  push(letterFallback);
 
   return {
-    primary: candidates[0] || "",
-    fallback: candidates[1] || "",
+    primary: candidates[0] || letterFallback,
+    fallback: candidates[1] || letterFallback,
   };
 }
 
@@ -6812,7 +6818,7 @@ drawTraps(ctx, ox, oy, tile);
     const isSel = safeStr(appState.selectedPieceId) && safeStr(appState.selectedPieceId) === id;
     const isMine = _by && owner === _by;
 
-    const sizeCategory = p?.sizeCategory || SIZE_CATEGORIES.medium;
+    const sizeCategory = getPieceSizeCategory(p);
     const { tileW, tileH, zIndex } = getSizeDimensions(sizeCategory);
 
     const x = ox + col * tile;
