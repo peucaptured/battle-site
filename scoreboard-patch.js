@@ -41,6 +41,12 @@ function getDb() {
 const safeStr = (x) => (x == null ? "" : String(x).trim());
 const POKE_BALL_URL = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
 
+function storageMediaUrl(path) {
+  const cleanPath = safeStr(path);
+  if (!cleanPath) return "";
+  return `https://firebasestorage.googleapis.com/v0/b/${FIREBASE_CONFIG.storageBucket}/o/${encodeURIComponent(cleanPath)}?alt=media`;
+}
+
 function slugifyPokemonName(name) {
   return safeStr(name)
     .normalize("NFD")
@@ -522,7 +528,7 @@ function getSpriteUrl(pid, opts) {
 
 // ── Get trainer photo ──
 // Retorna { src, type } onde type é "photo"|"sprite"|null
-function getTrainerPhoto(player) {
+function getLegacyTrainerPhoto(player) {
   const tn = safeStr(player.trainer_name);
 
   // 1. foto real (base64 thumb) — prioridade máxima
@@ -558,8 +564,29 @@ function getTrainerPhoto(player) {
   return null;
 }
 
+function getTrainerPhoto(player) {
+  const tn = safeStr(player?.trainer_name);
+  if (!tn) return "";
+
+  if (typeof window.getTrainerProfilePhotoSrc === "function") {
+    const resolved = safeStr(window.getTrainerProfilePhotoSrc(tn, { allowAvatarFallback: true }));
+    if (resolved) return resolved;
+  }
+
+  if (player?.avatar?.photo_thumb_b64) return `data:image/png;base64,${player.avatar.photo_thumb_b64}`;
+  if (player?.avatar?.photo_storage_path) return storageMediaUrl(player.avatar.photo_storage_path);
+  if (player?.avatar?.avatar_url) return player.avatar.avatar_url;
+  if (player?.avatar?.avatar_storage_path) return storageMediaUrl(player.avatar.avatar_storage_path);
+  if (player?.avatar?.avatar_choice) {
+    return storageMediaUrl(`trainer_avatars/${safeDocId(tn)}/avatar_${safeDocId(player.avatar.avatar_choice)}.png`);
+  }
+
+  return storageMediaUrl(`trainer_photos/${safeDocId(tn)}/profile.png`);
+}
+
 function safeDocId(name) {
-  return safeStr(name).replace(/[/\\.\s]/g, "_").slice(0, 100) || "_";
+  const s = safeStr(name) || "user";
+  return s.replace(/[^a-zA-Z0-9_\-\.]/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "user";
 }
 
 function getMaxStages(player) {
@@ -648,9 +675,10 @@ function render() {
     const maxStages = getMaxStages(player);
 
     // Avatar
+    const avatarFallback = escapeHtml(tn.charAt(0).toUpperCase());
     const avatarHtml = photo
-      ? `<img class="sb-avatar" src="${escapeAttr(photo)}" alt="${escapeAttr(tn)}" />`
-      : `<div class="sb-avatar-placeholder">${escapeHtml(tn.charAt(0).toUpperCase())}</div>`;
+      ? `<img class="sb-avatar" src="${escapeAttr(photo)}" alt="${escapeAttr(tn)}" onerror="var d=document.createElement('div');d.className='sb-avatar-placeholder';d.textContent='${avatarFallback}';this.replaceWith(d);" />`
+      : `<div class="sb-avatar-placeholder">${avatarFallback}</div>`;
 
     // Pokémon lineup
     let lineupHtml = "";
@@ -794,11 +822,39 @@ async function placeTrainerAt(trainerName, row, col) {
       );
 
       let avatarChoice = "";
+      let avatarStoragePath = "";
+      let avatarUrl = "";
+      let avatarSrc = "";
       const player = (as.players || []).find(p => safeStr(p?.trainer_name) === tn);
       if (player?.avatar?.avatar_choice) avatarChoice = player.avatar.avatar_choice;
+      if (player?.avatar?.avatar_storage_path) avatarStoragePath = player.avatar.avatar_storage_path;
+      if (player?.avatar?.avatar_url) avatarUrl = player.avatar.avatar_url;
+
+      if (typeof window.getTrainerMedia === "function") {
+        const media = window.getTrainerMedia(tn) || {};
+        avatarChoice = safeStr(media.avatarChoice || avatarChoice);
+        avatarStoragePath = safeStr(media.avatarStoragePath || avatarStoragePath);
+        avatarUrl = safeStr(media.avatarUrl || avatarUrl);
+      }
+      if (typeof window.getTrainerAvatarSrc === "function") {
+        avatarSrc = safeStr(window.getTrainerAvatarSrc(tn));
+      }
+      if (!avatarSrc) {
+        avatarSrc = avatarUrl
+          || (avatarStoragePath ? storageMediaUrl(avatarStoragePath) : "")
+          || (avatarChoice ? storageMediaUrl(`trainer_avatars/${safeDocId(tn)}/avatar_${safeDocId(avatarChoice)}.png`) : "");
+      }
 
       if (existingIdx >= 0) {
-        pieces[existingIdx] = { ...pieces[existingIdx], row: r, col: c, sizeCategory: "medium" };
+        pieces[existingIdx] = {
+          ...pieces[existingIdx],
+          row: r,
+          col: c,
+          sizeCategory: "medium",
+          ...(avatarChoice ? { avatar: avatarChoice, avatar_choice: avatarChoice } : {}),
+          ...(avatarStoragePath ? { avatar_storage_path: avatarStoragePath } : {}),
+          ...((avatarUrl || avatarSrc) ? { avatar_url: avatarUrl || avatarSrc, spriteUrl: avatarSrc || avatarUrl } : {}),
+        };
       } else {
         const newId = `tc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
         pieces.push({
@@ -812,6 +868,10 @@ async function placeTrainerAt(trainerName, row, col) {
           status: "active",
           sizeCategory: "medium",
           avatar: avatarChoice,
+          avatar_choice: avatarChoice || "",
+          avatar_storage_path: avatarStoragePath || "",
+          avatar_url: avatarUrl || avatarSrc || "",
+          spriteUrl: avatarSrc || avatarUrl || "",
         });
       }
 

@@ -593,17 +593,21 @@ function ensureUserSubscriptions() {
           const freshData = data.data || data; // users_raw pode ter campo .data
           if (freshData && typeof freshData === "object" && Array.isArray(freshData.party)) {
             appState.selfUserData = freshData;
+            updateTopBadges();
           }
         }
 
         updateSidePanels();
+        window.requestScoreboardRefresh?.();
       }, () => {});
       const un2 = onSnapshot(profileDoc, (snap) => {
         const data = snap.exists() ? snap.data() : null;
         const cur = appState.userProfiles.get(uid) || {};
         cur.profile = data;
         appState.userProfiles.set(uid, cur);
+        if (safeStr(appState.by) === safeStr(tn)) updateTopBadges();
         updateSidePanels();
+        window.requestScoreboardRefresh?.();
       }, () => {});
       userUnsub.set(uid, () => { try { un1(); } catch {} ; try { un2(); } catch {} });
     } catch {}
@@ -641,6 +645,151 @@ function safeDocId(name) {
   return s.replace(/[^a-zA-Z0-9_\-\.]/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "user";
 }
 
+function trainerProfileStoragePath(trainerName) {
+  const tn = safeStr(trainerName);
+  return tn ? `trainer_photos/${safeDocId(tn)}/profile.png` : "";
+}
+
+function trainerAvatarStoragePath(trainerName, avatarChoice) {
+  const tn = safeStr(trainerName);
+  const choice = safeStr(avatarChoice);
+  if (!tn || !choice) return "";
+  return `trainer_avatars/${safeDocId(tn)}/avatar_${safeDocId(choice)}.png`;
+}
+
+function applyTrainerMediaFields(target, src) {
+  if (!target || !src || typeof src !== "object") return;
+  const nestedAvatar = src.avatar;
+  const obj = (nestedAvatar && typeof nestedAvatar === "object" && !Array.isArray(nestedAvatar)) ? nestedAvatar : src;
+  const pick = (key) => safeStr(obj?.[key] ?? src?.[key] ?? "");
+
+  if (!target.photoThumbB64)     target.photoThumbB64 = pick("photo_thumb_b64");
+  if (!target.photoStoragePath)  target.photoStoragePath = pick("photo_storage_path");
+  if (!target.avatarChoice)      target.avatarChoice = pick("avatar_choice");
+  if (!target.avatarStoragePath) target.avatarStoragePath = pick("avatar_storage_path");
+  if (!target.avatarUrl)         target.avatarUrl = pick("avatar_url");
+}
+
+function getPublicPlayerEntryByTrainer(trainerName) {
+  const tn = safeStr(trainerName);
+  const ps = appState.publicPlayers;
+  if (!tn || !ps || typeof ps !== "object") return null;
+
+  const directKeys = [tn, safeStr(tn).trim(), safeStr(tn).toLowerCase(), safeDocId(tn), safeIdLower(tn)];
+  for (const key of directKeys) {
+    const direct = ps[key];
+    if (direct && typeof direct === "object" && !Array.isArray(direct)) return direct;
+  }
+
+  const byId = (ps.byId && typeof ps.byId === "object") ? ps.byId : null;
+  if (!byId) return null;
+
+  for (const key of directKeys) {
+    const entry = byId[key];
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) return entry;
+  }
+
+  for (const entry of Object.values(byId)) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const entryName = safeStr(entry.trainer_name || entry.name || entry.by || entry.owner);
+    if (entryName === tn) return entry;
+  }
+  return null;
+}
+
+function getTrainerCandidateIds(trainerName) {
+  const tn = safeStr(trainerName);
+  const ids = new Set();
+  if (!tn) return [];
+
+  ids.add(safeDocId(tn));
+  ids.add(safeIdLower(tn));
+
+  const player = (appState.players || []).find((p) => safeStr(p?.trainer_name) === tn);
+  if (player) {
+    ids.add(safeStr(player.uid));
+    ids.add(safeStr(player.id));
+  }
+
+  const publicEntry = getPublicPlayerEntryByTrainer(tn);
+  if (publicEntry) {
+    ids.add(safeStr(publicEntry.uid));
+    ids.add(safeStr(publicEntry.id));
+    ids.add(safeStr(publicEntry.trainer_id));
+  }
+
+  return Array.from(ids).filter(Boolean);
+}
+
+function getTrainerMedia(trainerName) {
+  const tn = safeStr(trainerName);
+  const media = {
+    trainerName: tn,
+    photoThumbB64: "",
+    photoStoragePath: "",
+    avatarChoice: "",
+    avatarStoragePath: "",
+    avatarUrl: "",
+    photoThumbSrc: "",
+    profilePhotoSrc: "",
+    profilePhotoFallbackSrc: "",
+    avatarSrc: "",
+  };
+  if (!tn) return media;
+
+  const player = (appState.players || []).find((p) => safeStr(p?.trainer_name) === tn);
+  if (player?.avatar) applyTrainerMediaFields(media, player.avatar);
+
+  const publicEntry = getPublicPlayerEntryByTrainer(tn);
+  if (publicEntry) applyTrainerMediaFields(media, publicEntry);
+
+  if (safeStr(appState.by) === tn && appState.selfUserData?.trainer_profile) {
+    applyTrainerMediaFields(media, appState.selfUserData.trainer_profile);
+  }
+
+  for (const uid of getTrainerCandidateIds(tn)) {
+    const entry = appState.userProfiles?.get?.(uid);
+    if (!entry) continue;
+    if (entry.profile?.avatar) applyTrainerMediaFields(media, entry.profile.avatar);
+
+    const raw = entry.raw?.data || entry.raw;
+    if (raw?.trainer_profile) applyTrainerMediaFields(media, raw.trainer_profile);
+  }
+
+  media.photoThumbSrc = media.photoThumbB64 ? `data:image/png;base64,${media.photoThumbB64}` : "";
+  media.profilePhotoSrc = media.photoStoragePath ? storageMediaUrl(media.photoStoragePath) : "";
+  media.profilePhotoFallbackSrc = trainerProfileStoragePath(tn) ? storageMediaUrl(trainerProfileStoragePath(tn)) : "";
+
+  const avatarStorageSrc = media.avatarStoragePath ? storageMediaUrl(media.avatarStoragePath) : "";
+  const avatarChoicePath = trainerAvatarStoragePath(tn, media.avatarChoice);
+  const avatarChoiceSrc = avatarChoicePath ? storageMediaUrl(avatarChoicePath) : "";
+  media.avatarSrc = media.avatarUrl || avatarStorageSrc || avatarChoiceSrc;
+
+  return media;
+}
+
+function getTrainerProfilePhotoSrc(trainerName, opts = {}) {
+  const media = getTrainerMedia(trainerName);
+  return media.photoThumbSrc
+    || media.profilePhotoSrc
+    || (opts.allowAvatarFallback ? media.avatarSrc : "")
+    || media.profilePhotoFallbackSrc
+    || "";
+}
+
+function getTrainerAvatarSrc(trainerName, opts = {}) {
+  const media = getTrainerMedia(trainerName);
+  return media.avatarSrc
+    || (opts.allowProfileFallback
+      ? (media.photoThumbSrc || media.profilePhotoSrc || media.profilePhotoFallbackSrc)
+      : "")
+    || "";
+}
+
+window.getTrainerMedia = getTrainerMedia;
+window.getTrainerProfilePhotoSrc = getTrainerProfilePhotoSrc;
+window.getTrainerAvatarSrc = getTrainerAvatarSrc;
+
 function inferRoleFromPlayers(players, by) {
   const name = safeStr(by);
   if (!name) return "—";
@@ -659,6 +808,22 @@ function updateTopBadges() {
   if (phaseBadge) phaseBadge.textContent = phase;
   if (trainerNameEl) trainerNameEl.textContent = safeStr(appState.by) || "—";
   if (avatarIcon) {
+    const tn = safeStr(appState.by);
+    if (!tn) {
+      avatarIcon.textContent = "ðŸ™‚";
+    } else {
+      const letter = tn.slice(0, 1).toUpperCase();
+      const mediaSrc = getTrainerProfilePhotoSrc(tn, { allowAvatarFallback: true });
+      if (mediaSrc) {
+        avatarIcon.innerHTML = `<img src="${escapeAttr(mediaSrc)}" alt="${escapeAttr(tn)}"
+          style="width:26px;height:26px;border-radius:999px;object-fit:cover;display:block"
+          onerror="var p=this.parentElement;this.remove();if(p)p.textContent='${letter}';">`;
+      } else {
+        avatarIcon.textContent = letter;
+      }
+    }
+  }
+  if (avatarIcon && false) {
     const tn = safeStr(appState.by);
     if (!tn) {
       avatarIcon.textContent = "🙂";
@@ -1163,6 +1328,7 @@ connectBtn?.addEventListener("click", async () => {
     if (playersCount) playersCount.textContent = String(merged.length);
     updateTopBadges();
     updateSidePanels();
+    window.requestScoreboardRefresh?.();
     ensureUserSubscriptions();
   };
 
@@ -1259,6 +1425,7 @@ unsub.push(
       // re-render UI que usa party (scoreboard/painéis)
       updateSidePanels?.();
       updateArenaMeta?.();
+      window.requestScoreboardRefresh?.();
       if (!useCanvas) renderArenaDom?.();
     },
     (err) => {
@@ -1645,6 +1812,25 @@ function getSpriteUrlForPiece(p, opts) {
   // opts: { type: "battle"|"art", shiny: bool }
   const type = opts?.type || "battle";
   const shiny = !!(opts?.shiny ?? p?.shiny);
+  const kind = safeStr(p?.kind);
+  const pidStr = safeStr(p?.pid);
+
+  if (kind === "trainer" || pidStr.startsWith("trainer_")) {
+    const owner = safeStr(p?.owner || pidStr.replace(/^trainer_/, ""));
+    const avatarObj = (p?.avatar && typeof p.avatar === "object" && !Array.isArray(p.avatar)) ? p.avatar : null;
+    const avatarChoice = safeStr(p?.avatar_choice || avatarObj?.avatar_choice || (typeof p?.avatar === "string" ? p.avatar : ""));
+    const avatarUrl = safeStr(p?.avatar_url || avatarObj?.avatar_url || p?.spriteUrl || "");
+    if (avatarUrl) return avatarUrl;
+
+    const avatarStorage = safeStr(
+      p?.avatar_storage_path
+      || avatarObj?.avatar_storage_path
+      || trainerAvatarStoragePath(owner, avatarChoice)
+    );
+    if (avatarStorage) return storageMediaUrl(avatarStorage);
+
+    return getTrainerAvatarSrc(owner, { allowProfileFallback: true });
+  }
 
   // 1) Prefer explicit spriteUrl if present (only for remote URLs)
   const direct = safeStr(p?.spriteUrl || p?.sprite_url || "");
@@ -6579,7 +6765,9 @@ drawTraps(ctx, ox, oy, tile);
       ctx.font = `900 ${fontSize}px system-ui`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      const label = (p?.revealed ? String(p?.pid ?? "?") : "?").slice(0, 4);
+      const label = safeStr(p?.kind) === "trainer"
+        ? (safeStr(p?.owner).slice(0, 1).toUpperCase() || "?")
+        : (p?.revealed ? String(p?.pid ?? "?") : "?").slice(0, 4);
       ctx.fillText(label, spriteX + spriteW / 2, spriteY + spriteH / 2);
     }
 
