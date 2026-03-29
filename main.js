@@ -7200,17 +7200,40 @@ function safePidValue(x) {
 }
 
 function _getSheetMoveModKey(pid, moveIndex, sh = null) {
-  const resolvedPid = safePidValue(pid);
-  const fallbackId = safeStr(sh?._sheet_id || sh?.sheet_id || sh?.id || sh?.pokemon?.name);
-  const keyBase = resolvedPid || fallbackId;
+  const keys = _getSheetMoveModKeys(pid, moveIndex, sh);
+  return keys[0] || "";
+}
+
+function _getSheetMoveModKeys(pid, moveIndex, sh = null) {
   const idx = safeInt(moveIndex, -1);
-  if (!keyBase || idx < 0) return "";
-  return `${keyBase}::${idx}`;
+  if (idx < 0) return [];
+
+  const bases = [];
+  const pushBase = (value) => {
+    const normalized = safePidValue(value);
+    if (!normalized || bases.includes(normalized)) return;
+    bases.push(normalized);
+  };
+
+  // Prioriza o identificador estável da ficha para que Ficha e Arena usem a mesma chave.
+  pushBase(sh?.pokemon?.id);
+  pushBase(sh?.linked_pid);
+  pushBase(pid);
+  pushBase(sh?._party_pid_raw);
+  pushBase(sh?.pokemon?.name);
+  pushBase(sh?._sheet_id || sh?.sheet_id || sh?.id);
+
+  return bases.map((base) => `${base}::${idx}`);
 }
 
 function getSheetMoveTempModifiers(pid, moveIndex, sh = null) {
-  const key = _getSheetMoveModKey(pid, moveIndex, sh);
-  const saved = key ? _sheetsMods[key] : null;
+  const keys = _getSheetMoveModKeys(pid, moveIndex, sh);
+  const key = keys[0] || "";
+  const matchedKey = keys.find((candidate) => candidate && _sheetsMods[candidate]);
+  const saved = matchedKey ? _sheetsMods[matchedKey] : null;
+  if (saved && key && matchedKey && matchedKey !== key && !_sheetsMods[key]) {
+    _sheetsMods[key] = saved;
+  }
   return {
     key,
     acc: safeInt(saved?.acc, 0),
