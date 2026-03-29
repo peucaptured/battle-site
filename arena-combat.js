@@ -98,6 +98,19 @@ function safeDocId(name) {
 function d20Roll() { return Math.floor(Math.random() * 20) + 1; }
 function escHtml(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 function uid() { return `ac_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`; }
+function signedMod(value) { return value >= 0 ? `+${value}` : `${value}`; }
+function describeExtraAttackMods(accMod = 0, dmgMod = 0) {
+  const parts = [];
+  if (accMod !== 0) parts.push(`Acerto ${signedMod(accMod)}`);
+  if (dmgMod !== 0) parts.push(`Dano ${signedMod(dmgMod)}`);
+  return parts.join(" • ");
+}
+function buildAttackRollText(baseAtkMod, extraAccMod, aceiroBonus) {
+  const parts = [`${safeInt(baseAtkMod, 0)}`];
+  if (safeInt(extraAccMod, 0) !== 0) parts.push(signedMod(safeInt(extraAccMod, 0)));
+  if (safeInt(aceiroBonus, 0) !== 0) parts.push(signedMod(safeInt(aceiroBonus, 0)));
+  return parts.join("");
+}
 
 function normalizeStatKey(key) {
   const k = safeStr(key).toLowerCase();
@@ -1540,6 +1553,80 @@ export class ArenaCombatUI {
     });
   }
 
+  _promptExtraAttackModifiers(move) {
+    this._closeOverlay();
+    this._closeRadial();
+    this._closePrompt();
+
+    return new Promise((resolve) => {
+      const moveName = safeStr(move?.name) || "Golpe";
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      backdrop.setAttribute("role", "dialog");
+      backdrop.setAttribute("aria-modal", "true");
+      backdrop.setAttribute("aria-labelledby", "ac_extra_mod_title");
+      backdrop.innerHTML = `
+        <div class="modal-box">
+          <div class="modal-header">
+            <span id="ac_extra_mod_title">⚖️ Modificadores extras</span>
+            <button class="btn ghost modal-close" type="button" id="ac-extra-mod-close" title="Fechar">✕</button>
+          </div>
+          <div class="modal-body">
+            <p class="modal-hint">
+              Ajuste bônus ou penalidades manuais para <strong>${escHtml(moveName)}</strong>.
+              Se não houver modificadores extras, confirme abaixo e o combate continua normalmente.
+            </p>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px">
+              <label style="display:grid;gap:4px;font-size:12px;font-weight:700;color:rgba(226,232,240,.9)">
+                Mod. de Acerto
+                <input class="ac-search" id="ac-extra-acc" type="number" value="0" />
+                <span style="font-size:11px;font-weight:400;color:rgba(148,163,184,.85)">Use valores positivos ou negativos.</span>
+              </label>
+              <label style="display:grid;gap:4px;font-size:12px;font-weight:700;color:rgba(226,232,240,.9)">
+                Mod. de Dano
+                <input class="ac-search" id="ac-extra-dmg" type="number" value="0" />
+                <span style="font-size:11px;font-weight:400;color:rgba(148,163,184,.85)">Será somado ou subtraído do rank final.</span>
+              </label>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn secondary" type="button" id="ac-extra-mod-none">Sem modificadores</button>
+            <button class="btn secondary" type="button" id="ac-extra-mod-confirm">Aplicar e continuar</button>
+            <button class="btn ghost" type="button" id="ac-extra-mod-cancel">Cancelar</button>
+          </div>
+        </div>
+      `;
+
+      const readMods = () => ({
+        acc: safeInt(backdrop.querySelector("#ac-extra-acc")?.value, 0),
+        dmg: safeInt(backdrop.querySelector("#ac-extra-dmg")?.value, 0),
+      });
+
+      backdrop._acOnClose = (result = null) => resolve(result);
+      document.body.appendChild(backdrop);
+      this._currentPrompt = backdrop;
+
+      const accInput = backdrop.querySelector("#ac-extra-acc");
+      accInput?.focus();
+      accInput?.select();
+
+      backdrop.querySelector("#ac-extra-mod-close")?.addEventListener("click", () => this._closePrompt(null));
+      backdrop.querySelector("#ac-extra-mod-cancel")?.addEventListener("click", () => this._closePrompt(null));
+      backdrop.querySelector("#ac-extra-mod-none")?.addEventListener("click", () => this._closePrompt({ acc: 0, dmg: 0 }));
+      backdrop.querySelector("#ac-extra-mod-confirm")?.addEventListener("click", () => this._closePrompt(readMods()));
+
+      backdrop.addEventListener("click", (ev) => {
+        if (ev.target === backdrop) this._closePrompt(null);
+      });
+      backdrop.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          this._closePrompt(readMods());
+        }
+      });
+    });
+  }
+
   _openRadialMenu(targetPiece, favMoves, allMoves, stats, getAtkPid, currentRange, getSneakAttack = () => false) {
     this._closeRadial();
 
@@ -1650,14 +1737,18 @@ export class ArenaCombatUI {
   }
 
   async _executeAttack(atkPid, targetPiece, move, stats, rangeStr, opts = {}) {
+    const extraAttackMods = opts.askExtraMods === false
+      ? { acc: 0, dmg: 0 }
+      : (opts.extraAttackMods || await this._promptExtraAttackModifiers(move));
+    if (extraAttackMods == null) return;
+
     this._closeAll();
 
     const by = this.getBy();
     const tId = safeStr(targetPiece.id);
     const tOwner = safeStr(targetPiece.owner);
     const tPid = safeStr(targetPiece.pid);
-    
-    // Assegura fichas atualizadas
+
     if (by) await this._loadSheets(by);
     if (tOwner) await this._loadSheets(tOwner);
 
@@ -1665,14 +1756,15 @@ export class ArenaCombatUI {
     const tStats = this._getEffectiveStats(tOwner, tPid);
 
     const aceiroBonus = safeInt(atkStats.acerto || 0);
+    const extraAccMod = safeInt(extraAttackMods.acc, 0);
+    const extraDmgMod = safeInt(extraAttackMods.dmg, 0);
+    const extraModsTxt = describeExtraAttackMods(extraAccMod, extraDmgMod);
 
     const isDistance = rangeStr === "distance";
     const defenseKey = isDistance ? "dodge" : "parry";
     const isSneakAttack = !!opts.sneakAttack;
     const baseDefenseVal = safeInt(tStats[defenseKey]);
     const defenseVal = isSneakAttack ? Math.floor(baseDefenseVal / 2) : baseDefenseVal;
-    
-    // Novo fluxo: Defense DC é dinâmico usando o stats total do alvo
     const needed = defenseVal + 10;
 
     const atkSheet = this._getSheet(by, atkPid);
@@ -1680,10 +1772,11 @@ export class ArenaCombatUI {
       moveIdx: opts.moveIdx,
       atkSheet,
     });
-    const atkMod = ctx.atkMod;
+    const atkMod = ctx.atkMod + extraAccMod;
+    const totalDmg = Math.max(0, ctx.totalDmg + extraDmgMod);
+    const totalModDano = ctx.extraDmg + extraDmgMod;
     const isEffect = this._isEffectMove(move);
 
-    // Roll d20 + Acc do Golpe + Modificador de Acerto (Ficha)
     const roll = d20Roll();
     this._publishRoll(roll, `Ataque • ${displayName(atkPid)}`);
 
@@ -1693,7 +1786,7 @@ export class ArenaCombatUI {
     else if (roll === 20) { hit = true; critBonus = 5; }
     else { hit = totalAtk >= needed; critBonus = 0; }
 
-    const atkModStr = (aceiroBonus !== 0) ? `${atkMod}+${aceiroBonus}` : `${atkMod}`;
+    const atkModStr = buildAttackRollText(ctx.atkMod, extraAccMod, aceiroBonus);
     const rollText = `d20=${roll}+${atkModStr}=${totalAtk} vs DEF ${needed}`;
     if (hit) {
       const critTxt = critBonus ? " CRIT!" : "";
@@ -1716,17 +1809,19 @@ export class ArenaCombatUI {
     const movePayload = {
       name: safeStr(move.name) || "Golpe",
       accuracy: atkMod,
-      damage: ctx.totalDmg,
+      damage: totalDmg,
       rank: ctx.rank,
       based_stat: ctx.based,
       stat_value: ctx.statVal,
       move_type: ctx.moveType,
       type_bonus: ctx.typeBonus,
       stab_bonus: ctx.stabBonus,
-      modDano: ctx.extraDmg,
+      modDano: totalModDano,
       move_idx: ctx.moveIdx,
       temp_mod_acc: ctx.tempAcc,
       temp_mod_dano: ctx.tempDmg,
+      manual_acc_mod: extraAccMod,
+      manual_dmg_mod: extraDmgMod,
       meta: move.meta || {},
     };
 
@@ -1737,7 +1832,12 @@ export class ArenaCombatUI {
 
     if (hit) {
       const dcBase = isEffect ? 10 : 15;
-      const dcTotal = dcBase + ctx.totalDmg + critBonus;
+      const dcTotal = dcBase + totalDmg + critBonus;
+      const logs = [
+        `${by} rolou ${roll}+${atkModStr}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${critTxt}${sneakTxt}... ${resultMsg}`,
+      ];
+      if (extraModsTxt) logs.push(`Modificadores extras aplicados: ${extraModsTxt}.`);
+      logs.push(`Rank/Dano: ${totalDmg}${isEffect ? " (Affliction)" : ""}. Aguardando resistência... (CD ${dcTotal})`);
 
       await this._writeBattle({
         status: "waiting_defense",
@@ -1756,21 +1856,25 @@ export class ArenaCombatUI {
         total_atk: totalAtk,
         crit_bonus: critBonus,
         sneak_attack: isSneakAttack,
-        dmg_base: ctx.totalDmg,
+        dmg_base: totalDmg,
         is_effect: isEffect,
+        extra_acc_mod: extraAccMod,
+        extra_dmg_mod: extraDmgMod,
         pendingFor: tOwner,
         prompt: {
           type: "ROLL_RESIST",
-          options: { dc: dcTotal, isEffect, rank: ctx.totalDmg, critBonus },
+          options: { dc: dcTotal, isEffect, rank: totalDmg, critBonus },
         },
-        logs: [
-          `${by} rolou ${roll}+${atkModStr}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${critTxt}${sneakTxt}... ${resultMsg}`,
-          `Rank/Dano: ${ctx.totalDmg}${isEffect ? " (Affliction)" : ""}. Aguardando resistência... (CD ${dcTotal})`,
-        ],
+        logs,
       });
 
       this._showFloat(targetPiece, `🛡️ Resistência pendente (${tOwner})`, "pending");
     } else {
+      const logs = [
+        `${by} rolou ${roll}+${atkModStr}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${sneakTxt}... ${resultMsg}`,
+      ];
+      if (extraModsTxt) logs.push(`Modificadores extras aplicados: ${extraModsTxt}.`);
+
       await this._writeBattle({
         status: "idle",
         attacker: by,
@@ -1788,11 +1892,13 @@ export class ArenaCombatUI {
         total_atk: totalAtk,
         crit_bonus: 0,
         sneak_attack: isSneakAttack,
+        dmg_base: totalDmg,
+        is_effect: isEffect,
+        extra_acc_mod: extraAccMod,
+        extra_dmg_mod: extraDmgMod,
         pendingFor: null,
         prompt: null,
-        logs: [
-          `${by} rolou ${roll}+${atkModStr}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${sneakTxt}... ${resultMsg}`,
-        ],
+        logs,
       });
     }
   }
@@ -2185,6 +2291,7 @@ export class ArenaCombatUI {
       if (atk.stat_value) parts.push(`+${atk.stat_value} ${atk.based_stat || ""}`);
       if (atk.stab_bonus) parts.push(`+${atk.stab_bonus} STAB`);
       if (atk.type_bonus && atk.type_bonus !== 0) parts.push(`${atk.type_bonus > 0 ? '+' : ''}${atk.type_bonus} tipo`);
+      if (safeInt(atk.manual_dmg_mod, 0) !== 0) parts.push(`${signedMod(safeInt(atk.manual_dmg_mod, 0))} extra`);
       const critBonus = safeInt(battle.crit_bonus);
       if (critBonus) parts.push(`+${critBonus} crit`);
       breakdownHtml = `<div style="font-size:10px;color:rgba(56,189,248,.8);margin:4px 0 6px">${escHtml(parts.join(" "))}</div>`;
@@ -2277,6 +2384,7 @@ export class ArenaCombatUI {
 
     const atkMod = safeInt(battle.atk_mod);
     const aceiroBonus = safeInt(battle.aceiro_bonus);
+    const extraAccMod = safeInt(battle.extra_acc_mod, 0);
     const totalAtk = atkMod + aceiroBonus + roll;
     const needed = safeInt(battle.needed);
     
@@ -2289,7 +2397,7 @@ export class ArenaCombatUI {
     const pieces = this.getPieces() || [];
     const targetPiece = pieces.find(p => safeStr(p.id) === tId);
 
-    const atkModStr = (aceiroBonus !== 0) ? `${atkMod}+${aceiroBonus}` : `${atkMod}`;
+    const atkModStr = buildAttackRollText(atkMod - extraAccMod, extraAccMod, aceiroBonus);
     const rollText = `Re-roll d20=${roll}+${atkModStr}=${totalAtk} vs DEF ${needed}`;
     
     if (hit) {
@@ -2394,10 +2502,16 @@ export class ArenaCombatUI {
     }
   }
 
-  _closePrompt() {
+  _closePrompt(result = null) {
     if (this._currentPrompt) {
-      try { this._currentPrompt.remove(); } catch {}
+      const prompt = this._currentPrompt;
       this._currentPrompt = null;
+      if (typeof prompt._acOnClose === "function") {
+        const onClose = prompt._acOnClose;
+        prompt._acOnClose = null;
+        try { onClose(result); } catch {}
+      }
+      try { prompt.remove(); } catch {}
     }
   }
 
@@ -2436,3 +2550,4 @@ export class ArenaCombatUI {
     }
   }
 }
+
