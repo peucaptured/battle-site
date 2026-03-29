@@ -770,7 +770,7 @@ function getTrainerMedia(trainerName) {
   const avatarStorageSrc = media.avatarStoragePath ? storageMediaUrl(media.avatarStoragePath) : "";
   const avatarChoicePath = trainerAvatarStoragePath(tn, media.avatarChoice);
   const avatarChoiceSrc = avatarChoicePath ? storageMediaUrl(avatarChoicePath) : "";
-  media.avatarSrc = avatarStorageSrc || avatarChoiceSrc || media.avatarUrl;
+  media.avatarSrc = media.avatarUrl || avatarStorageSrc || avatarChoiceSrc;
 
   return media;
 }
@@ -791,6 +791,63 @@ function getTrainerAvatarSrc(trainerName, opts = {}) {
       ? (media.photoThumbSrc || media.profilePhotoSrc || media.profilePhotoFallbackSrc)
       : "")
     || "";
+}
+
+function trainerLetterDataUrl(trainerName) {
+  const letter = (safeStr(trainerName).slice(0, 1).toUpperCase() || "?")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0f172a"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient></defs><circle cx="32" cy="32" r="29" fill="url(#g)" stroke="#38bdf8" stroke-width="3"/><text x="32" y="41" text-anchor="middle" font-size="30" font-family="Arial,sans-serif" font-weight="700" fill="#e2e8f0">${letter}</text></svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+function getTrainerSpriteSources(piece) {
+  const pidStr = safeStr(piece?.pid);
+  const owner = safeStr(piece?.owner || pidStr.replace(/^trainer_/, ""));
+  const avatarObj = (piece?.avatar && typeof piece.avatar === "object" && !Array.isArray(piece.avatar)) ? piece.avatar : null;
+  const avatarChoice = safeStr(piece?.avatar_choice || avatarObj?.avatar_choice || (typeof piece?.avatar === "string" ? piece.avatar : ""));
+  const media = getTrainerMedia(owner);
+  const candidates = [];
+  const push = (value) => {
+    const v = safeStr(value);
+    if (v && !candidates.includes(v)) candidates.push(v);
+  };
+
+  push(media.avatarUrl);
+  push(piece?.avatar_url);
+  push(avatarObj?.avatar_url);
+
+  const storageCandidates = [
+    media.avatarStoragePath,
+    piece?.avatar_storage_path,
+    avatarObj?.avatar_storage_path,
+    trainerAvatarStoragePath(owner, avatarChoice),
+    trainerAvatarStoragePath(owner, media.avatarChoice),
+  ];
+  for (const path of storageCandidates) {
+    const clean = safeStr(path);
+    if (clean) push(storageMediaUrl(clean));
+  }
+
+  push(getTrainerProfilePhotoSrc(owner, { allowAvatarFallback: false }));
+  push(trainerLetterDataUrl(owner));
+
+  return {
+    primary: candidates[0] || "",
+    fallback: candidates[1] || "",
+  };
+}
+
+function getSpriteFallbackUrlForPiece(p) {
+  const pidStr = safeStr(p?.pid);
+  if (safeStr(p?.kind) === "trainer" || pidStr.startsWith("trainer_")) {
+    return getTrainerSpriteSources(p).fallback || "";
+  }
+
+  const name = resolvePokemonNameFromPid(p?.pid);
+  const slug = name ? spriteSlugFromPokemonName(name) : "";
+  return slug ? `https://img.pokemondb.net/sprites/home/normal/${slug}.png` : "";
 }
 
 window.getTrainerMedia = getTrainerMedia;
@@ -1823,20 +1880,7 @@ function getSpriteUrlForPiece(p, opts) {
   const pidStr = safeStr(p?.pid);
 
   if (kind === "trainer" || pidStr.startsWith("trainer_")) {
-    const owner = safeStr(p?.owner || pidStr.replace(/^trainer_/, ""));
-    const avatarObj = (p?.avatar && typeof p.avatar === "object" && !Array.isArray(p.avatar)) ? p.avatar : null;
-    const avatarChoice = safeStr(p?.avatar_choice || avatarObj?.avatar_choice || (typeof p?.avatar === "string" ? p.avatar : ""));
-    const avatarStorage = safeStr(
-      p?.avatar_storage_path
-      || avatarObj?.avatar_storage_path
-      || trainerAvatarStoragePath(owner, avatarChoice)
-    );
-    if (avatarStorage) return storageMediaUrl(avatarStorage);
-
-    const avatarUrl = safeStr(p?.avatar_url || avatarObj?.avatar_url || p?.spriteUrl || "");
-    if (avatarUrl) return avatarUrl;
-
-    return getTrainerAvatarSrc(owner, { allowProfileFallback: true });
+    return getTrainerSpriteSources(p).primary || "";
   }
 
   // 1) Prefer explicit spriteUrl if present (only for remote URLs)
@@ -2479,13 +2523,14 @@ function renderSelectedControlsCard() {
   const title = mine ? "🎒 Sua peça" : "🆚 Peça do oponente";
   const _psOwner1 = ((_partyStates && _partyStates[safeStr(p?.owner)]) ? _partyStates[safeStr(p?.owner)] : {})[safeStr(p?.pid)] || {};
   const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!_psOwner1.shiny });
+  const spriteFallbackUrl = getSpriteFallbackUrlForPiece(p);
 
   card.innerHTML = `
     <div class="row spread" style="align-items:flex-start; gap:10px">
       <div class="row" style="gap:10px;align-items:flex-start">
         ${
           spriteUrl
-            ? `<img class="mini" src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" onerror="this.style.display='none'"/>`
+            ? `<img class="mini" src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" data-fallback="${escapeAttr(spriteFallbackUrl)}" onerror="if(this.dataset.fallback && this.src!==this.dataset.fallback){this.src=this.dataset.fallback;}else{this.style.display='none'}"/>`
             : `<div class="avatar" style="width:40px;height:40px;border-radius:14px">#</div>`
         }
         <div style="min-width:0">
@@ -2777,6 +2822,7 @@ function renderInspectorCard() {
   const heldItem = canSeeIdentity ? getHeldItemForTrainerPid(owner, pid) : null;
   const _psInspector = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
   const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!_psInspector.shiny });
+  const spriteFallbackUrl = getSpriteFallbackUrlForPiece(p);
 
   const hp = Number(getPartyHp(owner, pid) ?? 0);
   const hpMax = 6;
@@ -2856,7 +2902,7 @@ const sheetHasSpeed = isMine ? [
 
     <div class="inspector-card">
       <div class="inspector-media">
-        ${spriteUrl ? `<img src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" onerror="this.style.display='none'"/>` : `<div class="inspector-sprite-fallback">#</div>`}
+        ${spriteUrl ? `<img src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" data-fallback="${escapeAttr(spriteFallbackUrl)}" onerror="if(this.dataset.fallback && this.src!==this.dataset.fallback){this.src=this.dataset.fallback;}else{this.style.display='none'}"/>` : `<div class="inspector-sprite-fallback">#</div>`}
       </div>
       <div class="inspector-body">
         <div class="inspector-name">${escapeHtml(name)}</div>
@@ -3388,8 +3434,9 @@ function renderPieceCard(p, isMine) {
 
   const _psCard = ((_partyStates && _partyStates[safeStr(p?.owner)]) ? _partyStates[safeStr(p?.owner)] : {})[safeStr(p?.pid)] || {};
   const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!_psCard.shiny });
+  const spriteFallbackUrl = getSpriteFallbackUrlForPiece(p);
   const imgHtml = spriteUrl
-    ? `<img class="mini" src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" onerror="this.style.display='none'"/>`
+    ? `<img class="mini" src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" data-fallback="${escapeAttr(spriteFallbackUrl)}" onerror="if(this.dataset.fallback && this.src!==this.dataset.fallback){this.src=this.dataset.fallback;}else{this.style.display='none'}"/>`
     : `<div class="avatar" style="width:40px;height:40px;border-radius:14px">#</div>`;
 
   card.innerHTML = `
@@ -3420,6 +3467,7 @@ function renderPieceMiniRow(p) {
   const revealed = (p?.revealed != null) ? !!p.revealed : true; // default compat: sem flag = revelado
   const _psMini = ((_partyStates && _partyStates[safeStr(p?.owner)]) ? _partyStates[safeStr(p?.owner)] : {})[safeStr(p?.pid)] || {};
   const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!_psMini.shiny });
+  const spriteFallbackUrl = getSpriteFallbackUrlForPiece(p);
 
   const wrap = document.createElement("div");
   wrap.className = "row";
@@ -3433,7 +3481,11 @@ function renderPieceMiniRow(p) {
   if (spriteUrl) img.src = spriteUrl;
   img.alt = "sprite";
   img.loading = "lazy";
-  img.onerror = () => (img.style.display = "none");
+  img.dataset.fallback = spriteFallbackUrl;
+  img.onerror = () => {
+    if (img.dataset.fallback && img.src !== img.dataset.fallback) img.src = img.dataset.fallback;
+    else img.style.display = "none";
+  };
   wrap.appendChild(img);
 
   const mid = document.createElement("div");
@@ -3757,6 +3809,7 @@ const _pokeApiCache = new Map(); // slug → { speed, types, height } | "pending
 function _pokeApiSlugFromPid(pid) {
   const k = safeStr(pid);
   if (!k) return "";
+  if (/^trainer_/i.test(k)) return "";
   let name = "";
   if (k.startsWith("EXT:")) {
     name = k.slice(4).trim();
@@ -6823,11 +6876,7 @@ drawTraps(ctx, ox, oy, tile);
         entry = { el, url: "", fallback: "" };
         _spritePool.set(id, entry);
       }
-      const _name = resolvePokemonNameFromPid(p?.pid);
-      const _fbSlug = _name ? spriteSlugFromPokemonName(_name) : "";
-      const remoteFb = _fbSlug
-        ? `https://img.pokemondb.net/sprites/home/normal/${_fbSlug}.png`
-        : "";
+      const remoteFb = getSpriteFallbackUrlForPiece(p);
       if (entry.url !== sprUrl) {
         entry.el.dataset.fallback = remoteFb;
         entry.el.src = sprUrl;

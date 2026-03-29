@@ -248,6 +248,17 @@ function readNameFromInspector(inspectorEl) {
   return (inspectorEl.querySelector(".inspector-name")?.textContent || "").trim();
 }
 
+function isTrainerInspector(inspectorEl) {
+  if (!inspectorEl) return false;
+  const chips = Array.from(inspectorEl.querySelectorAll(".chip, .mono"))
+    .map((el) => (el.textContent || "").trim().toLowerCase())
+    .filter(Boolean);
+  if (chips.some((text) => text.startsWith("trainer_"))) return true;
+
+  const name = readNameFromInspector(inspectorEl).toLowerCase();
+  return /^trainer[_:-]/.test(name);
+}
+
 /**
  * Verifica se a tabela existente está vazia (só tem a mensagem de fallback).
  */
@@ -270,6 +281,8 @@ async function tryFillTypeTable(inspectorEl) {
 
   // Se a tabela existente já tem linhas reais (não está vazia), não precisa de patch
   if (existingTable && !tableIsEmpty(existingTable)) return;
+
+  if (isTrainerInspector(inspectorEl)) return;
 
   // Lê o nome do Pokémon
   const name = readNameFromInspector(inspectorEl);
