@@ -647,6 +647,11 @@ function safeStr(x) {
   return (x == null ? "" : String(x)).trim();
 }
 
+function safeInt(x, fallback = 0) {
+  const n = parseInt(x, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function safeDocId(name) {
   const s = safeStr(name) || "user";
   return s.replace(/[^a-zA-Z0-9_\-\.]/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "user";
