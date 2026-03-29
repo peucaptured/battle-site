@@ -2167,6 +2167,24 @@ function _partyEntryLookupKeys(entryLike) {
   return out;
 }
 
+function _pieceMatchesPid(pieceLike, pidLike) {
+  const targetKeys = _partyEntryLookupKeys(pidLike);
+  if (!targetKeys.length) return false;
+  const pieceKeys = _partyEntryLookupKeys(pieceLike);
+  return pieceKeys.some((key) => targetKeys.includes(key));
+}
+
+function findBoardPieceForTrainer(ownerName, pidLike, options = {}) {
+  const owner = safeStr(ownerName);
+  const pieces = Array.isArray(options.pieces) ? options.pieces : (appState.pieces || []);
+  if (!owner || !Array.isArray(pieces) || !pieces.length) return null;
+  return pieces.find((piece) => {
+    if (safeStr(piece?.owner) !== owner) return false;
+    if (!options.includeInactive && safeStr(piece?.status || "active") !== "active") return false;
+    return _pieceMatchesPid(piece, pidLike);
+  }) || null;
+}
+
 function _getPartySnapshotForTrainer(trainerName) {
   const targetKey = _trainerLookupKey(trainerName);
   if (!targetKey) return [];
@@ -2385,10 +2403,8 @@ function renderPartyCard(it, ownerName) {
   const _psPartyCard = ((_partyStates && _partyStates[ownerName]) ? _partyStates[ownerName] : {})[pid] || {};
   const spriteUrl = getSpriteUrlFromPid(pid, { type: "art", shiny: !!_psPartyCard.shiny });
   const mine = safeStr(ownerName) && safeStr(ownerName) === safeStr(appState.by);
-  const p = (appState.pieces || []).find(
-    (x) => safeStr(x?.owner) === safeStr(ownerName) && safeStr(x?.pid) === safeStr(pid)
-  );
-  const onMap = !!p?.id && safeStr(p?.status || "active") !== "deleted";
+  const p = findBoardPieceForTrainer(ownerName, pid);
+  const onMap = !!p?.id;
   const isExt = pid.startsWith("EXT:");
   const ps = ((_partyStates && _partyStates[ownerName]) ? _partyStates[ownerName] : {})[pid] || {};
   const hp = (ps.hp != null ? Number(ps.hp) : 6);
@@ -3158,7 +3174,7 @@ function renderSheetsInspectorCard(wrap) {
   const heldItem = getHeldItemForTrainerPid(by, pid || sh?._party_pid_raw || pname);
   // Boosts temporários de stat
   const statBoosts = ps.stat_boosts || {};
-  const isOnBoard = (appState.pieces || []).some(p => safeStr(p.owner) === by && pidKey(safeStr(p.pid)) === pidKey(pid) && safeStr(p.status || "active") === "active");
+  const isOnBoard = !!findBoardPieceForTrainer(by, pid);
 
   const tp = (types || []).map((t) => _typePill(t)).join("");
   const abH = abilities.length ? `<div class="chip-row">${abilities.map((a) => `<span class="chip">${escapeHtml(a)}</span>`).join("")}</div>` : `<span class="muted">Sem abilities.</span>`;
@@ -3474,8 +3490,8 @@ function updateSidePanels() {
       if (oppParty.length > 0) {
         for (const it of oppParty) {
           const oppPid = safeStr(it?.pid || it);
-          const oppPiece = visiblePieces.find(px => safeStr(px?.pid) === oppPid);
-          const oppOnMap = !!oppPiece?.id && safeStr(oppPiece?.status || "active") !== "deleted";
+          const oppPiece = findBoardPieceForTrainer(owner, oppPid, { pieces: visiblePieces });
+          const oppOnMap = !!oppPiece?.id;
           const oppRevealed = oppPiece ? !!oppPiece.revealed : false;
           const oppName = dexNameFromPid(oppPid) || (oppPid.startsWith("EXT:") ? oppPid.slice(4) : oppPid);
           const row = document.createElement("div");
@@ -3859,15 +3875,9 @@ function clampDirection(dr, dc) {
 }
 
 function getSheetForPiece(piece) {
-  const pid = safePidValue(piece?.pid);
-  const pk = pidKey(pid);
-  if (!pk) return null;
+  if (!_partyEntryLookupKeys(piece).length) return null;
   for (const sh of (_allSheetsLatest || [])) {
-    const sid = safePidValue(sh?.pokemon?.id);
-    const linked = safePidValue(sh?.linked_pid);
-    const sk = pidKey(sid);
-    const lk = pidKey(linked);
-    if ((sk && sk === pk) || (lk && lk === pk)) return sh;
+    if (_sheetMatchesPid(sh, piece, sh?._party_pid_raw)) return sh;
   }
   return null;
 }
@@ -4294,12 +4304,7 @@ async function placePokemonOnBoardAt(pid, row, col) {
       const txCheck = canPieceLandOn(txFake, r, c, pieces);
       if (!txCheck.allowed) throw new Error(txCheck.reason);
 
-      const already = pieces.some(
-        (p) =>
-          safeStr(p?.status || "active") === "active" &&
-          safeStr(p?.owner) === by &&
-          safeStr(p?.pid) === monPid
-      );
+      const already = !!findBoardPieceForTrainer(by, monPid, { pieces });
       if (already) throw new Error("esse pokémon já está no campo");
 
       const nextPieces = pieces.concat([newPiece]);
@@ -4355,19 +4360,11 @@ function isPokemonKo(ownerName, pid) {
 }
 
 function isPokemonAlreadyOnBoard(ownerName, pid) {
-  return (appState.pieces || []).some((p) =>
-    safeStr(p?.owner) === safeStr(ownerName) &&
-    safeStr(p?.pid) === safeStr(pid) &&
-    safeStr(p?.status || "active") === "active"
-  );
+  return !!findBoardPieceForTrainer(ownerName, pid);
 }
 
 function getActivePieceIdForPokemon(ownerName, pid) {
-  const found = (appState.pieces || []).find((p) =>
-    safeStr(p?.owner) === safeStr(ownerName) &&
-    safeStr(p?.pid) === safeStr(pid) &&
-    safeStr(p?.status || "active") === "active"
-  );
+  const found = findBoardPieceForTrainer(ownerName, pid);
   return safeStr(found?.id);
 }
 
@@ -7819,6 +7816,21 @@ function _sheetLookupCandidates(sh, fallbackPid) {
   push(fallbackPid);
   push(sh?.pokemon?.name);
   return out;
+}
+
+function _sheetLookupKeys(sh, fallbackPid) {
+  const out = [];
+  for (const candidate of _sheetLookupCandidates(sh, fallbackPid)) {
+    _pushPartyLookupKey(out, candidate);
+  }
+  return out;
+}
+
+function _sheetMatchesPid(sh, pidLike, fallbackPid) {
+  const targetKeys = _partyEntryLookupKeys(pidLike);
+  if (!targetKeys.length) return false;
+  const sheetKeys = _sheetLookupKeys(sh, fallbackPid);
+  return sheetKeys.some((key) => targetKeys.includes(key));
 }
 
 function _sheetStateCandidates(sh, fallbackPid) {
