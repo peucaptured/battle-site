@@ -2126,7 +2126,10 @@ function _trainerLookupKey(name) {
 }
 
 function _pushPartyLookupValue(out, value) {
-  const candidates = [safeStr(value), safePidValue(value), normalizePartyPid(value)];
+  const raw = safeStr(value);
+  const formName = normalizePokemonFormName(raw);
+  const slug = raw && !/^EXT:/i.test(raw) ? slugifyPokemonName(formName || raw) : "";
+  const candidates = [raw, safePidValue(raw), normalizePartyPid(raw), formName, slug];
   for (const candidate of candidates) {
     if (candidate && !out.includes(candidate)) out.push(candidate);
   }
@@ -2175,11 +2178,11 @@ function _pieceMatchesPid(pieceLike, pidLike) {
 }
 
 function findBoardPieceForTrainer(ownerName, pidLike, options = {}) {
-  const owner = safeStr(ownerName);
+  const ownerKey = _trainerLookupKey(ownerName);
   const pieces = Array.isArray(options.pieces) ? options.pieces : (appState.pieces || []);
-  if (!owner || !Array.isArray(pieces) || !pieces.length) return null;
+  if (!ownerKey || !Array.isArray(pieces) || !pieces.length) return null;
   return pieces.find((piece) => {
-    if (safeStr(piece?.owner) !== owner) return false;
+    if (_trainerLookupKey(piece?.owner) !== ownerKey) return false;
     if (!options.includeInactive && safeStr(piece?.status || "active") !== "active") return false;
     return _pieceMatchesPid(piece, pidLike);
   }) || null;
@@ -3174,7 +3177,7 @@ function renderSheetsInspectorCard(wrap) {
   const heldItem = getHeldItemForTrainerPid(by, pid || sh?._party_pid_raw || pname);
   // Boosts temporários de stat
   const statBoosts = ps.stat_boosts || {};
-  const isOnBoard = !!findBoardPieceForTrainer(by, pid);
+  const isOnBoard = !!findBoardPieceForSheet(by, sh, sh?._party_pid_raw);
 
   const tp = (types || []).map((t) => _typePill(t)).join("");
   const abH = abilities.length ? `<div class="chip-row">${abilities.map((a) => `<span class="chip">${escapeHtml(a)}</span>`).join("")}</div>` : `<span class="muted">Sem abilities.</span>`;
@@ -7831,6 +7834,17 @@ function _sheetMatchesPid(sh, pidLike, fallbackPid) {
   if (!targetKeys.length) return false;
   const sheetKeys = _sheetLookupKeys(sh, fallbackPid);
   return sheetKeys.some((key) => targetKeys.includes(key));
+}
+
+function findBoardPieceForSheet(ownerName, sh, fallbackPid, options = {}) {
+  const ownerKey = _trainerLookupKey(ownerName);
+  const pieces = Array.isArray(options.pieces) ? options.pieces : (appState.pieces || []);
+  if (!ownerKey || !sh || !Array.isArray(pieces) || !pieces.length) return null;
+  return pieces.find((piece) => {
+    if (_trainerLookupKey(piece?.owner) !== ownerKey) return false;
+    if (!options.includeInactive && safeStr(piece?.status || "active") !== "active") return false;
+    return _sheetMatchesPid(sh, piece, fallbackPid);
+  }) || null;
 }
 
 function _sheetStateCandidates(sh, fallbackPid) {
