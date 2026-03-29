@@ -1599,13 +1599,13 @@
       <div class="panel-inner">
         <div class="row" style="margin-bottom:10px">
           <div style="flex:1; min-width:0">
-            <label class="label" for="rid">Código da sala (rid)</label>
+            <label class="label" for="rid">Codigo da sala</label>
             <input class="input" id="rid" placeholder="ex.: 360" autocomplete="off" />
           </div>
         </div>
         <div class="row" style="margin-bottom:10px">
           <div style="flex:1; min-width:0">
-            <label class="label" for="by">Seu nome (by)</label>
+            <label class="label" for="by">Nome do jogador</label>
             <input class="input" id="by" placeholder="ex.: Logan" autocomplete="off" />
           </div>
         </div>
@@ -1614,7 +1614,7 @@
           <button class="btn secondary" id="entry_disconnect">Desconectar</button>
         </div>
         <div class="muted" style="margin-top:10px">
-          Dica: o <b>by</b> precisa bater com <code>piece.owner</code> para o painel reconhecer "sua equipe".
+          Use o mesmo nome registrado na sala para que a arena carregue a sua equipe corretamente.
         </div>
       </div>
     </div>
@@ -1628,7 +1628,7 @@
       <div class="hero-icon">🏟️</div>
       <div>
         <div class="hero-title">PVP — Arena Tática</div>
-        <div class="hero-sub">Realtime via Firestore</div>
+        <div class="hero-sub">Arena sincronizada em tempo real</div>
       </div>
     </div>
     <div class="hero-right">
@@ -1813,7 +1813,7 @@
           <div class="arena-hint">
             <div class="hint">Clique numa peça para selecionar • Clique num tile para mover • Arraste para mover</div>
             <div class="hint">Clique com o botão direito no pokémon para ocultar, retirar da arena ou reduzir HP.</div>
-            <div class="hint">Envio sempre por <b>rooms/{rid}/actions</b> (front não mexe no state)</div>
+            <div class="hint">As acoes da arena sao sincronizadas automaticamente com todos na sala.</div>
           </div>
           <div id="piece_context_menu" class="piece-context-menu" role="menu" aria-label="Ações do pokémon">
             <button type="button" data-menu-act="toggle">👁️ Ocultar / revelar</button>
@@ -1835,8 +1835,8 @@
         <div class="panel-inner">
           <div class="panel-title"><h3>🧭 Iniciativa</h3></div>
           <div class="card">
-            <div style="font-weight:950;margin-bottom:6px">Placeholder conectado</div>
-            <div class="muted">Estrutura pronta para consumir dados do battle/initiative e pieces.</div>
+            <div style="font-weight:950;margin-bottom:6px">Painel da rodada</div>
+            <div class="muted">A ordem de iniciativa aparece aqui assim que a rodada for preparada.</div>
           </div>
           <pre id="initiative_preview">—</pre>
         </div>
@@ -1847,8 +1847,8 @@
         <div class="panel-inner">
           <div class="panel-title"><h3>📋 Fichas</h3></div>
           <div class="card">
-            <div style="font-weight:950;margin-bottom:6px">Placeholder conectado</div>
-            <div class="muted">Usa a seleção no grid para decidir qual ficha abrir (próxima etapa).</div>
+            <div style="font-weight:950;margin-bottom:6px">Painel de fichas</div>
+            <div class="muted">Abra a sua party e acompanhe os detalhes das pecas ativas da sala.</div>
           </div>
           <pre id="sheets_preview">—</pre>
         </div>
@@ -1863,10 +1863,10 @@
           </div>
           <div class="card" style="margin-bottom:0">
             <div class="log-compose">
-              <input class="input" id="log_text" placeholder="Escreva um log (ADD_LOG)..." />
+              <input class="input" id="log_text" placeholder="Registrar evento da rodada..." />
               <button class="btn" id="btn_add_log">Enviar</button>
             </div>
-            <div class="muted" style="margin-top:10px">Mostrando <code>public_state/battle.logs</code> em tempo real.</div>
+            <div class="muted" style="margin-top:10px">Atualizado em tempo real para todos os participantes da sala.</div>
           </div>
           <div class="log-list" id="log_list"></div>
         </div>

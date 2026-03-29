@@ -652,6 +652,70 @@ function safeDocId(name) {
   return s.replace(/[^a-zA-Z0-9_\-\.]/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "user";
 }
 
+function toTitleWords(value) {
+  return safeStr(value)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => {
+      if (word.length <= 3 && word === word.toUpperCase()) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(" ");
+}
+
+function humanizeInternalLabel(value) {
+  let label = safeStr(value);
+  if (!label) return "";
+  if (label.startsWith("EXT:")) label = label.slice(4);
+  label = label.replace(/^trainer_/i, "");
+  label = label.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  return toTitleWords(label);
+}
+
+function isTrainerPiece(pieceOrPid) {
+  const pid = typeof pieceOrPid === "object" ? safeStr(pieceOrPid?.pid) : safeStr(pieceOrPid);
+  const kind = typeof pieceOrPid === "object" ? safeStr(pieceOrPid?.kind) : "";
+  return kind === "trainer" || /^trainer_/i.test(pid);
+}
+
+function displayNameFromPid(pid, opts = {}) {
+  const rawPid = safeStr(pid);
+  const owner = safeStr(opts.owner);
+  if (!rawPid) return owner || "Peca";
+  const mapped = safeStr(dexNameFromPid(rawPid) || resolvePokemonNameFromPid(rawPid));
+  if (mapped) return mapped;
+  if (/^trainer_/i.test(rawPid)) return owner || humanizeInternalLabel(rawPid) || "Treinador";
+  return humanizeInternalLabel(rawPid) || owner || rawPid;
+}
+
+function displayNameFromPiece(piece, opts = {}) {
+  const p = piece || {};
+  const mine = opts.isMine != null ? !!opts.isMine : isPieceMine(p);
+  const revealed = p?.revealed != null ? !!p.revealed : true;
+  if (!opts.allowHiddenIdentity && !mine && !revealed) return "???";
+  const owner = safeStr(opts.owner || p?.owner);
+  if (isTrainerPiece(p)) return owner || displayNameFromPid(p?.pid, { owner });
+  return displayNameFromPid(p?.pid, { owner });
+}
+
+function pieceTypeLabel(piece) {
+  return isTrainerPiece(piece) ? "Treinador" : "Pokemon";
+}
+
+function shortLabelFromPiece(piece, maxLen = 4) {
+  const label = displayNameFromPiece(piece, { allowHiddenIdentity: false }) || "?";
+  const compact = safeStr(label).replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  return (compact || "?").slice(0, Math.max(1, maxLen));
+}
+
+function battlePhaseLabel(phase) {
+  const key = safeStr(phase).toLowerCase();
+  if (!key || key === "idle") return "Aguardando iniciativa";
+  if (key === "preprep_asking") return "Preprep";
+  if (key === "active") return "Em andamento";
+  return humanizeInternalLabel(key) || "Arena";
+}
+
 function trainerProfileStoragePath(trainerName) {
   const tn = safeStr(trainerName);
   return tn ? `trainer_photos/${safeDocId(tn)}/profile.png` : "";
@@ -875,7 +939,7 @@ function updateTopBadges() {
   if (roleBadge) roleBadge.textContent = `role: ${appState.role || "—"}`;
 
   const phase = safeStr(appState.battle?.status) || "idle";
-  if (phaseBadge) phaseBadge.textContent = phase;
+  if (phaseBadge) phaseBadge.textContent = battlePhaseLabel(phase);
   if (trainerNameEl) trainerNameEl.textContent = safeStr(appState.by) || "—";
   if (avatarIcon) {
     const tn = safeStr(appState.by);
@@ -923,7 +987,7 @@ function updateTopBadges() {
     }
   }
 
-  const synced = appState.connected ? "Sincronizado ✓" : "—";
+  const synced = appState.connected ? "Sincronizado ✓" : "Offline";
   if (syncBadge) syncBadge.textContent = synced;
 
   if (turnBadge) {
@@ -939,9 +1003,10 @@ function updateTopBadges() {
       if (!cur) {
         turnBadge.textContent = `Rodada ${Number(turnState.round) || 1} • aguardando próxima ação`;
       } else {
-        const mon = safeStr(cur.display || cur.pid || cur.pieceId || "Pokémon");
-        const owner = safeStr(cur.owner || "—");
-        turnBadge.textContent = `Rodada ${Number(turnState.round) || 1} • Turno: ${mon} (${owner})`;
+        const owner = humanizeInternalLabel(cur.owner) || safeStr(cur.owner || "—");
+        const mon = displayNameFromPid(cur.display || cur.pid || cur.pieceId || "Pokemon", { owner });
+        const ownerSuffix = owner && owner !== "—" && owner !== mon ? ` (${owner})` : "";
+        turnBadge.textContent = `Rodada ${Number(turnState.round) || 1} • Turno: ${mon}${ownerSuffix}`;
       }
     }
   }
@@ -1151,7 +1216,7 @@ topRollBtn?.addEventListener("click", async () => {
 
   const battleRef = getBattleDocRef();
   if (!battleRef) {
-    setStatus("err", "battle doc indisponível");
+    setStatus("err", "estado da batalha indisponivel");
     return;
   }
 
@@ -1214,7 +1279,7 @@ passTurnBtn?.addEventListener("click", async () => {
 
   const battleRef = getBattleDocRef();
   if (!battleRef) {
-    setStatus("err", "battle doc indisponível");
+    setStatus("err", "estado da batalha indisponivel");
     return;
   }
 
@@ -2523,8 +2588,10 @@ function renderSelectedControlsCard() {
   const revealed = p?.revealed != null ? !!p.revealed : true;
   const row = Number(p?.row);
   const col = Number(p?.col);
-  const kind = safeStr(p?.kind) || "pokemon";
-  const pid = safeStr(p?.pid ?? "?");
+  const ownerLabel = humanizeInternalLabel(safeStr(p?.owner)) || safeStr(p?.owner) || "—";
+  const displayName = displayNameFromPiece(p, { allowHiddenIdentity: false, isMine: mine });
+  const kind = pieceTypeLabel(p);
+  const pid = displayName;
 
   const title = mine ? "🎒 Sua peça" : "🆚 Peça do oponente";
   const _psOwner1 = ((_partyStates && _partyStates[safeStr(p?.owner)]) ? _partyStates[safeStr(p?.owner)] : {})[safeStr(p?.pid)] || {};
@@ -2541,7 +2608,7 @@ function renderSelectedControlsCard() {
         }
         <div style="min-width:0">
           <div style="font-weight:950;line-height:1.1">${escapeHtml(title)}</div>
-          <div class="tiny">id: <span class="mono">${escapeHtml(selId)}</span></div>
+          <div class="tiny">${escapeHtml(displayName)}</div>
           <div class="tiny">owner: <span class="mono">${escapeHtml(safeStr(p?.owner) || "—")}</span> • kind: <span class="mono">${escapeHtml(kind)}</span></div>
           <div class="tiny">pid: <span class="mono">${escapeHtml(pid)}</span> • pos: <span class="mono">(${Number.isFinite(row)?row:"?"}, ${Number.isFinite(col)?col:"?"})</span></div>
           <div class="tiny">revelado: <span class="mono">${revealed ? "sim" : "não"}</span></div>
@@ -2801,7 +2868,7 @@ function renderInspectorCard() {
   if (!selId) {
     wrap.innerHTML = `
       <div class="inspector-empty">
-        <div class="inspector-title">Inspector</div>
+        <div class="inspector-title">Detalhes</div>
         <div class="muted">Clique em um Pokémon no mapa para inspecionar.</div>
       </div>
     `;
@@ -2812,7 +2879,7 @@ function renderInspectorCard() {
   if (!p) {
     wrap.innerHTML = `
       <div class="inspector-empty">
-        <div class="inspector-title">Inspector</div>
+        <div class="inspector-title">Detalhes</div>
         <div class="muted">Peça não encontrada (talvez foi removida).</div>
       </div>
     `;
@@ -2824,7 +2891,8 @@ function renderInspectorCard() {
   const isMine = isPieceMine(p);
   const revealed = (p?.revealed != null) ? !!p.revealed : true; // default compat: sem flag = revelado
   const canSeeIdentity = isMine || revealed;
-  const name = canSeeIdentity ? (dexNameFromPid(pid) || pid) : "???";
+  const ownerLabel = humanizeInternalLabel(owner) || owner || "-";
+  const name = canSeeIdentity ? displayNameFromPiece(p, { allowHiddenIdentity: true, isMine }) : "???";
   const heldItem = canSeeIdentity ? getHeldItemForTrainerPid(owner, pid) : null;
   const _psInspector = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
   const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!_psInspector.shiny });
@@ -2836,9 +2904,10 @@ function renderInspectorCard() {
   const hpCol = hpPct > 66 ? "#22c55e" : hpPct > 33 ? "#f59e0b" : hp <= 0 ? "#64748b" : "#ef4444";
 
   const chips = [
-    `<span class="chip">${escapeHtml(owner)}</span>`,
-    `<span class="chip mono">${escapeHtml(pid)}</span>`,
-    `<span class="chip ${revealed ? "ok" : "warn"}">${revealed ? "revelado" : "oculto"}</span>`,
+    `<span class="chip">${escapeHtml(ownerLabel)}</span>`,
+    `<span class="chip">${escapeHtml(isMine ? "Sua peca" : "Peca em campo")}</span>`,
+    `<span class="chip">${escapeHtml(pieceTypeLabel(p))}</span>`,
+    `<span class="chip ${revealed ? "ok" : "warn"}">${revealed ? "Revelado" : "Oculto"}</span>`,
   ].join("");
 
   // ✅ Dono-only: só o dono pode puxar/usar a ficha completa
@@ -2900,10 +2969,15 @@ const sheetHasSpeed = isMine ? [
     ? `Speed ${mvBudget.speed} (${speedSource}) • deslocamento ${mvBudget.maxTiles % 1 ? "1/2" : mvBudget.maxTiles} quadrado(s)`
     : `🔒 Ficha privada — apenas o dono pode ver stats/golpes.`;
 
+  const uiMoveSummary = isMine
+    ? `Velocidade ${mvBudget.speed} • deslocamento ${mvBudget.maxTiles % 1 ? "1/2" : mvBudget.maxTiles} quadrado(s)`
+    : `Detalhes completos disponiveis apenas para o dono da ficha.`;
+  const inspectorSubtitle = isMine ? "Sua peca selecionada" : "Peca selecionada na arena";
+
   wrap.innerHTML = `
     <div class="inspector-head">
-      <div class="inspector-title">Inspector</div>
-      <div class="inspector-sub mono">id: ${escapeHtml(selId)}</div>
+      <div class="inspector-title">Detalhes</div>
+      <div class="inspector-sub">${escapeHtml(inspectorSubtitle)}</div>
     </div>
 
     <div class="inspector-card">
@@ -2913,8 +2987,8 @@ const sheetHasSpeed = isMine ? [
       <div class="inspector-body">
         <div class="inspector-name">${escapeHtml(name)}</div>
         <div class="inspector-chips">${chips}</div>
-        ${renderHeldItemSummaryHtml(heldItem, { label: "Held item", size: "md" })}
-        <div class="muted" style="margin-top:6px">${escapeHtml(moveSummary)}</div>
+        ${renderHeldItemSummaryHtml(heldItem, { label: "Item", size: "md" })}
+        <div class="muted" style="margin-top:6px">${escapeHtml(uiMoveSummary)}</div>
         ${offenseH}
         ${matchupH}
 
@@ -3043,7 +3117,7 @@ function renderSheetsInspectorCard(wrap) {
   if (!sh) {
     wrap.innerHTML = `
       <div class="inspector-empty">
-        <div class="inspector-title">Inspector</div>
+        <div class="inspector-title">Fichas</div>
         <div class="muted">Selecione um card em Fichas para ver os detalhes completos.</div>
       </div>
     `;
@@ -3348,7 +3422,7 @@ function updateSidePanels() {
     if (cancelPlaceBtn) cancelPlaceBtn.style.display = placingPid ? "" : "none";
     const armedLabel = document.getElementById("armed_label");
     if (armedLabel) {
-      armedLabel.textContent = placingPid ? `pronto: ${dexNameFromPid(placingPid) || placingPid}` : "—";
+      armedLabel.textContent = placingPid ? `Pronto: ${displayNameFromPid(placingPid, { owner: by })}` : "—";
     }
   } catch {}
 
@@ -4018,7 +4092,11 @@ function selectPiece(pieceId) {
   const id = safeStr(pieceId);
   appState.selectedPieceId = id || null;
 
-  if (selBadge) selBadge.textContent = `seleção: ${id || "—"}`;
+  if (selBadge) {
+    const piece = (appState.pieces || []).find((item) => safeStr(item?.id) === id) || null;
+    const selectionLabel = piece ? displayNameFromPiece(piece, { allowHiddenIdentity: false }) : "—";
+    selBadge.textContent = `seleção: ${selectionLabel}`;
+  }
 
   // preenche devtools move
   if (pieceIdInput) pieceIdInput.value = id || "";
@@ -4145,7 +4223,7 @@ function startPlacePokemon(pid) {
   }
   appState.placing = { mode: "pokemon", trainer: safeStr(appState.by), pid: monPid };
   appState.placingPid = monPid;
-  setStatus("ok", `modo de posicionar ativo: ${monPid}. Clique em um tile vazio no mapa.`);
+  setStatus("ok", `Posicionamento ativo: ${displayNameFromPid(monPid, { owner: appState.by })}. Clique em um tile vazio no mapa.`);
   updateSidePanels();
 }
 
@@ -4187,7 +4265,7 @@ async function placePokemonOnBoardAt(pid, row, col) {
   try {
     const stateRef = getStateDocRef();
     if (!stateRef || !currentDb) {
-      setStatus("err", "sem conexão com o Firestore");
+      setStatus("err", "sem conexao com a sala");
       return;
     }
 
@@ -4598,7 +4676,7 @@ async function handlePieceMenuAction(action, pieceId) {
     const ps = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
     const currentHp = Number.isFinite(Number(ps?.hp)) ? Number(ps.hp) : 6;
     await updatePartyStateHp(owner, pid, Math.max(0, currentHp - 1));
-    setStatus("ok", `${pid}: HP reduzido para ${Math.max(0, currentHp - 1)}`);
+    setStatus("ok", `${displayNameFromPid(pid, { owner })}: HP reduzido para ${Math.max(0, currentHp - 1)}`);
   }
 }
 
@@ -4925,7 +5003,7 @@ function renderArenaDom() {
     token.className = "token";
     const sizeCategory = p?.sizeCategory || "medium";
     if (sizeCategory === SIZE_CATEGORIES.tiny) token.style.cssText = "font-size:9px;transform:scale(0.5);";
-    const label = (p?.revealed ? String(p?.pid ?? "?") : "?").slice(0, 4);
+    const label = p?.revealed ? shortLabelFromPiece(p, 4) : "?";
     token.textContent = label;
     cell.appendChild(token);
 
@@ -6926,7 +7004,7 @@ drawTraps(ctx, ox, oy, tile);
       ctx.textBaseline = "middle";
       const label = safeStr(p?.kind) === "trainer"
         ? (safeStr(p?.owner).slice(0, 1).toUpperCase() || "?")
-        : (p?.revealed ? String(p?.pid ?? "?") : "?").slice(0, 4);
+        : (p?.revealed ? shortLabelFromPiece(p, 4) : "?");
       ctx.fillText(label, spriteX + spriteW / 2, spriteY + spriteH / 2);
     }
 
@@ -7787,9 +7865,9 @@ function _setSheetsBadges() {
   const phEl = document.getElementById("phaseBadgeSheets");
   const syncEl = document.getElementById("syncBadgeSheets");
 
-  if (ridEl) ridEl.textContent = `sala: ${rid}`;
-  if (meEl) meEl.textContent = `by: ${by}`;
-  if (phEl) phEl.textContent = phase;
+  if (ridEl) ridEl.textContent = `Sala: ${rid}`;
+  if (meEl) meEl.textContent = `Jogador: ${by}`;
+  if (phEl) phEl.textContent = battlePhaseLabel(phase);
 
   if (syncEl) {
     const ok = !!appState.connected;
