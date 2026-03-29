@@ -31,7 +31,7 @@ import { getMoveType, getTypeDamageBonus, normalizeType } from "./type-data.js";
 // ─── helpers ──────────────────────────────────────────────────────
 function safeStr(x) { return (x == null ? "" : String(x)).trim(); }
 function safeInt(x, fb = 0) { const n = parseInt(x, 10); return Number.isFinite(n) ? n : fb; }
-function getMoveData(mv) {
+function getBaseMoveDataLegacy(mv) {
   return {
     // Garante que pega o Rank base do golpe
     rank: safeInt(mv?.rank ?? mv?.damage ?? mv?.power ?? mv?.lvl ?? 0),
@@ -41,6 +41,56 @@ function getMoveData(mv) {
     modDano: safeInt(mv?.damage_mod ?? mv?.mod_dano ?? mv?.mod ?? 0)
   };
 }
+function resolveMoveIndex(moves, move, preferredIdx = null) {
+  if (Number.isInteger(preferredIdx) && preferredIdx >= 0 && preferredIdx < (moves?.length || 0)) {
+    return preferredIdx;
+  }
+  if (!Array.isArray(moves) || !move) return -1;
+  const refIdx = moves.indexOf(move);
+  if (refIdx >= 0) return refIdx;
+
+  const moveName = safeStr(move?.name);
+  if (!moveName) return -1;
+
+  const moveDesc = safeStr(move?.description ?? move?.desc ?? move?.build);
+  const exactIdx = moves.findIndex((candidate) => (
+    safeStr(candidate?.name) === moveName &&
+    safeStr(candidate?.description ?? candidate?.desc ?? candidate?.build) === moveDesc
+  ));
+  if (exactIdx >= 0) return exactIdx;
+
+  return moves.findIndex((candidate) => safeStr(candidate?.name) === moveName);
+}
+
+function getMoveTempMods(pid, moveIdx, sheet = null) {
+  try {
+    if (typeof window.getSheetMoveTempModifiers === "function") {
+      const mods = window.getSheetMoveTempModifiers(pid, moveIdx, sheet) || {};
+      return {
+        acc: safeInt(mods.acc, 0),
+        dmg: safeInt(mods.dmg, 0),
+      };
+    }
+  } catch {}
+  return { acc: 0, dmg: 0 };
+}
+
+function getMoveData(mv, extraMods = null) {
+  const tempAcc = safeInt(extraMods?.acc, 0);
+  const tempDmg = safeInt(extraMods?.dmg, 0);
+  const baseAcc = safeInt(mv?.accuracy ?? mv?.acc ?? mv?.acerto ?? mv?.modificador ?? 0);
+  const baseModDano = safeInt(mv?.damage_mod ?? mv?.mod_dano ?? mv?.mod ?? 0);
+  return {
+    rank: safeInt(mv?.rank ?? mv?.damage ?? mv?.power ?? mv?.lvl ?? 0),
+    acc: baseAcc + tempAcc,
+    baseAcc,
+    tempAcc,
+    modDano: baseModDano + tempDmg,
+    baseModDano,
+    tempDmg,
+  };
+}
+
 function safeDocId(name) {
   const s = safeStr(name) || "user";
   return s.replace(/[^a-zA-Z0-9_\-\.]/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "user";
@@ -811,18 +861,20 @@ export class ArenaCombatUI {
     return result;
   }
 
-  // Calculador centralizado de dano com STAB e Tipo
-_calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid) {
-    const mData = getMoveData(move);
+  // Calculador centralizado de dano com STAB, Tipo e mods temporários do golpe
+  _calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid, opts = {}) {
+    const atkSheet = opts.atkSheet || this._getSheet(by, atkPid);
+    const moveIdx = resolveMoveIndex(atkSheet?.moves || [], move, opts.moveIdx);
+    const tempMods = getMoveTempMods(atkPid, moveIdx, atkSheet);
+    const mData = opts.moveData || getMoveData(move, tempMods);
     const rank = mData.rank;
-    const extraDmg = mData.modDano; // Modificador extra do golpe, se houver
-    
+    const extraDmg = mData.modDano;
+
     const [based, statVal] = moveStatValue(move.meta || {}, atkStats);
-    
+
     const moveName = safeStr(move.name) || "Golpe";
     const moveType = getMoveType(moveName) || safeStr(move.meta?.type) || safeStr(move.type) || "";
-    
-    const atkSheet = this._getSheet(by, atkPid);
+
     const atkTypes = Array.isArray(atkSheet?.pokemon?.types) ? atkSheet.pokemon.types : [];
     const tSheet = this._getSheet(tOwner, tPid);
     const tgtTypes = Array.isArray(tSheet?.pokemon?.types) ? tSheet.pokemon.types : [];
@@ -838,7 +890,13 @@ _calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid) {
       moveType,
       based,
       statVal,
-      rank
+      rank,
+      atkMod: mData.acc,
+      extraDmg,
+      moveIdx,
+      tempAcc: mData.tempAcc,
+      tempDmg: mData.tempDmg,
+      baseModDano: mData.baseModDano,
     };
   }
 
@@ -1262,6 +1320,9 @@ _calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid) {
   }
 
   _renderMoveList(container, moves, stats, targetPiece, getAtkPid, getRange, getSneakAttack = () => false) {
+    const by = this.getBy();
+    const atkPid = getAtkPid();
+    const atkSheet = this._getSheet(by, atkPid);
     let html = `<input class="ac-search" placeholder="/ buscar golpe..." id="ac-move-search" />`;
     html += `<button class="ac-quick-btn" id="ac-manual-input" style="width:100%;margin-bottom:6px">✍️ Input manual</button>`;
     html += `<div class="ac-movelist" id="ac-movelist-inner">`;
@@ -1277,10 +1338,14 @@ _calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid) {
       const cat = safeStr(mv.meta?.category || mv.category || "").toLowerCase();
       const icon = cat.includes("status") ? "🟣" : cat.includes("special") || cat.includes("especial") ? "🔵" : "🔴";
       
-      const ctx = this._calcMoveContext(mv, stats, this.getBy(), getAtkPid(), targetPiece.owner, targetPiece.pid);
+      const moveData = getMoveData(mv, getMoveTempMods(atkPid, i, atkSheet));
+      const ctx = this._calcMoveContext(mv, stats, by, atkPid, targetPiece.owner, targetPiece.pid, {
+        moveIdx: i,
+        atkSheet,
+        moveData,
+      });
       const aceiroBonus = safeInt(stats.acerto || 0);
-const mData = getMoveData(mv);
-const acc = mData.acc + aceiroBonus;
+      const acc = ctx.atkMod + aceiroBonus;
       const extraTxt = (ctx.typeBonus !== 0 || ctx.stabBonus > 0) ? ` (+)` : ``;
       const dmgClass = (ctx.typeBonus > 0 || ctx.stabBonus > 0) ? "bonus-high" : "";
 
@@ -1314,13 +1379,17 @@ const acc = mData.acc + aceiroBonus;
         const mv = moves[idx];
         if (!mv) return;
         if (getRange() === "area") {
+          const areaData = getMoveData(mv, getMoveTempMods(atkPid, idx, atkSheet));
           this._openAreaDialog(targetPiece, getAtkPid(), {
-            level: safeInt(mv.rank, 1),
+            level: Math.max(1, safeInt(mv.rank, 1) + safeInt(areaData.tempDmg, 0)),
             isEffect: this._isEffectMove(mv),
           });
           return;
         }
-        this._executeAttack(getAtkPid(), targetPiece, mv, stats, getRange(), { sneakAttack: getSneakAttack() });
+        this._executeAttack(getAtkPid(), targetPiece, mv, stats, getRange(), {
+          sneakAttack: getSneakAttack(),
+          moveIdx: idx,
+        });
       });
     });
 
@@ -1495,6 +1564,9 @@ const acc = mData.acc + aceiroBonus;
     const totalSlots = slotCount;
 
     const displayMoves = [...favMoves.slice(0, 6)];
+    const by = this.getBy();
+    const atkPid = getAtkPid();
+    const atkSheet = this._getSheet(by, atkPid);
 
     for (let i = 0; i < totalSlots; i++) {
       const angle = (i / totalSlots) * 2 * Math.PI - Math.PI / 2;
@@ -1508,7 +1580,13 @@ const acc = mData.acc + aceiroBonus;
 
       if (i < displayMoves.length) {
         const mv = displayMoves[i];
-        const ctx = this._calcMoveContext(mv, stats, this.getBy(), getAtkPid(), targetPiece.owner, targetPiece.pid);
+        const moveIdx = resolveMoveIndex(allMoves, mv);
+        const moveData = getMoveData(mv, getMoveTempMods(atkPid, moveIdx, atkSheet));
+        const ctx = this._calcMoveContext(mv, stats, by, atkPid, targetPiece.owner, targetPiece.pid, {
+          moveIdx,
+          atkSheet,
+          moveData,
+        });
         const cat = safeStr(mv.meta?.category || mv.category || "").toLowerCase();
         const icon = cat.includes("status") ? "🟣" : cat.includes("special") || cat.includes("especial") ? "🔵" : "🔴";
 
@@ -1518,17 +1596,23 @@ const acc = mData.acc + aceiroBonus;
           <span class="ac-slot-sub">R${ctx.rank} • D${ctx.totalDmg}</span>
         `;
         slot.title = `${safeStr(mv.name)} — Rank ${ctx.rank}, Dano ${ctx.totalDmg}, Acc ${safeInt(mv.accuracy) + safeInt(stats.acerto||0)}`;
+        const slotAcc = ctx.atkMod + safeInt(stats.acerto || 0);
+        slot.title = `${safeStr(mv.name)} - Rank ${ctx.rank}, Dano ${ctx.totalDmg}, Acc ${slotAcc}`;
         slot.addEventListener("click", () => {
           this._closeRadial();
           this._closeOverlay();
           if (currentRange === "area") {
+            const areaLevel = Math.max(1, safeInt(mv.rank, 1) + safeInt(moveData.tempDmg, 0));
             this._openAreaDialog(targetPiece, getAtkPid(), {
-              level: safeInt(mv.rank, 1),
+              level: areaLevel,
               isEffect: this._isEffectMove(mv),
             });
             return;
           }
-          this._executeAttack(getAtkPid(), targetPiece, mv, stats, currentRange, { sneakAttack: getSneakAttack() });
+          this._executeAttack(getAtkPid(), targetPiece, mv, stats, currentRange, {
+            sneakAttack: getSneakAttack(),
+            moveIdx,
+          });
         });
       } else if (i === totalSlots - 2) {
         slot.innerHTML = `<span class="ac-slot-icon">➕</span><span class="ac-slot-name">Todos</span>`;
@@ -1591,9 +1675,12 @@ const acc = mData.acc + aceiroBonus;
     // Novo fluxo: Defense DC é dinâmico usando o stats total do alvo
     const needed = defenseVal + 10;
 
-const mData = getMoveData(move);
-const atkMod = mData.acc; // Puxa o modificador do golpe exato
-const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid);
+    const atkSheet = this._getSheet(by, atkPid);
+    const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid, {
+      moveIdx: opts.moveIdx,
+      atkSheet,
+    });
+    const atkMod = ctx.atkMod;
     const isEffect = this._isEffectMove(move);
 
     // Roll d20 + Acc do Golpe + Modificador de Acerto (Ficha)
@@ -1617,7 +1704,7 @@ const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid);
 
     this._lastMove = {
       moveName: safeStr(move.name),
-      moveIdx: 0,
+      moveIdx: ctx.moveIdx,
       attackerPid: atkPid,
       mode: "normal",
       rangeStr,
@@ -1636,6 +1723,10 @@ const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid);
       move_type: ctx.moveType,
       type_bonus: ctx.typeBonus,
       stab_bonus: ctx.stabBonus,
+      modDano: ctx.extraDmg,
+      move_idx: ctx.moveIdx,
+      temp_mod_acc: ctx.tempAcc,
+      temp_mod_dano: ctx.tempDmg,
       meta: move.meta || {},
     };
 
@@ -1715,13 +1806,16 @@ const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid);
     const sheet = this._getSheet(by, atkPid);
     const moves = sheet?.moves || [];
     const stats = this._getEffectiveStats(by, atkPid);
-    const mv = moves.find(m => safeStr(m.name) === this._lastMove.moveName);
+    const preferredIdx = safeInt(this._lastMove.moveIdx, -1);
+    const indexedMove = (preferredIdx >= 0 && preferredIdx < moves.length) ? moves[preferredIdx] : null;
+    const mv = indexedMove || moves.find(m => safeStr(m.name) === this._lastMove.moveName);
     if (!mv) {
       this._showFloat(targetPiece, `❌ Golpe "${this._lastMove.moveName}" não encontrado`, "miss");
       return;
     }
     this._executeAttack(atkPid, targetPiece, mv, stats, this._lastMove.rangeStr || "distance", {
       sneakAttack: !!this._lastMove.sneakAttack,
+      moveIdx: resolveMoveIndex(moves, mv, preferredIdx),
     });
   }
 

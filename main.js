@@ -3243,8 +3243,8 @@ function renderSheetsInspectorCard(wrap) {
         : `<div class="dmg-row dmg-muted-row"><span class="dmg-row-lbl">Tipo <span class="muted">(selecione alvo na arena)</span></span><span class="dmg-row-val muted">±?</span></div>`;
 
       // Recupera modificadores persistidos entre trocas de aba
-      const modKey = `${pid || safeStr(sh?.sheet_id || sh?.id || pname)}::${mvIdx}`;
-      const savedMod = _sheetsMods[modKey] || { acc: 0, dmg: 0 };
+      const savedMod = getSheetMoveTempModifiers(pid, mvIdx, sh);
+      const modKey = savedMod.key || `${pid || safeStr(sh?.sheet_id || sh?.id || pname)}::${mvIdx}`;
       const autoTotal = rk + stabBonus + typeBonus + savedMod.dmg;
       const aceiroTotal = acc + (statBoosts.acerto||0) + savedMod.acc;
 
@@ -7194,6 +7194,25 @@ function safePidValue(x) {
   return v;
 }
 
+function _getSheetMoveModKey(pid, moveIndex, sh = null) {
+  const resolvedPid = safePidValue(pid);
+  const fallbackId = safeStr(sh?._sheet_id || sh?.sheet_id || sh?.id || sh?.pokemon?.name);
+  const keyBase = resolvedPid || fallbackId;
+  const idx = safeInt(moveIndex, -1);
+  if (!keyBase || idx < 0) return "";
+  return `${keyBase}::${idx}`;
+}
+
+function getSheetMoveTempModifiers(pid, moveIndex, sh = null) {
+  const key = _getSheetMoveModKey(pid, moveIndex, sh);
+  const saved = key ? _sheetsMods[key] : null;
+  return {
+    key,
+    acc: safeInt(saved?.acc, 0),
+    dmg: safeInt(saved?.dmg, 0),
+  };
+}
+
 // Normaliza PID para matching (EXT: case-insensitive)
 function pidKey(x) {
   const v = safePidValue(x);
@@ -8264,6 +8283,7 @@ window.getPartyForTrainer = getPartyForTrainer;
 window.getHeldItemForTrainerPid = getHeldItemForTrainerPid;
 window.renderHeldItemBadgeHtml = renderHeldItemBadgeHtml;
 window.renderHeldItemSummaryHtml = renderHeldItemSummaryHtml;
+window.getSheetMoveTempModifiers = getSheetMoveTempModifiers;
 window.selectPiece        = selectPiece;
 window.togglePieceRevealed = togglePieceRevealed;
 window.removePieceFromBoard = removePieceFromBoard;
