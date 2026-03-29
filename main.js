@@ -4203,6 +4203,7 @@ async function placePokemonOnBoardAt(pid, row, col) {
       const snap = await tx.get(stateRef);
       const data = snap.exists() ? snap.data() : {};
       const pieces = Array.isArray(data?.pieces) ? data.pieces : [];
+      const seen = Array.isArray(data?.seen) ? data.seen : [];
 
       // Revalida dentro da transaction com size-rules (evita corrida)
       const txFake = { id: "__placing__", pid: monPid, sizeCategory };
@@ -4218,10 +4219,16 @@ async function placePokemonOnBoardAt(pid, row, col) {
       if (already) throw new Error("esse pokémon já está no campo");
 
       const nextPieces = pieces.concat([newPiece]);
+      const nextSeen = seen.slice();
+      if (newPiece.revealed) {
+        const seenPid = safeStr(newPiece.pid);
+        if (seenPid && !nextSeen.includes(seenPid)) nextSeen.push(seenPid);
+      }
       tx.set(
         stateRef,
         {
           pieces: nextPieces,
+          seen: nextSeen,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
@@ -4427,13 +4434,19 @@ async function removePieceFromBoard(pieceId) {
       const snap = await tx.get(ref);
       const data = snap.exists() ? snap.data() : {};
       const pieces = Array.isArray(data?.pieces) ? data.pieces : [];
+      const seen = Array.isArray(data?.seen) ? data.seen : [];
 
       const target = pieces.find((p) => safeStr(p?.id) === pid) || null;
       if (!target) return;
       if (!isPieceMine(target)) throw new Error("você só pode remover peças suas");
 
       const nextPieces = pieces.filter((p) => safeStr(p?.id) !== pid);
-      tx.set(ref, { pieces: nextPieces, updatedAt: serverTimestamp() }, { merge: true });
+      const nextSeen = seen.slice();
+      if (target?.revealed) {
+        const seenPid = safeStr(target?.pid);
+        if (seenPid && !nextSeen.includes(seenPid)) nextSeen.push(seenPid);
+      }
+      tx.set(ref, { pieces: nextPieces, seen: nextSeen, updatedAt: serverTimestamp() }, { merge: true });
 
       // Zera boosts temporários ao recolher para a pokébola
       const pokePid = safeStr(target.pid);

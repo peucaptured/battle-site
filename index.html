@@ -1051,9 +1051,8 @@
        ═══════════════════════════════════════════════════════ */
     .held-item-badge{
       position:relative;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
+      display:inline-grid;
+      place-items:center;
       width:18px;
       height:18px;
       border-radius:8px;
@@ -1063,6 +1062,8 @@
       color:rgba(248,250,252,.9);
       z-index:5;
       cursor:help;
+      overflow:hidden;
+      line-height:0;
     }
     .held-item-badge.held-item-badge-md{
       width:24px;
@@ -1075,11 +1076,14 @@
       border-radius:12px;
     }
     .held-item-icon{
+      display:block;
       width:70%;
       height:70%;
       object-fit:contain;
+      object-position:center;
       image-rendering:pixelated;
       pointer-events:none;
+      margin:auto;
     }
     .held-item-fallback{
       display:flex;
