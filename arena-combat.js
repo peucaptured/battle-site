@@ -139,6 +139,185 @@ function normalizeStats(stats) {
   return { ...raw, ...norm };
 }
 
+function hasOwn(obj, key) {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function safePidValue(x) {
+  let v = safeStr(x);
+  if (!v) return "";
+  if (v.startsWith("EXT:")) return v;
+  if (v.startsWith("PID:")) v = v.slice(4);
+  if (/^\d+$/.test(v)) return (v.replace(/^0+/, "") || "0");
+  return v;
+}
+
+function pidKey(x) {
+  const v = safePidValue(x);
+  if (!v) return "";
+  if (/^EXT:/i.test(v)) return `ext:${v.slice(4).trim().toLowerCase()}`;
+  return v;
+}
+
+function sheetKind(sheet) {
+  const explicit = safeStr(sheet?.sheet_kind).toLowerCase();
+  if (explicit) return explicit;
+  return safeStr(sheet?.mega_slug) ? "mega" : "base";
+}
+
+function sheetIsMega(sheet) {
+  return sheetKind(sheet) === "mega";
+}
+
+function sheetDocId(sheet) {
+  return safeStr(sheet?._sheet_id || sheet?.sheet_id || sheet?.id);
+}
+
+function pushLookupKey(out, value) {
+  const raw = safePidValue(value);
+  if (!raw) return;
+  const push = (entry) => {
+    if (entry && !out.includes(entry)) out.push(entry);
+  };
+  push(pidKey(raw));
+  if (/^\d+$/.test(raw)) push(String(Number(raw)));
+  push(safeStr(raw).toLowerCase());
+}
+
+function partyLookupKeys(value) {
+  const out = [];
+  if (value && typeof value === "object") {
+    pushLookupKey(out, value?.pid);
+    pushLookupKey(out, value?.pokemon?.id);
+    pushLookupKey(out, value?.pokemon?.name);
+    pushLookupKey(out, value?.name);
+    return out;
+  }
+  pushLookupKey(out, value);
+  return out;
+}
+
+function getTrainerBucket(source, trainerName) {
+  const data = (source && typeof source === "object") ? source : {};
+  if (data?.[trainerName] && typeof data[trainerName] === "object") return data[trainerName];
+  const target = safeStr(trainerName).toLowerCase();
+  for (const [rawKey, value] of Object.entries(data)) {
+    if (safeStr(rawKey).toLowerCase() !== target) continue;
+    if (value && typeof value === "object") return value;
+  }
+  return {};
+}
+
+function getPartyStateEntry(partyStates, trainerName, pidLike) {
+  const targetKeys = partyLookupKeys(pidLike);
+  if (!targetKeys.length) return null;
+  const bucket = getTrainerBucket(partyStates, trainerName);
+  for (const [rawKey, entry] of Object.entries(bucket || {})) {
+    if (targetKeys.includes(pidKey(rawKey))) return entry || {};
+  }
+  return null;
+}
+
+function getSnapshotEntry(trainerName, pidLike) {
+  const players = Array.isArray(window.appState?.players) ? window.appState.players : [];
+  const targetTrainer = safeStr(trainerName).toLowerCase();
+  const targetKeys = partyLookupKeys(pidLike);
+  if (!targetTrainer || !targetKeys.length) return null;
+  for (const player of players) {
+    if (safeStr(player?.trainer_name).toLowerCase() !== targetTrainer) continue;
+    const snapshot = Array.isArray(player?.party_snapshot) ? player.party_snapshot : [];
+    for (const entry of snapshot) {
+      const entryKeys = partyLookupKeys(entry);
+      if (entryKeys.some((key) => targetKeys.includes(key))) return entry;
+    }
+  }
+  return null;
+}
+
+function getBattleMegaState(partyStates, trainerName, pidLike) {
+  const state = getPartyStateEntry(partyStates, trainerName, pidLike) || {};
+  const snapshot = getSnapshotEntry(trainerName, pidLike) || {};
+  const hasExplicitMega = hasOwn(state, "active_mega_slug");
+  const activeMegaSlug = hasExplicitMega ? safeStr(state?.active_mega_slug) : safeStr(snapshot?.active_mega_slug);
+  const explicitCancel = hasExplicitMega && !activeMegaSlug;
+  const pick = (key) => {
+    if (hasOwn(state, key)) return state?.[key];
+    if (explicitCancel) return null;
+    return snapshot?.[key] ?? null;
+  };
+  return {
+    activeMegaSlug: safeStr(activeMegaSlug),
+    effectiveSheetId: explicitCancel ? "" : safeStr(pick("effective_sheet_id")),
+  };
+}
+
+function buildSheetCollections(sheets) {
+  const baseByKey = new Map();
+  const byId = new Map();
+  const megaByBaseSheetId = new Map();
+  const megaByBaseKey = new Map();
+  const pushBase = (rawKey, sheet) => {
+    for (const key of partyLookupKeys(rawKey)) {
+      if (key && !baseByKey.has(key)) baseByKey.set(key, sheet);
+    }
+  };
+  const pushMega = (rawKey, sheet) => {
+    for (const key of partyLookupKeys(rawKey)) {
+      if (!key) continue;
+      if (!megaByBaseKey.has(key)) megaByBaseKey.set(key, []);
+      megaByBaseKey.get(key).push(sheet);
+    }
+  };
+  for (const sheet of (Array.isArray(sheets) ? sheets : [])) {
+    const docId = sheetDocId(sheet);
+    if (docId && !byId.has(docId)) byId.set(docId, sheet);
+    if (sheetIsMega(sheet)) {
+      const baseSheetId = safeStr(sheet?.base_sheet_id);
+      if (baseSheetId) {
+        if (!megaByBaseSheetId.has(baseSheetId)) megaByBaseSheetId.set(baseSheetId, []);
+        megaByBaseSheetId.get(baseSheetId).push(sheet);
+      }
+      pushMega(sheet?.base_pokemon_id, sheet);
+      pushMega(sheet?.base_pokemon_name, sheet);
+      pushMega(sheet?.linked_pid, sheet);
+      continue;
+    }
+    pushBase(sheet?.pokemon?.id, sheet);
+    pushBase(sheet?.linked_pid, sheet);
+    pushBase(sheet?.pokemon?.name, sheet);
+  }
+  return { baseByKey, byId, megaByBaseSheetId, megaByBaseKey };
+}
+
+function getBaseSheetFromCollections(collections, pidLike) {
+  const keys = partyLookupKeys(pidLike);
+  for (const key of keys) {
+    if (collections?.baseByKey?.has?.(key)) return collections.baseByKey.get(key);
+  }
+  return null;
+}
+
+function getMegaSheetsForBase(collections, baseSheet, pidLike) {
+  const out = [];
+  const seen = new Set();
+  const add = (sheet) => {
+    const key = sheetDocId(sheet) || safeStr(sheet?.mega_slug || sheet?.pokemon?.name);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(sheet);
+  };
+  const baseSheetId = sheetDocId(baseSheet);
+  if (baseSheetId) {
+    for (const sheet of (collections?.megaByBaseSheetId?.get?.(baseSheetId) || [])) add(sheet);
+  }
+  for (const rawKey of [pidLike, baseSheet?.pokemon?.id, baseSheet?.pokemon?.name, baseSheet?.linked_pid]) {
+    for (const key of partyLookupKeys(rawKey)) {
+      for (const sheet of (collections?.megaByBaseKey?.get?.(key) || [])) add(sheet);
+    }
+  }
+  return out;
+}
+
 function moveBasedStat(meta) {
   meta = meta || {};
   const cat = safeStr(meta.category).toLowerCase();
@@ -680,6 +859,7 @@ export class ArenaCombatUI {
     this._partyStates = {};
     this._sheets = new Map();
     this._sheetsMap = new Map();
+    this._sheetCollections = new Map();
     this._partyStatesUnsub = null;
 
     this._overlayRoot = null;
@@ -805,23 +985,27 @@ export class ArenaCombatUI {
       });
       this._sheets.set(trainerName, sheets);
       this._sheetsMap.set(trainerName, map);
+      this._sheetCollections.set(trainerName, buildSheetCollections(sheets));
     } catch (e) {}
   }
 
   _getSheet(trainerName, pid) {
-    const m = this._sheetsMap.get(trainerName);
-    if (!m) return null;
-    const key = safeStr(pid);
-    if (m.has(key)) return m.get(key);
-    if (/^\d+$/.test(key)) {
-      const num = String(Number(key));
-      if (m.has(num)) return m.get(num);
+    const collections = this._sheetCollections.get(trainerName) || null;
+    const baseSheet = getBaseSheetFromCollections(collections, pid);
+    if (!baseSheet) return null;
+    const megaState = getBattleMegaState(this._partyStates, trainerName, pid);
+    const megaSheets = getMegaSheetsForBase(collections, baseSheet, pid);
+    const activeSlug = safeStr(megaState?.activeMegaSlug).toLowerCase();
+    if (activeSlug) {
+      const megaSheet = megaSheets.find((sheet) => safeStr(sheet?.mega_slug).toLowerCase() === activeSlug);
+      if (megaSheet) return megaSheet;
     }
-    if (window.dexMap) {
-      const name = (window.dexMap[key] || window.dexMap[String(Number(key))] || "").toLowerCase();
-      if (name && m.has(name)) return m.get(name);
+    const effectiveSheetId = safeStr(megaState?.effectiveSheetId);
+    if (effectiveSheetId && collections?.byId?.has?.(effectiveSheetId)) {
+      const byIdSheet = collections.byId.get(effectiveSheetId);
+      if (sheetIsMega(byIdSheet)) return byIdSheet;
     }
-    return null;
+    return baseSheet;
   }
 
   // Novo _getEffectiveStats incluindo boosts temporários (espelha o combat.js)

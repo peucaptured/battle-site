@@ -687,6 +687,8 @@ function displayNameFromPid(pid, opts = {}) {
   const rawPid = safeStr(pid);
   const owner = safeStr(opts.owner);
   if (!rawPid) return owner || "Peca";
+  const effectiveName = owner ? _getEffectivePokemonName(owner, rawPid) : "";
+  if (effectiveName) return effectiveName;
   const mapped = safeStr(dexNameFromPid(rawPid) || resolvePokemonNameFromPid(rawPid));
   if (mapped) return mapped;
   if (/^trainer_/i.test(rawPid)) return owner || humanizeInternalLabel(rawPid) || "Treinador";
@@ -918,6 +920,12 @@ function getSpriteFallbackUrlForPiece(p) {
   const pidStr = safeStr(p?.pid);
   if (safeStr(p?.kind) === "trainer" || pidStr.startsWith("trainer_")) {
     return getTrainerSpriteSources(p).fallback || "";
+  }
+
+  const owner = safeStr(p?.owner);
+  const effectiveSlug = owner ? _getEffectivePokemonSlug(owner, pidStr) : "";
+  if (effectiveSlug) {
+    return `https://img.pokemondb.net/sprites/home/normal/${effectiveSlug}.png`;
   }
 
   const name = resolvePokemonNameFromPid(p?.pid);
@@ -1959,6 +1967,15 @@ function getSpriteUrlForPiece(p, opts) {
     return getTrainerSpriteSources(p).primary || "";
   }
 
+  const owner = safeStr(p?.owner);
+  const effectiveSlug = owner ? _getEffectivePokemonSlug(owner, pidStr) : "";
+  if (effectiveSlug) {
+    return localSpriteUrl(effectiveSlug, type, shiny)
+      || (type === "art"
+        ? `https://img.pokemondb.net/artwork/large/${effectiveSlug}.jpg`
+        : `https://img.pokemondb.net/sprites/home/normal/${effectiveSlug}.png`);
+  }
+
   // 1) Prefer explicit spriteUrl if present (only for remote URLs)
   const direct = safeStr(p?.spriteUrl || p?.sprite_url || "");
   if (direct && (direct.startsWith("http://") || direct.startsWith("https://"))) return direct;
@@ -2407,14 +2424,15 @@ function renderHeldItemSummaryHtml(rawItem, options = {}) {
 
 function renderPartyCard(it, ownerName) {
   const pid = safeStr(it?.pid || it?.pokemon?.id || it);
-  const name = dexNameFromPid(pid) || (pid.startsWith("EXT:") ? pid.slice(4) : `PID ${pid}`);
-  const _psPartyCard = ((_partyStates && _partyStates[ownerName]) ? _partyStates[ownerName] : {})[pid] || {};
-  const spriteUrl = getSpriteUrlFromPid(pid, { type: "art", shiny: !!_psPartyCard.shiny });
+  const name = displayNameFromPid(pid, { owner: ownerName }) || (pid.startsWith("EXT:") ? pid.slice(4) : `PID ${pid}`);
+  const _psPartyCard = _getPartyStateEntry(ownerName, pid) || {};
+  const spriteUrl = getSpriteUrlForPiece({ owner: ownerName, pid }, { type: "art", shiny: !!_psPartyCard.shiny });
   const mine = safeStr(ownerName) && safeStr(ownerName) === safeStr(appState.by);
   const p = findBoardPieceForTrainer(ownerName, pid);
   const onMap = !!p?.id;
   const isExt = pid.startsWith("EXT:");
-  const ps = ((_partyStates && _partyStates[ownerName]) ? _partyStates[ownerName] : {})[pid] || {};
+  const megaState = _getBattleMegaStateForTrainerPid(ownerName, pid);
+  const ps = _getPartyStateEntry(ownerName, pid) || {};
   const hp = (ps.hp != null ? Number(ps.hp) : 6);
   const maxHp = 6;
   const cond = Array.isArray(ps.cond) ? ps.cond : [];
@@ -2436,6 +2454,7 @@ function renderPartyCard(it, ownerName) {
     ? cond.slice(0, 3).map(c => `<span class="pvp-cond-pill">${escapeHtml(c)}</span>`).join("")
     : `<span class="pvp-no-cond">Sem status negativos.</span>`;
   const extBadge = isExt ? `<span class="pvp-ext-badge">EXT</span>` : "";
+  const megaBadge = megaState?.activeMegaSlug ? `<span class="pvp-ext-badge">MEGA</span>` : "";
   const actionsHtml = mine ? `
     <div class="pvp-actions">
       <button class="pvp-btn" data-act="${onMap ? "select" : "place"}">${onMap ? "🎯 Selecionar" : (getPlacingPokemonPid() === pid ? "📍 Clique no mapa" : "➕ Colocar")}</button>
@@ -2449,7 +2468,7 @@ function renderPartyCard(it, ownerName) {
         ${locBadge}
       </div>
       <div class="pvp-card-info">
-        <div class="pvp-card-name">${escapeHtml(name)} ${extBadge}</div>
+        <div class="pvp-card-name">${escapeHtml(name)} ${megaBadge}${extBadge}</div>
         <div class="pvp-card-sub">PID ${escapeHtml(pid)} &bull; ${onMap ? "No campo" : "Mochila"}</div>
         <div class="pvp-hp-row">
           <span class="pvp-hp-icon">${hpIcon}</span>
@@ -2918,7 +2937,7 @@ function renderInspectorCard() {
   const ownerLabel = humanizeInternalLabel(owner) || owner || "-";
   const name = canSeeIdentity ? displayNameFromPiece(p, { allowHiddenIdentity: true, isMine }) : "???";
   const heldItem = canSeeIdentity ? getHeldItemForTrainerPid(owner, pid) : null;
-  const _psInspector = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
+  const _psInspector = _getPartyStateEntry(owner, pid) || {};
   const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!_psInspector.shiny });
   const spriteFallbackUrl = getSpriteFallbackUrlForPiece(p);
 
@@ -2936,6 +2955,10 @@ function renderInspectorCard() {
 
   // ✅ Dono-only: só o dono pode puxar/usar a ficha completa
   const sh2 = isMine ? getSheetForPiece(p) : null;
+  const megaInfo = isMine ? _resolveSelfEffectiveSheet(pid, owner) : null;
+  const megaControlsHtml = isMine
+    ? _renderMegaControlsHtml(owner, pid, megaInfo || { baseSheet: sh2, effectiveSheet: sh2, megaSheets: [], activeMegaSlug: "" }, { title: "Mega Evolucao" })
+    : "";
 
   const mvBudget = isMine ? getPieceMovementBudget(p) : { speed: 0, maxTiles: 0, dash: false };
   const freeMove = !!appState.movement?.freeByPieceId?.[selId];
@@ -2982,7 +3005,7 @@ function renderInspectorCard() {
   // UI: painel opcional no Inspector. Persistência: public_state/state.pieces[*].mm_conditions / pokemon_conditions
   const condsOpen = !!appState.inspectorCondsOpen;
 
-const psOwner = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
+const psOwner = _getPartyStateEntry(owner, pid) || {};
 const sheetHasSpeed = isMine ? [
   readSpeedFromStats(sh2?.stats), readSpeedFromStats(sh2?.pokemon?.stats),
   readSpeedFromStats(sh2?.poke_stats), Number(sh2?.speed), Number(sh2?.pokemon?.speed),
@@ -3012,6 +3035,7 @@ const sheetHasSpeed = isMine ? [
         <div class="inspector-name">${escapeHtml(name)}</div>
         <div class="inspector-chips">${chips}</div>
         ${renderHeldItemSummaryHtml(heldItem, { label: "Item", size: "md" })}
+        ${megaControlsHtml}
         <div class="muted" style="margin-top:6px">${escapeHtml(uiMoveSummary)}</div>
         ${offenseH}
         ${matchupH}
@@ -3105,13 +3129,13 @@ const sheetHasSpeed = isMine ? [
     await updatePartyStateHp(owner, pid, nextHp);
   });
 
+  _bindMegaControlButtons(wrap);
   return wrap;
 }
 
 function renderSheetsInspectorCard(wrap) {
   const by = safeStr(appState.by);
-  const party = getPartyForTrainer(by) || [];
-  const partyPids = party.map((it) => safePidValue(it?.pid ?? it?.pokemon?.id ?? it)).filter(Boolean);
+  const { partyPids, entries: sheetEntries } = _buildSelfSheetEntries(by);
 
   const byPid = {};
   for (const sh of (_allSheetsLatest || [])) {
@@ -3133,12 +3157,12 @@ function renderSheetsInspectorCard(wrap) {
     if (sh) sheets.push(Object.assign({}, sh, { _party_pid_raw: rawPid }));
   }
 
-  if (!_sheetsSelectedPid || !sheets.some((x) => _sheetResolvedPid(x, x?._party_pid_raw) === _sheetsSelectedPid)) {
-    _sheetsSelectedPid = _sheetResolvedPid(sheets[0], sheets[0]?._party_pid_raw);
+  if (!_sheetsSelectedPid || !sheetEntries.some((entry) => entry._base_pid === _sheetsSelectedPid)) {
+    _sheetsSelectedPid = sheetEntries[0]?._base_pid || null;
   }
 
-  const sh = sheets.find((x) => _sheetResolvedPid(x, x?._party_pid_raw) === _sheetsSelectedPid) || sheets[0] || null;
-  if (!sh) {
+  const activeEntry = sheetEntries.find((entry) => entry._base_pid === _sheetsSelectedPid) || sheetEntries[0] || null;
+  if (!activeEntry) {
     wrap.innerHTML = `
       <div class="inspector-empty">
         <div class="inspector-title">Fichas</div>
@@ -3148,8 +3172,10 @@ function renderSheetsInspectorCard(wrap) {
     return wrap;
   }
 
-  const pkm = sh.pokemon || {};
-  const pid = _sheetResolvedPid(sh, sh?._party_pid_raw);
+  const sh = activeEntry.effectiveSheet || activeEntry.baseSheet;
+  const baseSheet = activeEntry.baseSheet || sh;
+  const pkm = sh?.pokemon || {};
+  const pid = activeEntry._base_pid;
   const pidLabel = _sheetDisplayPid(sh, sh?._party_pid_raw) || "—";
   const pname = safeStr(pkm.name) || "Pokémon";
   const types = Array.isArray(pkm.types) ? pkm.types : [];
@@ -3173,13 +3199,14 @@ function renderSheetsInspectorCard(wrap) {
   if (thg <= 0 && cap > 0) thg = Math.round(cap / 2);
   if (dodge <= 0 && cap > 0 && thg > 0) dodge = Math.max(0, cap - thg);
 
-  const ps = _getPartyStateForSheet(by, sh, sh?._party_pid_raw);
+  const ps = _getPartyStateForSheet(by, baseSheet, pid);
   const hp = (ps.hp ?? 6);
   const cond = Array.isArray(ps.cond) ? ps.cond : [];
   const hpMax = 6;
   const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
   const hpCol = (hpPct > 50) ? "rgba(34,197,94,1)" : (hpPct > 25) ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
-  const heldItem = getHeldItemForTrainerPid(by, pid || sh?._party_pid_raw || pname);
+  const heldItem = getHeldItemForTrainerPid(by, pid || activeEntry._party_pid_raw || pname);
+  const megaControlsHtml = _renderMegaControlsHtml(by, pid, activeEntry);
   // Boosts temporários de stat
   const statBoosts = ps.stat_boosts || {};
   const isOnBoard = !!findBoardPieceForSheet(by, sh, sh?._party_pid_raw);
@@ -3306,7 +3333,10 @@ function renderSheetsInspectorCard(wrap) {
     });
   }
 
-  const art = _artUrlFromPidForSheets(pid || pname, ps.shiny) || _spriteUrlFromPidForSheets(pid || pname) || "";
+  const art = getSpriteUrlForPiece({ owner: by, pid }, { type: "art", shiny: !!ps.shiny })
+    || _artUrlFromPidForSheets(pname || pid, ps.shiny)
+    || _spriteUrlFromPidForSheets(pname || pid)
+    || "";
   const inspTypeBgStyle = _fichaTypeBg(types);
 
   wrap.innerHTML = `
@@ -3326,6 +3356,7 @@ function renderSheetsInspectorCard(wrap) {
             <div class="hp-row"><span>HP</span><span>${hp} / ${hpMax}</span></div>
             <div class="hp-track"><div class="hp-fill" style="width:${hpPct}%;background:${hpCol};"></div></div>
           </div>
+          ${megaControlsHtml}
         </div>
       </div>
       <div class="stat-grid">
@@ -3367,6 +3398,7 @@ function renderSheetsInspectorCard(wrap) {
       if (parent) parent.classList.toggle("open");
     });
   });
+  _bindMegaControlButtons(wrap);
 
   // ── Calculadora de dano — atualização ao vivo + persistência de mods ──
   wrap.querySelectorAll("[data-dmg-calc]").forEach((calcDiv) => {
@@ -3884,10 +3916,224 @@ function clampDirection(dr, dc) {
 
 function getSheetForPiece(piece) {
   if (!_partyEntryLookupKeys(piece).length) return null;
-  for (const sh of (_allSheetsLatest || [])) {
-    if (_sheetMatchesPid(sh, piece, sh?._party_pid_raw)) return sh;
+  const owner = safeStr(piece?.owner || appState.by);
+  const resolved = _resolveSelfEffectiveSheet(piece, owner);
+  return resolved?.effectiveSheet || resolved?.baseSheet || null;
+}
+
+function _hasOwn(obj, key) {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function _sheetKind(sheet) {
+  const explicit = safeStr(sheet?.sheet_kind).toLowerCase();
+  if (explicit) return explicit;
+  return safeStr(sheet?.mega_slug) ? "mega" : "base";
+}
+
+function _sheetIsMega(sheet) {
+  return _sheetKind(sheet) === "mega";
+}
+
+function _sheetDocId(sheet) {
+  return safeStr(sheet?._sheet_id || sheet?.sheet_id || sheet?.id);
+}
+
+function _getTrainerBucket(source, trainerName) {
+  const data = (source && typeof source === "object") ? source : {};
+  const direct = data?.[trainerName];
+  if (direct && typeof direct === "object" && !Array.isArray(direct)) return direct;
+  const targetKey = _trainerLookupKey(trainerName);
+  for (const [rawKey, value] of Object.entries(data)) {
+    if (_trainerLookupKey(rawKey) !== targetKey) continue;
+    if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  }
+  return {};
+}
+
+function _getPartyStateBucket(trainerName) {
+  return _getTrainerBucket(_partyStates, trainerName);
+}
+
+function _getPartyStateEntry(trainerName, pidLike) {
+  const targetKeys = _partyEntryLookupKeys(pidLike);
+  if (!targetKeys.length) return null;
+  const bucket = _getPartyStateBucket(trainerName);
+  for (const [rawKey, entry] of Object.entries(bucket || {})) {
+    if (targetKeys.includes(pidKey(rawKey))) return entry || {};
   }
   return null;
+}
+
+function _getBattleMegaStateForTrainerPid(trainerName, pidLike) {
+  const state = _getPartyStateEntry(trainerName, pidLike) || {};
+  const snapshot = getPartySnapshotEntryForTrainerPid(trainerName, pidLike) || {};
+  const hasExplicitMega = _hasOwn(state, "active_mega_slug");
+  const activeMegaSlug = hasExplicitMega ? safeStr(state?.active_mega_slug) : safeStr(snapshot?.active_mega_slug);
+  const explicitCancel = hasExplicitMega && !activeMegaSlug;
+  const pick = (key) => {
+    if (_hasOwn(state, key)) return state?.[key];
+    if (explicitCancel) return null;
+    return snapshot?.[key] ?? null;
+  };
+  return {
+    state,
+    snapshot,
+    hasExplicitMega,
+    activeMegaSlug,
+    effectiveSheetId: explicitCancel ? "" : safeStr(pick("effective_sheet_id")),
+    effectiveSheetKind: explicitCancel ? "" : safeStr(pick("effective_sheet_kind")),
+    effectivePokemon: explicitCancel ? null : (pick("effective_pokemon") || null),
+    effectiveNp: explicitCancel ? null : pick("effective_np"),
+  };
+}
+
+function _buildSheetCollections(sheets) {
+  const list = Array.isArray(sheets) ? sheets : [];
+  const baseByKey = new Map();
+  const byId = new Map();
+  const megaByBaseSheetId = new Map();
+  const megaByBaseKey = new Map();
+  const pushMega = (map, rawKey, sheet) => {
+    const keys = [];
+    _pushPartyLookupKey(keys, rawKey);
+    for (const key of keys) {
+      if (!key) continue;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(sheet);
+    }
+  };
+  const pushBase = (rawKey, sheet) => {
+    const keys = [];
+    _pushPartyLookupKey(keys, rawKey);
+    for (const key of keys) {
+      if (key && !baseByKey.has(key)) baseByKey.set(key, sheet);
+    }
+  };
+  for (const sheet of list) {
+    const docId = _sheetDocId(sheet);
+    if (docId && !byId.has(docId)) byId.set(docId, sheet);
+    if (_sheetIsMega(sheet)) {
+      const baseSheetId = safeStr(sheet?.base_sheet_id);
+      if (baseSheetId) {
+        if (!megaByBaseSheetId.has(baseSheetId)) megaByBaseSheetId.set(baseSheetId, []);
+        megaByBaseSheetId.get(baseSheetId).push(sheet);
+      }
+      pushMega(megaByBaseKey, sheet?.base_pokemon_id, sheet);
+      pushMega(megaByBaseKey, sheet?.base_pokemon_name, sheet);
+      pushMega(megaByBaseKey, sheet?.linked_pid, sheet);
+      continue;
+    }
+    pushBase(sheet?.pokemon?.id, sheet);
+    pushBase(sheet?.linked_pid, sheet);
+    pushBase(sheet?.pokemon?.name, sheet);
+  }
+  return { baseByKey, byId, megaByBaseSheetId, megaByBaseKey };
+}
+
+function _findBaseSheetInCollections(collections, pidLike) {
+  const targetKeys = _partyEntryLookupKeys(pidLike);
+  if (!targetKeys.length) return null;
+  for (const key of targetKeys) {
+    if (collections?.baseByKey?.has?.(key)) return collections.baseByKey.get(key);
+  }
+  return null;
+}
+
+function _getMegaSheetsForBase(collections, baseSheet, pidLike) {
+  const out = [];
+  const seen = new Set();
+  const add = (sheet) => {
+    const key = _sheetDocId(sheet) || safeStr(sheet?.mega_slug || sheet?.pokemon?.name);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(sheet);
+  };
+  const baseSheetId = _sheetDocId(baseSheet);
+  if (baseSheetId) {
+    for (const sheet of (collections?.megaByBaseSheetId?.get?.(baseSheetId) || [])) add(sheet);
+  }
+  const baseKeys = [];
+  for (const rawKey of [pidLike, baseSheet?.pokemon?.id, baseSheet?.pokemon?.name, baseSheet?.linked_pid]) {
+    _pushPartyLookupKey(baseKeys, rawKey);
+  }
+  for (const key of baseKeys) {
+    for (const sheet of (collections?.megaByBaseKey?.get?.(key) || [])) add(sheet);
+  }
+  return out;
+}
+
+function _resolveEffectiveSheetFromCollections(collections, ownerName, pidLike) {
+  const baseSheet = _findBaseSheetInCollections(collections, pidLike);
+  const megaState = _getBattleMegaStateForTrainerPid(ownerName, pidLike);
+  const megaSheets = baseSheet ? _getMegaSheetsForBase(collections, baseSheet, pidLike) : [];
+  let effectiveSheet = baseSheet;
+  const activeMegaSlug = safeStr(megaState?.activeMegaSlug).toLowerCase();
+  if (activeMegaSlug) {
+    const bySlug = megaSheets.find((sheet) => safeStr(sheet?.mega_slug).toLowerCase() === activeMegaSlug);
+    if (bySlug) effectiveSheet = bySlug;
+  }
+  const effectiveSheetId = safeStr(megaState?.effectiveSheetId);
+  if ((!effectiveSheet || effectiveSheet === baseSheet) && effectiveSheetId && collections?.byId?.has?.(effectiveSheetId)) {
+    const byIdSheet = collections.byId.get(effectiveSheetId);
+    if (_sheetIsMega(byIdSheet)) effectiveSheet = byIdSheet;
+  }
+  return {
+    baseSheet,
+    effectiveSheet: effectiveSheet || baseSheet || null,
+    megaSheets,
+    activeMegaSlug: safeStr(megaState?.activeMegaSlug),
+    megaState,
+  };
+}
+
+function _resolveSelfEffectiveSheet(pidLike, ownerName = safeStr(appState.by)) {
+  return _resolveEffectiveSheetFromCollections(_allSheetsCollections, ownerName, pidLike);
+}
+
+function _displayNameFromMegaSlug(slug) {
+  const raw = safeStr(slug);
+  if (!raw) return "";
+  return humanizeInternalLabel(raw.replace(/\//g, "-")) || raw;
+}
+
+function _getEffectivePokemonContext(ownerName, pidLike) {
+  const isMine = _trainerLookupKey(ownerName) === _trainerLookupKey(appState.by);
+  if (isMine) {
+    const resolved = _resolveSelfEffectiveSheet(pidLike, ownerName);
+    const effectiveSheet = resolved?.effectiveSheet;
+    if (effectiveSheet?.pokemon) {
+      return {
+        pokemon: effectiveSheet.pokemon,
+        sheet: effectiveSheet,
+        activeMegaSlug: resolved?.activeMegaSlug || safeStr(effectiveSheet?.mega_slug),
+      };
+    }
+  }
+  const megaState = _getBattleMegaStateForTrainerPid(ownerName, pidLike);
+  const effectivePokemon = megaState?.effectivePokemon;
+  if (effectivePokemon && typeof effectivePokemon === "object") {
+    return { pokemon: effectivePokemon, sheet: null, activeMegaSlug: megaState.activeMegaSlug };
+  }
+  return { pokemon: null, sheet: null, activeMegaSlug: megaState?.activeMegaSlug || "" };
+}
+
+function _getEffectivePokemonName(ownerName, pidLike) {
+  const ctx = _getEffectivePokemonContext(ownerName, pidLike);
+  const pname = safeStr(ctx?.pokemon?.name);
+  if (pname) return pname;
+  if (ctx?.activeMegaSlug) return _displayNameFromMegaSlug(ctx.activeMegaSlug);
+  return "";
+}
+
+function _getEffectivePokemonSlug(ownerName, pidLike) {
+  const ctx = _getEffectivePokemonContext(ownerName, pidLike);
+  const pname = safeStr(ctx?.pokemon?.name);
+  if (pname && typeof spriteSlugFromPokemonName === "function") {
+    const slug = spriteSlugFromPokemonName(pname);
+    if (slug) return slug;
+  }
+  return safeStr(ctx?.activeMegaSlug);
 }
 
 function readSpeedFromStats(statsObj) {
@@ -7182,6 +7428,7 @@ let _sheetsUnsub = null;
 let _partyStatesUnsub = null;
 
 let _allSheetsLatest = [];   // lista (desc por updated_at) do trainer logado
+let _allSheetsCollections = _buildSheetCollections([]);
 let _partyStates = {};
 let _sheetsSelectedPid = null;
 let _sheetsLastError = "";
@@ -7610,6 +7857,7 @@ function teardownSheetsRealtime() {
   _sheetsRtKey = null;
 
   _allSheetsLatest = [];
+  _allSheetsCollections = _buildSheetCollections([]);
   _partyStates = {};
   _sheetsSelectedPid = null;
   _sheetsLastError = "";
@@ -7643,6 +7891,9 @@ function ensureSheetsRealtime() {
     _partyStatesUnsub = onSnapshot(psDoc, (snap) => {
       _partyStates = snap.exists() ? (snap.data() || {}) : {};
       renderSheetsTab();
+      try { updateSidePanels(); } catch {}
+      try { window.requestScoreboardRefresh?.(); } catch {}
+      try { renderArenaDom?.(); } catch {}
     }, () => {});
   } catch {}
 
@@ -7662,6 +7913,7 @@ function ensureSheetsRealtime() {
         all.push(x);
       });
       _allSheetsLatest = all;
+      _allSheetsCollections = _buildSheetCollections(all);
       _sheetsLastError = "";
       renderSheetsTab();
     }, (err) => {
@@ -7921,11 +8173,145 @@ function _sheetDisplayPid(sh, fallbackPid) {
 }
 
 function _getPartyStateForSheet(ownerName, sh, fallbackPid) {
-  const stateBucket = ((_partyStates && _partyStates[ownerName]) ? _partyStates[ownerName] : {}) || {};
+  const stateBucket = _getPartyStateBucket(ownerName) || {};
   for (const key of _sheetStateCandidates(sh, fallbackPid)) {
     if (Object.prototype.hasOwnProperty.call(stateBucket, key)) return stateBucket[key] || {};
   }
   return {};
+}
+
+function _buildSelfSheetEntries(ownerName = safeStr(appState.by)) {
+  const party = getPartyForTrainer(ownerName) || [];
+  const partyPids = party.map((it) => safePidValue(it?.pid ?? it?.pokemon?.id ?? it)).filter(Boolean);
+  const seen = new Set();
+  const entries = [];
+  for (const rawPid of partyPids) {
+    const basePid = safePidValue(rawPid);
+    if (!basePid || seen.has(basePid)) continue;
+    seen.add(basePid);
+    const resolved = _resolveSelfEffectiveSheet(basePid, ownerName);
+    if (!resolved?.baseSheet) continue;
+    entries.push({
+      _base_pid: basePid,
+      _party_pid_raw: rawPid,
+      baseSheet: resolved.baseSheet,
+      effectiveSheet: resolved.effectiveSheet || resolved.baseSheet,
+      megaSheets: Array.isArray(resolved.megaSheets) ? resolved.megaSheets : [],
+      activeMegaSlug: safeStr(resolved.activeMegaSlug),
+      megaState: resolved.megaState || null,
+    });
+  }
+  return { party, partyPids, entries };
+}
+
+function _sheetMegaLabel(sheet) {
+  return safeStr(sheet?.mega_label || sheet?.pokemon?.name || sheet?.mega_slug) || "Mega Evolucao";
+}
+
+function _renderMegaControlsHtml(ownerName, basePid, entry, options = {}) {
+  const megaSheets = Array.isArray(entry?.megaSheets) ? entry.megaSheets : [];
+  const activeSlug = safeStr(entry?.activeMegaSlug).toLowerCase();
+  const sectionTitle = safeStr(options.title || "Mega Evolucao");
+  if (!megaSheets.length) {
+    const baseSheet = entry?.baseSheet || entry?.effectiveSheet;
+    if (!baseSheet?.mega_available) return "";
+    return `
+      <div class="sheet-divider"></div>
+      <div class="section-title">${escapeHtml(sectionTitle)}</div>
+      <div class="muted">Este Pokemon pode mega evoluir, mas a ficha Mega ainda nao foi criada no Ga'Al Dex.</div>
+    `;
+  }
+  const buttons = megaSheets.map((sheet) => {
+    const slug = safeStr(sheet?.mega_slug);
+    const label = _sheetMegaLabel(sheet);
+    const active = slug && activeSlug === slug.toLowerCase();
+    return `
+      <button type="button" class="btn ${active ? "primary" : "secondary"}"
+        data-mega-act="activate"
+        data-owner="${escapeAttr(ownerName)}"
+        data-pid="${escapeAttr(basePid)}"
+        data-mega-slug="${escapeAttr(slug)}">
+        ${active ? `Mega ativa: ${escapeHtml(label)}` : `Mega Evoluir: ${escapeHtml(label)}`}
+      </button>
+    `;
+  }).join("");
+  const cancelHtml = activeSlug ? `
+    <button type="button" class="btn secondary"
+      data-mega-act="cancel"
+      data-owner="${escapeAttr(ownerName)}"
+      data-pid="${escapeAttr(basePid)}">
+      Cancelar Mega Evolucao
+    </button>
+  ` : "";
+  return `
+    <div class="sheet-divider"></div>
+    <div class="section-title">${escapeHtml(sectionTitle)}</div>
+    <div class="chip-row" data-mega-controls>
+      ${buttons}
+      ${cancelHtml}
+    </div>
+  `;
+}
+
+async function setBattleMegaEvolutionForTrainerPid(ownerName, pidLike, megaSlug = "") {
+  const db = currentDb;
+  const rid = currentRid;
+  const trainer = safeStr(ownerName);
+  const basePid = safePidValue(pidLike);
+  if (!db || !rid || !trainer || !basePid) return;
+  const ref = doc(db, "rooms", rid, "public_state", "party_states");
+  const resolved = _resolveSelfEffectiveSheet(basePid, trainer);
+  const megaSheets = Array.isArray(resolved?.megaSheets) ? resolved.megaSheets : [];
+  const targetSlug = safeStr(megaSlug);
+  const patch = {};
+  if (targetSlug) {
+    const megaSheet = megaSheets.find((sheet) => safeStr(sheet?.mega_slug) === targetSlug);
+    if (!megaSheet) {
+      setStatus("err", "Ficha Mega nao encontrada para este Pokemon.");
+      return;
+    }
+    patch.active_mega_slug = targetSlug;
+    patch.effective_sheet_id = _sheetDocId(megaSheet) || null;
+    patch.effective_sheet_kind = "mega";
+    patch.effective_pokemon = megaSheet?.pokemon || null;
+    patch.effective_np = megaSheet?.np ?? megaSheet?.pokemon?.np ?? megaSheet?.pokemon?.NP ?? null;
+    setStatus("ok", `${displayNameFromPid(basePid, { owner: trainer })}: Mega Evolucao ativada.`);
+  } else {
+    patch.active_mega_slug = null;
+    patch.effective_sheet_id = null;
+    patch.effective_sheet_kind = null;
+    patch.effective_pokemon = null;
+    patch.effective_np = null;
+    setStatus("ok", `${displayNameFromPid(basePid, { owner: trainer })}: Mega Evolucao cancelada.`);
+  }
+  await setDoc(ref, {
+    [trainer]: { [basePid]: patch },
+    updated_at: serverTimestamp(),
+  }, { merge: true });
+}
+
+function _bindMegaControlButtons(root) {
+  if (!root) return;
+  root.querySelectorAll("[data-mega-act=\"activate\"]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        await setBattleMegaEvolutionForTrainerPid(btn.dataset.owner, btn.dataset.pid, btn.dataset.megaSlug);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+  root.querySelectorAll("[data-mega-act=\"cancel\"]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        await setBattleMegaEvolutionForTrainerPid(btn.dataset.owner, btn.dataset.pid, "");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
 }
 
 function _setSheetsBadges() {
@@ -7994,9 +8380,7 @@ function renderSheetsTab() {
     return;
   }
 
-  // Party (do login/users_raw/party_snapshot)
-  const party = getPartyForTrainer(by) || [];
-  const partyPids = party.map((it) => safePidValue(it?.pid ?? it?.pokemon?.id ?? it)).filter(Boolean);
+  const { partyPids, entries: sheetEntries } = _buildSelfSheetEntries(by);
 
   // cria mapa pid->sheet (primeira ocorrência = mais recente)
   const byPid = {};
@@ -8010,16 +8394,7 @@ function renderSheetsTab() {
   }
 
   const sheets = [];
-  const seen = new Set();
-  for (const rawPid of partyPids) {
-    const pid = safePidValue(rawPid);
-    if (!pid || seen.has(pid)) continue;
-    seen.add(pid);
-    let sh = byPid[pid] || byPid[(safeStr(pid).replace(/^0+/, "") || "0")];
-    if (sh) sheets.push(Object.assign({}, sh, { _party_pid_raw: rawPid }));
-  }
-
-  if (countEl) countEl.textContent = String(sheets.length);
+  if (countEl) countEl.textContent = String(sheetEntries.length);
 
   // UI states
   loadingEl.style.display = "none";
@@ -8032,7 +8407,7 @@ function renderSheetsTab() {
     return;
   }
 
-  if (!sheets.length) {
+  if (!sheetEntries.length) {
     cardsGrid.innerHTML = `<div class="sheets-empty" style="grid-column:1/-1">📭 Sem fichas encontradas para a sua party.<br/>
     Salve fichas em <b>Criação Guiada</b> e mantenha a party no <b>Trainer Hub</b>.</div>`;
     detailEl.innerHTML = `<div class="sheets-empty">—</div>`;
@@ -8040,15 +8415,17 @@ function renderSheetsTab() {
   }
 
   // selecionado
-  if (!_sheetsSelectedPid || !sheets.some((x) => _sheetResolvedPid(x, x?._party_pid_raw) === _sheetsSelectedPid)) {
-    _sheetsSelectedPid = _sheetResolvedPid(sheets[0], sheets[0]?._party_pid_raw);
+  if (!_sheetsSelectedPid || !sheetEntries.some((entry) => entry._base_pid === _sheetsSelectedPid)) {
+    _sheetsSelectedPid = sheetEntries[0]?._base_pid || null;
   }
 
   // ---- render cards
   cardsGrid.innerHTML = "";
-  for (const sh of sheets) {
-    const pkm = sh.pokemon || {};
-    const pid = _sheetResolvedPid(sh, sh?._party_pid_raw);
+  for (const entry of sheetEntries) {
+    const sh = entry.effectiveSheet || entry.baseSheet;
+    const baseSheet = entry.baseSheet || sh;
+    const pkm = sh?.pokemon || {};
+    const pid = entry._base_pid;
     const pidLabel = _sheetDisplayPid(sh, sh?._party_pid_raw) || "—";
     const pname = safeStr(pkm.name) || "Pokémon";
     const types = Array.isArray(pkm.types) ? pkm.types : [];
@@ -8081,9 +8458,13 @@ function renderSheetsTab() {
     if (!mvH) mvH = `<div style="opacity:.6;font-size:.78rem;">Sem golpes nesta ficha.</div>`;
 
     const tp = (types || []).map((t) => _typePill(t)).join("");
+    const megaBadge = entry.activeMegaSlug ? `<span class="chip" style="border-color:rgba(251,191,36,.45);color:#fbbf24;">MEGA</span>` : "";
 
-    const _psCard2 = _getPartyStateForSheet(by, sh, sh?._party_pid_raw);
-    const sprite = _artUrlFromPidForSheets(pid || pname, _psCard2.shiny) || _spriteUrlFromPidForSheets(pid || pname) || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
+    const _psCard2 = _getPartyStateForSheet(by, baseSheet, pid);
+    const sprite = getSpriteUrlForPiece({ owner: by, pid }, { type: "art", shiny: !!_psCard2.shiny })
+      || _artUrlFromPidForSheets(pname || pid, _psCard2.shiny)
+      || _spriteUrlFromPidForSheets(pname || pid)
+      || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
 
     const card = document.createElement("div");
     card.className = `poke-card${isSel ? " selected" : ""}`;
@@ -8101,7 +8482,7 @@ function renderSheetsTab() {
         <div class="card-info">
           <div class="card-name">${escapeHtml(pname)}</div>
           <div class="card-sub">#${escapeHtml(pidLabel)} • NP ${escapeHtml(String(np))}</div>
-          <div class="pill-row">${tp}</div>
+          <div class="pill-row">${tp}${megaBadge}</div>
         </div>
       </div>
       <div class="card-divider"></div>
@@ -8113,14 +8494,16 @@ function renderSheetsTab() {
   }
 
   // ---- render detail
-  const sh = sheets.find((x) => _sheetResolvedPid(x, x?._party_pid_raw) === _sheetsSelectedPid) || sheets[0];
-  if (!sh) {
+  const activeEntry = sheetEntries.find((entry) => entry._base_pid === _sheetsSelectedPid) || sheetEntries[0];
+  if (!activeEntry) {
     detailEl.innerHTML = `<div class="sheets-empty">Selecione um card.</div>`;
     return;
   }
 
-  const pkm = sh.pokemon || {};
-  const pid = _sheetResolvedPid(sh, sh?._party_pid_raw);
+  const sh = activeEntry.effectiveSheet || activeEntry.baseSheet;
+  const baseSheet = activeEntry.baseSheet || sh;
+  const pkm = sh?.pokemon || {};
+  const pid = activeEntry._base_pid;
   const pidLabel = _sheetDisplayPid(sh, sh?._party_pid_raw) || "—";
   const pname = safeStr(pkm.name) || "Pokémon";
   const types = Array.isArray(pkm.types) ? pkm.types : [];
@@ -8145,13 +8528,14 @@ function renderSheetsTab() {
   if (dodge <= 0 && cap > 0 && thg > 0) dodge = Math.max(0, cap - thg);
 
   // HP/cond (se existir)
-  const ps = _getPartyStateForSheet(by, sh, sh?._party_pid_raw);
+  const ps = _getPartyStateForSheet(by, baseSheet, pid);
   const hp = (ps.hp ?? 6);
   const cond = Array.isArray(ps.cond) ? ps.cond : [];
   const hpMax = 6;
   const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
   const hpCol = (hpPct > 50) ? "rgba(34,197,94,1)" : (hpPct > 25) ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
-  const heldItem = getHeldItemForTrainerPid(by, pid || sh?._party_pid_raw || pname);
+  const heldItem = getHeldItemForTrainerPid(by, pid || activeEntry._party_pid_raw || pname);
+  const megaControlsHtml = _renderMegaControlsHtml(by, pid, activeEntry);
 
   const tp = (types || []).map((t) => `
     <span class="type-pill" style="background:${_tc(t)}33;border-color:${_tc(t)}55;color:${_tc(t)}">${escapeHtml(t)}</span>
@@ -8232,7 +8616,10 @@ function renderSheetsTab() {
     }
   }
 
-  const art = _artUrlFromPidForSheets(pid || pname, ps.shiny) || _spriteUrlFromPidForSheets(pid || pname) || "";
+  const art = getSpriteUrlForPiece({ owner: by, pid }, { type: "art", shiny: !!ps.shiny })
+    || _artUrlFromPidForSheets(pname || pid, ps.shiny)
+    || _spriteUrlFromPidForSheets(pname || pid)
+    || "";
   // Fundo tipo-estilizado para a ficha
   const typeBgStyle = _fichaTypeBg(types);
 
@@ -8253,6 +8640,7 @@ function renderSheetsTab() {
             </div>
             <div class="hp-track"><div class="hp-fill" style="width:${hpPct}%;background:${hpCol};"></div></div>
           </div>
+          ${megaControlsHtml}
         </div>
       </div>
 
@@ -8282,6 +8670,7 @@ function renderSheetsTab() {
       if (parent) parent.classList.toggle("open");
     });
   });
+  _bindMegaControlButtons(detailEl);
 
   if (safeStr(appState.activeTab) === "sheets") {
     const inspectorRoot = $("inspector_root");
