@@ -441,6 +441,12 @@ const STORAGE_KEYS = {
 let dexMap = null; // { pidStr: name }
 let mapUrlOverride = '';
 
+function pushUniqueString(list, value) {
+  const v = safeStr(value);
+  if (!v || list.includes(v)) return;
+  list.push(v);
+}
+
 function setDexMap(obj) {
   dexMap = (obj && typeof obj === 'object') ? obj : null;
   window.dexMap = dexMap;
@@ -5188,6 +5194,14 @@ function renderArenaDom() {
   // mostra DOM, esconde canvas
   if (canvas) canvas.style.display = "none";
   arenaDom.style.display = "grid";
+  const bgCandidates = getActiveMapImageCandidates();
+  const bgImageCss = bgCandidates
+    .map((url) => `url("${String(url).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}")`)
+    .join(", ");
+  arenaDom.style.backgroundImage = bgImageCss || "";
+  arenaDom.style.backgroundSize = bgImageCss ? "100% 100%" : "";
+  arenaDom.style.backgroundRepeat = bgImageCss ? "no-repeat" : "";
+  arenaDom.style.backgroundPosition = bgImageCss ? "center center" : "";
 
   const gs = domGridSize;
   // limpa tokens e classes
@@ -5291,6 +5305,8 @@ const mapCache = {
   tiles: null, // Float32 shade noise [gs*gs]
   deco: [], // {row,col,type,variant}
   bgUrl: "",
+  bgUrls: [],
+  bgUrlIndex: 0,
   bgRec: null,
 };
 
@@ -5329,10 +5345,11 @@ const _groundLayerCache = {
  */
 function _ensureGroundCache(gs, tile) {
   const tileInt = Math.round(tile);
-  const bg = mapCache.bgRec;
+  const bg = ensureMapBackgroundRecord();
+  const bgUrl = safeStr(mapCache.bgUrl);
   // Include PNG load state in key so cache rebuilds once the image finishes loading
   const bgState = bg && bg.ready && !bg.failed ? "r" : bg && bg.failed ? "f" : "p";
-  const key = `${mapCache.key}|${tileInt}|${bgState}`;
+  const key = `${mapCache.key}|${tileInt}|${bgUrl}|${bgState}`;
   if (key === _groundLayerCache.key && _groundLayerCache.canvas) {
     return _groundLayerCache.canvas;
   }
@@ -5359,6 +5376,35 @@ function _ensureGroundCache(gs, tile) {
   }
   _groundLayerCache.key = key;
   return _groundLayerCache.canvas;
+}
+
+function ensureMapBackgroundRecord() {
+  const urls = Array.isArray(mapCache.bgUrls) ? mapCache.bgUrls : [];
+  if (!urls.length) {
+    mapCache.bgUrl = "";
+    mapCache.bgUrlIndex = 0;
+    mapCache.bgRec = null;
+    return null;
+  }
+
+  let idx = Math.max(0, Number(mapCache.bgUrlIndex) || 0);
+  while (idx < urls.length) {
+    const url = urls[idx];
+    const rec = loadSprite(url);
+    mapCache.bgUrlIndex = idx;
+    mapCache.bgUrl = url;
+    mapCache.bgRec = rec;
+    if (!rec || rec.failed) {
+      idx += 1;
+      continue;
+    }
+    return rec;
+  }
+
+  mapCache.bgUrl = "";
+  mapCache.bgUrlIndex = urls.length;
+  mapCache.bgRec = null;
+  return null;
 }
 
 /**
@@ -5662,7 +5708,7 @@ function drawWaterBorderFoam(ctx, ox, oy, gs, tile) {
 
 
 async function maybeLoadMapData() {
-  const url = safeStr(appState.board?.mapDataUrl || "");
+  const url = getActiveMapDataUrl();
   if (!url || url === mapDataState.url || mapDataState.loading) return;
   mapDataState.url = url;
   mapDataState.loading = true;
@@ -5767,11 +5813,33 @@ function mulberry32(a) {
   };
 }
 
-function getActiveMapUrl() {
-  const fromOverride = safeStr(mapUrlOverride);
-  if (fromOverride) return fromOverride;
+function getActiveMapImageCandidates() {
+  const urls = [];
+  pushUniqueString(urls, mapUrlOverride);
   const b = appState.board || {};
-  return safeStr(b.mapUrl || b.map_url || b.backgroundUrl || "");
+  pushUniqueString(urls, b.mapUrl);
+  pushUniqueString(urls, b.map_url);
+  pushUniqueString(urls, b.backgroundUrl);
+  pushUniqueString(urls, b.background_url);
+  const storagePath = safeStr(
+    b.mapStoragePath || b.map_storage_path || b.backgroundStoragePath || b.background_storage_path
+  );
+  if (storagePath) pushUniqueString(urls, storageMediaUrl(storagePath));
+  return urls;
+}
+
+function getActiveMapUrl() {
+  return getActiveMapImageCandidates()[0] || "";
+}
+
+function getActiveMapDataUrl() {
+  const b = appState.board || {};
+  const urls = [];
+  pushUniqueString(urls, b.mapDataUrl);
+  pushUniqueString(urls, b.map_data_url);
+  const storagePath = safeStr(b.mapDataStoragePath || b.map_data_storage_path);
+  if (storagePath) pushUniqueString(urls, storageMediaUrl(storagePath));
+  return urls[0] || "";
 }
 
 function maybeRebuildMapCache() {
@@ -5781,16 +5849,19 @@ function maybeRebuildMapCache() {
   const gs = appState.gridSize || 10;
   const theme = safeStr(appState.theme) || "biome_grass";
   const seed = _u32(appState.board?.seed || 0);
-  const bgUrl = getActiveMapUrl();
-  const key = `${gs}|${theme}|${seed}|${bgUrl}`;
+  const bgUrls = getActiveMapImageCandidates();
+  const bgKey = bgUrls.join("|");
+  const key = `${gs}|${theme}|${seed}|${bgKey}`;
   if (key === mapCache.key) return;
 
   mapCache.key = key;
   mapCache.gs = gs;
   mapCache.theme = theme;
   mapCache.seed = seed;
-  mapCache.bgUrl = bgUrl;
-  mapCache.bgRec = bgUrl ? loadSprite(bgUrl) : null;
+  mapCache.bgUrls = bgUrls;
+  mapCache.bgUrlIndex = 0;
+  mapCache.bgUrl = bgUrls[0] || "";
+  mapCache.bgRec = mapCache.bgUrl ? loadSprite(mapCache.bgUrl) : null;
 
   // Procedural: per-tile noise + decorations based on seed
   const rng = mulberry32(seed ^ 0xA5A5A5A5);
