@@ -134,6 +134,10 @@ const _spriteOverlay = document.createElement("div");
 _spriteOverlay.id = "sprite_overlay";
 _spriteOverlay.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:2;";
 if (canvasWrap) canvasWrap.appendChild(_spriteOverlay);
+const _pieceFxOverlay = document.createElement("div");
+_pieceFxOverlay.id = "piece_fx_overlay";
+_pieceFxOverlay.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:4;border-radius:var(--radius);";
+if (canvasWrap) canvasWrap.appendChild(_pieceFxOverlay);
 const _spritePool = new Map(); // pieceId -> {el, url}
 const PIECE_FIELD_FX_MS = 420;
 let _pieceScreenBounds = new Map(); // pieceId -> { left, top, width, height, hitZIndex }
@@ -2957,50 +2961,135 @@ function _getPiecePokemonConditions(p) {
   return Array.isArray(p?.pokemon_conditions) ? p.pokemon_conditions.map(safeStr).filter(Boolean) : [];
 }
 
+function renderConditionInfoPlaceholder() {
+  return `
+    <div class="ins-conds-info-empty">
+      Passe o mouse ou selecione uma condição para ver o efeito e a regra aplicada.
+    </div>
+  `;
+}
+
+function renderConditionInfoHtml(entry, { kind = "mm" } = {}) {
+  if (!entry) return renderConditionInfoPlaceholder();
+  const name = safeStr(entry?.name_pt) || safeStr(entry?.id) || "Condição";
+  if (kind === "pkm") {
+    const rules = Array.isArray(entry?.rules_pt) ? entry.rules_pt : [];
+    return `
+      <div class="ins-conds-info-title">${escapeHtml(name)}</div>
+      <div class="ins-conds-info-copy">
+        ${rules.length
+          ? rules.map((rule) => `<div>${escapeHtml(String(rule))}</div>`).join("")
+          : `<div>Sem regras detalhadas cadastradas.</div>`}
+      </div>
+    `;
+  }
+  const does = safeStr(entry?.what_it_does_pt) || safeStr(entry?.what_it_does_en);
+  const mech = safeStr(entry?.mechanics_pt) || safeStr(entry?.mechanics_en);
+  return `
+    <div class="ins-conds-info-title">${escapeHtml(name)}</div>
+    <div class="ins-conds-info-copy">
+      ${does ? `<div>${escapeHtml(does)}</div>` : `<div>Sem resumo descritivo cadastrado.</div>`}
+      ${mech ? `<div class="ins-conds-info-rule">${escapeHtml(mech)}</div>` : ""}
+    </div>
+  `;
+}
+
+function renderConditionSelectionSummaryHtml(mmState, pkmState, { mmLookup = new Map(), pkmLookup = new Map() } = {}) {
+  const chips = [];
+  [
+    ["1º", Array.isArray(mmState?.deg1) ? mmState.deg1 : []],
+    ["2º", Array.isArray(mmState?.deg2) ? mmState.deg2 : []],
+    ["3º", Array.isArray(mmState?.deg3) ? mmState.deg3 : []],
+  ].forEach(([label, ids]) => {
+    ids.forEach((id) => {
+      const entry = mmLookup.get(safeStr(id));
+      const name = safeStr(entry?.name_pt) || safeStr(entry?.id) || safeStr(id) || "Condição";
+      chips.push(`<span class="chip warn">${escapeHtml(label)} • ${escapeHtml(name)}</span>`);
+    });
+  });
+  (Array.isArray(pkmState) ? pkmState : []).forEach((id) => {
+    const entry = pkmLookup.get(safeStr(id));
+    const name = safeStr(entry?.name_pt) || safeStr(entry?.id) || safeStr(id) || "Condição";
+    chips.push(`<span class="chip">${escapeHtml(name)}</span>`);
+  });
+  return chips.length
+    ? `<div class="chip-row">${chips.join("")}</div>`
+    : `<div class="muted">Nenhuma condição aplicada.</div>`;
+}
+
 function renderInspectorConditionsPanelHTML(piece, { isMine }) {
   const mm = _getPieceMmConditions(piece);
   const pkm = _getPiecePokemonConditions(piece);
+  const owner = safeStr(piece?.owner) || "—";
+  const ownerLabel = humanizeInternalLabel(owner) || owner || "—";
+  const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
+  const types = resolvePieceInspectorTypes(piece, { isMine });
+  const spriteState = _getPartyStateEntry(owner, safeStr(piece?.pid)) || {};
+  const spriteUrl = getSpriteUrlForPiece(piece, { type: "art", shiny: !!spriteState.shiny });
+  const spriteFallbackUrl = getSpriteFallbackUrlForPiece(piece);
+  const typeChips = types.map((type) => _typePill(type)).join("");
   return `
     <div class="ins-conds">
-      <div class="ins-conds-title">Condições</div>
-
-      <div class="ins-conds-grid">
-        <div class="ins-conds-col">
-          <div class="ins-conds-degree">1º Grau</div>
-          <div class="custom-cond-list" data-ins-cond="mm-deg1" ${isMine ? "" : "data-disabled='true'"}></div>
-          <div class="ins-conds-desc" id="desc-mm-deg1">Passe o mouse para ler...</div>
+      <div class="ins-conds-hero">
+        <div class="ins-conds-hero-media">
+          ${spriteUrl ? `<img src="${escapeAttr(spriteUrl)}" alt="${escapeAttr(name)}" loading="lazy" data-fallback="${escapeAttr(spriteFallbackUrl)}" onerror="if(this.dataset.fallback && this.src!==this.dataset.fallback){this.src=this.dataset.fallback;}else{this.style.display='none'}"/>` : `<span>#</span>`}
         </div>
-        <div class="ins-conds-col">
-          <div class="ins-conds-degree">2º Grau</div>
-          <div class="custom-cond-list" data-ins-cond="mm-deg2" ${isMine ? "" : "data-disabled='true'"}></div>
-          <div class="ins-conds-desc" id="desc-mm-deg2">Passe o mouse para ler...</div>
-        </div>
-        <div class="ins-conds-col">
-          <div class="ins-conds-degree">3º Grau</div>
-          <div class="custom-cond-list" data-ins-cond="mm-deg3" ${isMine ? "" : "data-disabled='true'"}></div>
-          <div class="ins-conds-desc" id="desc-mm-deg3">Passe o mouse para ler...</div>
+        <div class="ins-conds-hero-copy">
+          <div class="ins-conds-title">Condições</div>
+          <div class="ins-conds-hero-sub">${escapeHtml(name)} • ${escapeHtml(ownerLabel)} • ${escapeHtml(pieceTypeLabel(piece))}</div>
+          <div class="chip-row">
+            <span class="chip">${escapeHtml(isMine ? "Editável" : "Somente leitura")}</span>
+            ${typeChips || `<span class="chip">Tipos indisponíveis</span>`}
+          </div>
         </div>
       </div>
 
-      <div class="ins-conds-actions">
-        <button type="button" class="btn secondary" data-ins-act="conds-save" ${isMine ? "" : "disabled"}>💾 Salvar</button>
-        <button type="button" class="btn danger" data-ins-act="conds-clear" ${isMine ? "" : "disabled"}>🧹 Limpar tudo</button>
-      </div>
-
-      <div class="ins-conds-subtitle">Condições Pokémon</div>
-      <div class="custom-cond-list pkm-list" data-ins-cond="pkm" ${isMine ? "" : "data-disabled='true'"}></div>
-      <div class="ins-conds-desc" id="desc-pkm">Passe o mouse para ler...</div>
-
-      <div class="ins-conds-current">
-        <div class="muted">Aplicadas agora:</div>
-        <div class="chip-row">
-          ${(mm.deg1.concat(mm.deg2, mm.deg3).length || pkm.length)
-            ? `${mm.deg1.map((id) => `<span class="chip warn">1°: ${escapeHtml(id)}</span>`).join("")}
-               ${mm.deg2.map((id) => `<span class="chip warn">2°: ${escapeHtml(id)}</span>`).join("")}
-               ${mm.deg3.map((id) => `<span class="chip warn">3°: ${escapeHtml(id)}</span>`).join("")}
-               ${pkm.map((id) => `<span class="chip">PKM: ${escapeHtml(id)}</span>`).join("")}`
-            : `<span class="muted">Nenhuma.</span>`}
+      <div class="ins-conds-shell">
+        <div class="ins-conds-groups">
+          <section class="ins-conds-card" data-cond-group="mm-deg1">
+            <div class="ins-conds-card-head">
+              <div class="ins-conds-degree">1º Grau</div>
+              <div class="ins-conds-count" data-ins-count="mm-deg1">0 selecionadas</div>
+            </div>
+            <div class="custom-cond-list cond-grid" data-ins-cond="mm-deg1" ${isMine ? "" : "data-disabled='true'"}></div>
+          </section>
+          <section class="ins-conds-card" data-cond-group="mm-deg2">
+            <div class="ins-conds-card-head">
+              <div class="ins-conds-degree">2º Grau</div>
+              <div class="ins-conds-count" data-ins-count="mm-deg2">0 selecionadas</div>
+            </div>
+            <div class="custom-cond-list cond-grid" data-ins-cond="mm-deg2" ${isMine ? "" : "data-disabled='true'"}></div>
+          </section>
+          <section class="ins-conds-card" data-cond-group="mm-deg3">
+            <div class="ins-conds-card-head">
+              <div class="ins-conds-degree">3º Grau</div>
+              <div class="ins-conds-count" data-ins-count="mm-deg3">0 selecionadas</div>
+            </div>
+            <div class="custom-cond-list cond-grid" data-ins-cond="mm-deg3" ${isMine ? "" : "data-disabled='true'"}></div>
+          </section>
+          <section class="ins-conds-card is-wide" data-cond-group="pkm">
+            <div class="ins-conds-card-head">
+              <div class="ins-conds-degree">Condições Pokémon</div>
+              <div class="ins-conds-count" data-ins-count="pkm">0 selecionadas</div>
+            </div>
+            <div class="custom-cond-list pkm-list cond-grid" data-ins-cond="pkm" ${isMine ? "" : "data-disabled='true'"}></div>
+          </section>
         </div>
+
+        <aside class="ins-conds-side">
+          <div class="ins-conds-side-block">
+            <div class="ins-conds-side-title">Descrição</div>
+            <div class="ins-conds-info" id="ins_conds_info_panel">${renderConditionInfoPlaceholder()}</div>
+          </div>
+          <div class="ins-conds-side-block">
+            <div class="ins-conds-side-title">Aplicadas agora</div>
+            <div class="ins-conds-current" id="ins_conds_current">${renderConditionSelectionSummaryHtml(mm, pkm)}</div>
+          </div>
+          <div class="ins-conds-actions">
+            <button type="button" class="btn secondary" data-ins-act="conds-save" ${isMine ? "" : "disabled"}>💾 Salvar</button>
+            <button type="button" class="btn danger" data-ins-act="conds-clear" ${isMine ? "" : "disabled"}>🧹 Limpar tudo</button>
+          </div>
+        </aside>
       </div>
     </div>
   `;
@@ -3013,12 +3102,13 @@ async function mountInspectorConditionsPanel(wrap, piece, { isMine }) {
   const catalog = await _loadAfflictionsCatalogOnce();
   const mmAll = Array.isArray(catalog?.conditions_mm) ? catalog.conditions_mm : [];
   const pkmAll = Array.isArray(catalog?.pokemon_status_builds) ? catalog.pokemon_status_builds : [];
+  const mmLookup = new Map(mmAll.map((entry) => [safeStr(entry?.id), entry]));
+  const pkmLookup = new Map(pkmAll.map((entry) => [safeStr(entry?.id), entry]));
 
-  // 1. Filtragem por Graus (Ajustado para ler as roles de graus do Mutants & Masterminds)
   const degFilters = {
-    "mm-deg1": mmAll.filter(c => c.affliction_degree === 1 || (c.degree_suggestions && c.degree_suggestions["1"])),
-    "mm-deg2": mmAll.filter(c => c.affliction_degree === 2 || (c.degree_suggestions && c.degree_suggestions["2"]) || c.id === "bound" || c.id === "restrained"),
-    "mm-deg3": mmAll.filter(c => c.affliction_degree === 3 || c.affliction_degree === null || (c.degree_suggestions && c.degree_suggestions["3"]))
+    "mm-deg1": mmAll.filter((entry) => entry.affliction_degree === 1 || (entry.degree_suggestions && entry.degree_suggestions["1"])),
+    "mm-deg2": mmAll.filter((entry) => entry.affliction_degree === 2 || (entry.degree_suggestions && entry.degree_suggestions["2"]) || entry.id === "bound" || entry.id === "restrained"),
+    "mm-deg3": mmAll.filter((entry) => entry.affliction_degree === 3 || entry.affliction_degree === null || (entry.degree_suggestions && entry.degree_suggestions["3"])),
   };
 
   const mmState = _getPieceMmConditions(piece);
@@ -3027,91 +3117,113 @@ async function mountInspectorConditionsPanel(wrap, piece, { isMine }) {
     "mm-deg2": new Set(mmState.deg2),
     "mm-deg3": new Set(mmState.deg3),
   };
+  const pkmSelected = new Set(_getPiecePokemonConditions(piece));
+  const infoPanel = wrap.querySelector("#ins_conds_info_panel");
+  const currentPanel = wrap.querySelector("#ins_conds_current");
+  const countEls = {
+    "mm-deg1": wrap.querySelector('[data-ins-count="mm-deg1"]'),
+    "mm-deg2": wrap.querySelector('[data-ins-count="mm-deg2"]'),
+    "mm-deg3": wrap.querySelector('[data-ins-count="mm-deg3"]'),
+    pkm: wrap.querySelector('[data-ins-count="pkm"]'),
+  };
+  const setInfoPanel = (html) => {
+    if (infoPanel) infoPanel.innerHTML = html || renderConditionInfoPlaceholder();
+  };
+  const refreshSelectionSummary = () => {
+    Object.entries(selected).forEach(([key, store]) => {
+      const countEl = countEls[key];
+      if (countEl) countEl.textContent = `${store.size} selecionada${store.size === 1 ? "" : "s"}`;
+    });
+    if (countEls.pkm) countEls.pkm.textContent = `${pkmSelected.size} selecionada${pkmSelected.size === 1 ? "" : "s"}`;
+    if (currentPanel) {
+      currentPanel.innerHTML = renderConditionSelectionSummaryHtml(
+        {
+          deg1: Array.from(selected["mm-deg1"]),
+          deg2: Array.from(selected["mm-deg2"]),
+          deg3: Array.from(selected["mm-deg3"]),
+        },
+        Array.from(pkmSelected),
+        { mmLookup, pkmLookup },
+      );
+    }
+  };
 
-  // 2. Renderizar M&M Condições (Custom List)
-  Object.keys(degFilters).forEach(key => {
+  Object.keys(degFilters).forEach((key) => {
     const listContainer = wrap.querySelector(`[data-ins-cond="${key}"]`);
     if (!listContainer) return;
-
-    const sorted = degFilters[key].sort((a, b) => String(a?.name_pt || a?.id).localeCompare(String(b?.name_pt || b?.id), "pt"));
-    listContainer.innerHTML = sorted.map(c => {
-      const isSel = selected[key].has(c.id);
-      const label = `${safeStr(c.name_pt) || c.id}${safeStr(c.name_en) && c.name_en !== c.name_pt ? ` <small class="muted">(${safeStr(c.name_en)})</small>` : ""}`;
-      return `<div class="cond-item ${isSel ? 'selected' : ''}" data-id="${escapeAttr(c.id)}" data-degree="${key}">${label}</div>`;
+    const sorted = degFilters[key]
+      .slice()
+      .sort((a, b) => String(a?.name_pt || a?.id).localeCompare(String(b?.name_pt || b?.id), "pt"));
+    listContainer.innerHTML = sorted.map((entry) => {
+      const id = safeStr(entry?.id);
+      const isSelected = selected[key].has(id);
+      const namePt = safeStr(entry?.name_pt) || id;
+      const nameEn = safeStr(entry?.name_en);
+      return `
+        <button type="button" class="cond-item ${isSelected ? "selected" : ""}" data-id="${escapeAttr(id)}" data-degree="${key}" aria-pressed="${isSelected ? "true" : "false"}">
+          <span class="cond-item-name">${escapeHtml(namePt)}</span>
+          ${nameEn && nameEn !== namePt ? `<small>${escapeHtml(nameEn)}</small>` : ""}
+        </button>
+      `;
     }).join("");
   });
 
-  // 3. Renderizar Pokémon Condições (Custom List)
   const pkmWrap = wrap.querySelector('[data-ins-cond="pkm"]');
-  const pkmSelected = new Set(_getPiecePokemonConditions(piece));
-  const pkmSorted = pkmAll.slice().filter((s) => s && (s.id != null)).sort((a, b) => String(a?.name_pt || a?.id || "").localeCompare(String(b?.name_pt || b?.id || ""), "pt"));
   if (pkmWrap) {
-    pkmWrap.innerHTML = pkmSorted.map(s => {
-      const id = safeStr(s.id);
-      const isSel = pkmSelected.has(id);
-      return `<div class="cond-item pkm-item ${isSel ? 'selected' : ''}" data-pkm-id="${escapeAttr(id)}">${escapeHtml(safeStr(s.name_pt) || id)}</div>`;
+    const pkmSorted = pkmAll
+      .slice()
+      .filter((entry) => entry && entry.id != null)
+      .sort((a, b) => String(a?.name_pt || a?.id || "").localeCompare(String(b?.name_pt || b?.id || ""), "pt"));
+    pkmWrap.innerHTML = pkmSorted.map((entry) => {
+      const id = safeStr(entry?.id);
+      const isSelected = pkmSelected.has(id);
+      const namePt = safeStr(entry?.name_pt) || id;
+      return `
+        <button type="button" class="cond-item pkm-item ${isSelected ? "selected" : ""}" data-pkm-id="${escapeAttr(id)}" aria-pressed="${isSelected ? "true" : "false"}">
+          <span class="cond-item-name">${escapeHtml(namePt)}</span>
+        </button>
+      `;
     }).join("");
   }
 
-  // 4. Lógica de Hover e Clique (M&M)
-  wrap.querySelectorAll('.cond-item[data-degree]').forEach(item => {
-    const condId = item.dataset.id;
-    const degKey = item.dataset.degree;
-    const condData = mmAll.find(c => c.id === condId);
+  const bindInfoPreview = (item, htmlFactory) => {
+    item.addEventListener("mouseenter", () => setInfoPanel(htmlFactory()));
+    item.addEventListener("focus", () => setInfoPanel(htmlFactory()));
+  };
 
-    item.addEventListener('mouseenter', () => {
-      const descBox = wrap.querySelector(`#desc-${degKey}`);
-      if (condData && descBox) {
-        const does = safeStr(condData.what_it_does_pt) || safeStr(condData.what_it_does_en);
-        const mech = safeStr(condData.mechanics_pt) || safeStr(condData.mechanics_en);
-        descBox.innerHTML = `
-          <strong style="color:#fff">${escapeHtml(condData.name_pt || condId)}</strong><br/>
-          ${does ? `${escapeHtml(does)}<br/>` : ""}
-          ${mech ? `<span style="color: #60a5fa">${escapeHtml(mech)}</span>` : ""}
-        `;
-      }
-    });
-    item.addEventListener('mouseleave', () => {
-       const descBox = wrap.querySelector(`#desc-${degKey}`);
-       if(descBox) descBox.innerHTML = "Passe o mouse para ler...";
-    });
-    item.addEventListener('click', () => {
+  wrap.querySelectorAll(".cond-item[data-degree]").forEach((item) => {
+    const condId = safeStr(item.dataset.id);
+    const degKey = safeStr(item.dataset.degree);
+    const condData = mmLookup.get(condId) || null;
+    bindInfoPreview(item, () => renderConditionInfoHtml(condData, { kind: "mm" }));
+    item.addEventListener("click", () => {
+      setInfoPanel(renderConditionInfoHtml(condData, { kind: "mm" }));
       if (!isMine) return;
-      item.classList.toggle('selected');
-      if (item.classList.contains('selected')) selected[degKey].add(condId);
+      item.classList.toggle("selected");
+      item.setAttribute("aria-pressed", item.classList.contains("selected") ? "true" : "false");
+      if (item.classList.contains("selected")) selected[degKey].add(condId);
       else selected[degKey].delete(condId);
+      refreshSelectionSummary();
     });
   });
 
-  // 5. Lógica de Hover e Clique (Pokémon)
-  wrap.querySelectorAll('.pkm-item').forEach(item => {
-    const pkmId = item.dataset.pkmId;
-    const pkmData = pkmAll.find(s => s.id === pkmId);
-
-    item.addEventListener('mouseenter', () => {
-      const descBox = wrap.querySelector(`#desc-pkm`);
-      if (pkmData && descBox) {
-        const rules = Array.isArray(pkmData.rules_pt) ? pkmData.rules_pt : [];
-        const rulesHtml = rules.map(r => `• ${escapeHtml(String(r))}`).join("<br/>");
-        descBox.innerHTML = `
-          <strong style="color:#fff">${escapeHtml(pkmData.name_pt || pkmId)}</strong><br/>
-          <span style="color: #60a5fa">${rulesHtml || '(sem regras)'}</span>
-        `;
-      }
-    });
-    item.addEventListener('mouseleave', () => {
-       const descBox = wrap.querySelector(`#desc-pkm`);
-       if(descBox) descBox.innerHTML = "Passe o mouse para ler...";
-    });
-    item.addEventListener('click', () => {
+  wrap.querySelectorAll(".cond-item[data-pkm-id]").forEach((item) => {
+    const pkmId = safeStr(item.dataset.pkmId);
+    const pkmData = pkmLookup.get(pkmId) || null;
+    bindInfoPreview(item, () => renderConditionInfoHtml(pkmData, { kind: "pkm" }));
+    item.addEventListener("click", () => {
+      setInfoPanel(renderConditionInfoHtml(pkmData, { kind: "pkm" }));
       if (!isMine) return;
-      item.classList.toggle('selected');
-      if (item.classList.contains('selected')) pkmSelected.add(pkmId);
+      item.classList.toggle("selected");
+      item.setAttribute("aria-pressed", item.classList.contains("selected") ? "true" : "false");
+      if (item.classList.contains("selected")) pkmSelected.add(pkmId);
       else pkmSelected.delete(pkmId);
+      refreshSelectionSummary();
     });
   });
 
-  // 6. Botões Salvar / Limpar
+  refreshSelectionSummary();
+
   wrap.querySelector('[data-ins-act="conds-save"]')?.addEventListener("click", async () => {
     if (!isMine) return;
     const mm_conditions = {
@@ -3127,6 +3239,14 @@ async function mountInspectorConditionsPanel(wrap, piece, { isMine }) {
   wrap.querySelector('[data-ins-act="conds-clear"]')?.addEventListener("click", async () => {
     if (!isMine) return;
     await setPieceConditions(piece.id, { deg1: [], deg2: [], deg3: [] }, []);
+    Object.values(selected).forEach((store) => store.clear());
+    pkmSelected.clear();
+    wrap.querySelectorAll(".cond-item.selected").forEach((item) => {
+      item.classList.remove("selected");
+      item.setAttribute("aria-pressed", "false");
+    });
+    setInfoPanel(renderConditionInfoPlaceholder());
+    refreshSelectionSummary();
     updateSidePanels();
   });
 }
@@ -4470,13 +4590,14 @@ function resetPieceFieldFx() {
   _pieceEnteringIds.clear();
   _pieceFieldFxBootstrapped = false;
   _spriteOverlay?.querySelectorAll?.(".piece-exit-ghost")?.forEach?.((node) => node.remove());
+  _pieceFxOverlay?.querySelectorAll?.(".piece-exit-ghost")?.forEach?.((node) => node.remove());
   for (const entry of _spritePool.values()) {
     entry?.el?.classList?.remove?.("piece-entering");
   }
 }
 
 function spawnPieceExitGhost(piece, bounds) {
-  if (!_spriteOverlay || !piece || !bounds) return;
+  if (!_pieceFxOverlay || !piece || !bounds) return;
   const liveEntry = _spritePool.get(safeStr(piece?.id));
   const _psPiece = ((_partyStates && _partyStates[safeStr(piece?.owner)]) ? _partyStates[safeStr(piece?.owner)] : {})[safeStr(piece?.pid)] || {};
   const src = liveEntry?.el?.currentSrc || liveEntry?.el?.src || getSpriteUrlForPiece(piece, { type: "battle", shiny: !!_psPiece.shiny }) || getSpriteFallbackUrlForPiece(piece);
@@ -4495,7 +4616,7 @@ function spawnPieceExitGhost(piece, bounds) {
   ghost.style.height = `${bounds.height}px`;
   ghost.style.zIndex = String(bounds.hitZIndex || 1);
   ghost.setAttribute("aria-hidden", "true");
-  _spriteOverlay.appendChild(ghost);
+  _pieceFxOverlay.appendChild(ghost);
 
   const cleanupGhost = () => ghost.remove();
   ghost.addEventListener("animationend", cleanupGhost, { once: true });
@@ -6301,6 +6422,7 @@ function renderArenaDom() {
   _trimMegaEvolutionFx();
   ensureDomGrid();
   const board = getArenaBoardMetrics();
+  const frameNow = window.performance?.now?.() ?? Date.now();
   arenaDom.style.left = `${board.left}px`;
   arenaDom.style.top = `${board.top}px`;
   arenaDom.style.width = `${board.side}px`;
@@ -6348,6 +6470,8 @@ function renderArenaDom() {
   }
 
   updateMovementTurnState();
+  const activePieces = (appState.pieces || []).filter((piece) => safeStr(piece?.status || "active") === "active");
+  updatePieceFieldFx(activePieces, frameNow);
   const selPiece = (appState.pieces || []).find((p) => safeStr(p?.id) === safeStr(appState.selectedPieceId)) || null;
   if (!placingPid && selPiece && canCurrentPlayerMovePiece(selPiece.id)) {
     const reach = getReachableTileMap(selPiece);
@@ -6380,6 +6504,7 @@ function renderArenaDom() {
     const token = document.createElement("div");
     token.className = "token";
     token.dataset.pieceId = safeStr(p?.id);
+    syncPieceEnteringClass(token, safeStr(p?.id), frameNow);
     if (getMegaEvolutionFxState(p?.owner, p?.pid)) token.classList.add("mega-evolving");
     const sizeCategory = p?.sizeCategory || "medium";
     const { tileW, tileH } = getSizeDimensions(sizeCategory);
@@ -9201,6 +9326,293 @@ function _injectSheetsStyleOnce() {
   if (!document.getElementById("sheets_tab_style_type_pill")) {
     document.head.appendChild(stTypePill);
   }
+  if (!document.getElementById("sheets_tab_style_overrides_20260409")) {
+    const stOverrides = document.createElement("style");
+    stOverrides.id = "sheets_tab_style_overrides_20260409";
+    stOverrides.textContent = `
+    #tab_sheets .fichas-layout{
+      display:grid;
+      grid-template-columns:minmax(320px,420px) minmax(0,1fr);
+      gap:16px;
+      align-items:start;
+    }
+    #tab_sheets .cards-grid{
+      align-content:start;
+    }
+    #tab_sheets #sheetDetailWrap{
+      display:block;
+      min-width:0;
+    }
+    #tab_sheets #sheetDetail{
+      position:sticky;
+      top:16px;
+      min-width:0;
+    }
+    #tab_sheets #sheetDetail .inspector{
+      min-width:0;
+    }
+    #tab_sheets #sheetDetail .inspector-card.ficha-v2{
+      background:#223355;
+      border:1px solid rgba(255,255,255,.14);
+      border-radius:24px;
+      padding:18px;
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+    }
+    #tab_sheets #sheetDetail .inspector-head{
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:12px;
+    }
+    #tab_sheets #sheetDetail .inspector-title{
+      font-size:1.25rem;
+      font-weight:950;
+    }
+    #tab_sheets #sheetDetail .inspector-sub{
+      font-size:.82rem;
+      opacity:.78;
+    }
+    .ins-conds{
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+      color:rgba(226,232,240,.96);
+    }
+    .ins-conds-hero{
+      display:flex;
+      align-items:center;
+      gap:14px;
+      padding:14px;
+      border-radius:18px;
+      border:1px solid rgba(120,210,255,.16);
+      background:linear-gradient(180deg, rgba(12,20,38,.92), rgba(8,14,28,.82));
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+    }
+    .ins-conds-hero-media{
+      width:86px;
+      height:86px;
+      flex:0 0 86px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      border-radius:20px;
+      border:1px solid rgba(255,255,255,.12);
+      background:radial-gradient(circle at top, rgba(56,189,248,.18), transparent 60%), rgba(15,23,42,.78);
+    }
+    .ins-conds-hero-media img{
+      width:70px;
+      height:70px;
+      object-fit:contain;
+      filter:drop-shadow(0 10px 18px rgba(0,0,0,.35));
+    }
+    .ins-conds-hero-copy{
+      min-width:0;
+      flex:1;
+    }
+    .ins-conds-title{
+      font-size:1.1rem;
+      font-weight:950;
+      line-height:1.05;
+    }
+    .ins-conds-hero-sub{
+      margin-top:4px;
+      font-size:.82rem;
+      color:rgba(148,163,184,.9);
+    }
+    .ins-conds-shell{
+      display:grid;
+      grid-template-columns:minmax(0,1.3fr) minmax(280px,.85fr);
+      gap:16px;
+      align-items:start;
+    }
+    .ins-conds-groups{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:12px;
+    }
+    .ins-conds-card{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      padding:12px;
+      border-radius:18px;
+      border:1px solid rgba(148,163,184,.14);
+      background:linear-gradient(180deg, rgba(15,23,42,.78), rgba(10,16,30,.88));
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+    }
+    .ins-conds-card.is-wide{
+      grid-column:1 / -1;
+    }
+    .ins-conds-card-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .ins-conds-degree{
+      font-size:.76rem;
+      font-weight:950;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:rgba(186,230,253,.9);
+    }
+    .ins-conds-count{
+      font-size:.72rem;
+      font-weight:800;
+      color:rgba(148,163,184,.88);
+      white-space:nowrap;
+    }
+    .custom-cond-list.cond-grid{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+      gap:8px;
+      padding:4px;
+      max-height:260px;
+      overflow:auto;
+      scrollbar-color:rgba(148,163,184,.6) rgba(15,23,42,.35);
+    }
+    .custom-cond-list.pkm-list.cond-grid{
+      grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    }
+    .cond-item{
+      width:100%;
+      display:flex;
+      flex-direction:column;
+      align-items:flex-start;
+      gap:4px;
+      padding:10px 12px;
+      border-radius:14px;
+      border:1px solid rgba(148,163,184,.16);
+      background:rgba(15,23,42,.62);
+      color:rgba(226,232,240,.96);
+      cursor:pointer;
+      text-align:left;
+      transition:border-color .16s ease, transform .16s ease, background .16s ease, box-shadow .16s ease;
+    }
+    .cond-item small{
+      color:rgba(148,163,184,.78);
+      font-size:.72rem;
+      line-height:1.25;
+    }
+    .cond-item:hover,
+    .cond-item:focus-visible{
+      border-color:rgba(56,189,248,.46);
+      background:rgba(10,36,58,.75);
+      box-shadow:0 0 0 1px rgba(56,189,248,.18);
+      transform:translateY(-1px);
+      outline:none;
+    }
+    .cond-item.selected{
+      border-color:rgba(56,189,248,.62);
+      background:linear-gradient(180deg, rgba(15,51,86,.88), rgba(10,25,45,.92));
+      box-shadow:0 0 0 1px rgba(56,189,248,.22), 0 12px 22px rgba(2,6,23,.28);
+    }
+    .cond-item.pkm-item{
+      justify-content:center;
+      min-height:66px;
+    }
+    .cond-item-name{
+      font-size:.84rem;
+      font-weight:850;
+      line-height:1.25;
+    }
+    .custom-cond-list[data-disabled='true'] .cond-item{
+      opacity:.88;
+    }
+    .ins-conds-side{
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      position:sticky;
+      top:0;
+    }
+    .ins-conds-side-block{
+      padding:12px;
+      border-radius:18px;
+      border:1px solid rgba(148,163,184,.14);
+      background:linear-gradient(180deg, rgba(12,20,38,.82), rgba(8,14,28,.92));
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+    }
+    .ins-conds-side-title{
+      font-size:.72rem;
+      font-weight:950;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:rgba(148,163,184,.9);
+      margin-bottom:8px;
+    }
+    .ins-conds-info{
+      min-height:160px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(2,6,23,.35);
+      padding:12px;
+    }
+    .ins-conds-info-empty{
+      color:rgba(148,163,184,.9);
+      line-height:1.5;
+      font-size:.84rem;
+    }
+    .ins-conds-info-title{
+      font-size:1rem;
+      font-weight:950;
+      margin-bottom:8px;
+    }
+    .ins-conds-info-copy{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      line-height:1.45;
+      font-size:.84rem;
+    }
+    .ins-conds-info-rule{
+      color:#7dd3fc;
+      font-weight:700;
+    }
+    .ins-conds-current{
+      min-height:88px;
+    }
+    .ins-conds-actions{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }
+    .ins-conds-actions .btn{
+      flex:1 1 150px;
+    }
+    @media (max-width: 1180px){
+      #tab_sheets .fichas-layout{
+        grid-template-columns:1fr;
+      }
+      #tab_sheets #sheetDetail{
+        position:static;
+      }
+    }
+    @media (max-width: 900px){
+      .ins-conds-shell{
+        grid-template-columns:1fr;
+      }
+      .ins-conds-groups{
+        grid-template-columns:1fr;
+      }
+      .ins-conds-side{
+        position:static;
+      }
+      .custom-cond-list.cond-grid{
+        max-height:190px;
+        grid-template-columns:1fr;
+      }
+      .custom-cond-list.pkm-list.cond-grid{
+        grid-template-columns:repeat(auto-fit,minmax(132px,1fr));
+      }
+      .ins-conds-hero{
+        align-items:flex-start;
+      }
+    }
+    `;
+    document.head.appendChild(stOverrides);
+  }
 }
 
 function ensureSheetsUI() {
@@ -9939,174 +10351,8 @@ function renderSheetsTab() {
     return;
   }
 
-  const sh = activeEntry.effectiveSheet || activeEntry.baseSheet;
-  const baseSheet = activeEntry.baseSheet || sh;
-  const pkm = sh?.pokemon || {};
-  const pid = activeEntry._base_pid;
-  const pidLabel = _sheetDisplayPid(sh, sh?._party_pid_raw) || "—";
-  const pname = safeStr(pkm.name) || "Pokémon";
-  const types = Array.isArray(pkm.types) ? pkm.types : [];
-  const abilities = Array.isArray(pkm.abilities) ? pkm.abilities : [];
-  const np = parseInt(sh.np || pkm.np || 0) || 0;
-  const st = sh.stats || {};
-
-  const movesRaw = Array.isArray(sh.moves) ? sh.moves : (sh.moves ? Object.values(sh.moves) : []);
-  const moves = (movesRaw || []).filter((m) => m && typeof m === "object");
-  const advantages = Array.isArray(sh.advantages) ? sh.advantages : [];
-  const skills = Array.isArray(sh.skills) ? sh.skills : [];
-
-  const stgr = parseInt(st.stgr || 0) || 0;
-  const intel = parseInt(st["int"] || 0) || 0;
-  let dodge = parseInt(st.dodge || 0) || 0;
-  const parry = parseInt(st.parry || 0) || 0;
-  const fort = parseInt(st.fortitude || 0) || 0;
-  const will = parseInt(st.will || 0) || 0;
-  let thg = parseInt(st.thg || 0) || 0;
-  const cap = 2 * np;
-  if (thg <= 0 && cap > 0) thg = Math.round(cap / 2);
-  if (dodge <= 0 && cap > 0 && thg > 0) dodge = Math.max(0, cap - thg);
-
-  // HP/cond (se existir)
-  const ps = _getPartyStateForSheet(by, baseSheet, pid);
-  const hp = (ps.hp ?? 6);
-  const cond = Array.isArray(ps.cond) ? ps.cond : [];
-  const hpMax = 6;
-  const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
-  const hpCol = (hpPct > 50) ? "rgba(34,197,94,1)" : (hpPct > 25) ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
-  const heldItem = getHeldItemForTrainerPid(by, pid || activeEntry._party_pid_raw || pname);
-  const megaControlsHtml = _renderMegaControlsHtml(by, pid, activeEntry);
-
-  const tp = (types || []).map((t) => `
-    <span class="type-pill" style="background:${_tc(t)}33;border-color:${_tc(t)}55;color:${_tc(t)}">${escapeHtml(t)}</span>
-  `).join("");
-
-  const abH = abilities.length
-    ? `<div class="chip-row" style="margin-top:6px;">${
-        abilities.map((a) => `<span class="chip" style="border-color:rgba(56,189,248,.35);color:#38bdf8;">${escapeHtml(a)}</span>`).join("")
-      }</div>`
-    : "";
-
-  const condH = cond.length
-    ? `<div class="chip-row" style="margin-top:4px;">${
-        cond.map((c) => `<span class="chip" style="border-color:rgba(249,115,22,.35);color:#f97316;">${escapeHtml(c)}</span>`).join("")
-      }</div>`
-    : "";
-
-  let skH = `<span style="opacity:.75;font-size:.82rem;">Sem skills.</span>`;
-  if (skills.length) {
-    const chips = skills
-      .filter((x) => x && typeof x === "object" && safeStr(x.name) && parseInt(x.ranks || 0))
-      .map((x) => `<span class="chip">${escapeHtml(x.name)} R${parseInt(x.ranks || 0)}</span>`);
-    if (chips.length) skH = `<div class="chip-row">${chips.join("")}</div>`;
-  }
-
-  const advChips = advantages.filter((a) => safeStr(a)).map((a) => `<span class="chip">${escapeHtml(a)}</span>`);
-  const advH = advChips.length ? `<div class="chip-row">${advChips.join("")}</div>` : `<span style="opacity:.75;font-size:.82rem;">Sem advantages.</span>`;
-
-  let mvH = "";
-  if (!moves.length) {
-    mvH = `<span style="opacity:.75;font-size:.82rem;">Sem golpes nesta ficha.</span>`;
-  } else {
-    for (const mv of moves) {
-      const n = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
-      const { rk, acc, label, val, area, br } = _mvSum(mv, st);
-      const notesH = _sheetMoveNotesHtml(mv);
-      const brk = ((label === "Stgr" || label === "Int") && val) ? `R${br}+${val} ${label}` : `R${br}`;
-
-      const meta = mv.meta || {};
-      const ranged = meta.ranged === true;
-      const tags = [area ? "Área" : "Alvo"];
-      if (ranged) tags.push("Ranged");
-      const tagH = tags.map((t) => `<span class="chip">${escapeHtml(t)}</span>`).join("");
-
-      const desc = safeStr(mv.description || mv.desc || "");
-      const build = safeStr(mv.build || "");
-      const body = desc
-        ? escapeHtml(desc)
-        : (build
-          ? `<code style="font-size:.78rem;white-space:pre-wrap;display:block;background:rgba(255,255,255,.04);padding:8px;border-radius:10px;margin-top:4px;">${escapeHtml(build)}</code>`
-          : `<span>Descrição não disponível.</span>`);
-
-      // Tipo e STAB
-      const mvType = getMoveType(n);
-      const mvColor = mvType ? getTypeColor(mvType) : "";
-      const isStab = _isMoveStab(n, types);
-      const stabClass = isStab ? " move-stab" : "";
-      const typeTag = mvType ? `<span class="mv-type-pill" style="background:${mvColor}33;border:1px solid ${mvColor}66;color:${mvColor}">${mvType}</span>` : "";
-
-      mvH += `
-        <div class="move-expander${stabClass}"${isStab ? ` style="--stab-color:${mvColor}"` : ""}>
-          <div class="move-header">
-            <span class="arrow">▶</span>
-            <span class="move-h-name" style="${mvColor ? `color:${mvColor}` : ""}">${escapeHtml(n)}</span>
-            ${typeTag}
-            <span class="mv-pill acc">A+${acc}</span>
-            <span class="mv-pill rk">R${rk}</span>
-            <span class="mv-pill area">${area ? "Área" : "Alvo"}</span>
-          </div>
-          <div class="move-body">
-            <div class="chip-row" style="margin-bottom:6px;">${tagH}</div>
-            <div style="margin-bottom:4px;font-size:.82rem;opacity:.75;">${escapeHtml(brk)}</div>
-            <div>${body}</div>
-            ${notesH}
-          </div>
-        </div>
-      `;
-    }
-  }
-
-  const art = getSpriteUrlForPiece({ owner: by, pid }, { type: "art", shiny: !!ps.shiny })
-    || _artUrlFromPidForSheets(pname || pid, ps.shiny)
-    || _spriteUrlFromPidForSheets(pname || pid)
-    || "";
-  detailEl.innerHTML = `
-    <div class="sheet-panel">
-      <div class="sheet-header">
-        <div class="sheet-art-frame"><img class="sheet-art" src="${escapeAttr(art)}" alt="art"
-          onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid || pname))}'"/></div>
-        <div style="flex:1; min-width:0;">
-          <div class="sheet-name">${escapeHtml(pname)}</div>
-          <div class="sheet-sub">#${escapeHtml(pidLabel)} • NP ${np}</div>
-          <div class="pill-row" style="margin-top:6px;">${tp}</div>
-          <div class="pill-row" style="margin-top:8px;">${abilities.map((a) => `<span class="chip ability-pill">${escapeHtml(a)}</span>`).join("")}</div>${condH}
-          ${renderHeldItemSummaryHtml(heldItem, { label: "Held item", size: "md", className: "sheet-held-item" })}
-          <div style="margin-top:10px;">
-            <div class="hp-row">
-              <span>HP</span><span>${hp} / ${hpMax}</span>
-            </div>
-            <div class="hp-track"><div class="hp-fill" style="width:${hpPct}%;background:${hpCol};"></div></div>
-          </div>
-          ${megaControlsHtml}
-        </div>
-      </div>
-
-      <div class="stat-grid">
-        <div class="stat-box"><div class="stat-label">Stgr</div><div class="stat-val">${stgr}</div></div>
-        <div class="stat-box"><div class="stat-label">Int</div><div class="stat-val">${intel}</div></div>
-        <div class="stat-box"><div class="stat-label">Thg</div><div class="stat-val">${thg}</div></div>
-        <div class="stat-box"><div class="stat-label">Dodge</div><div class="stat-val">${dodge}</div></div>
-        <div class="stat-box"><div class="stat-label">Parry</div><div class="stat-val">${parry}</div></div>
-        <div class="stat-box"><div class="stat-label">Fort</div><div class="stat-val">${fort}</div></div>
-        <div class="stat-box"><div class="stat-label">Will</div><div class="stat-val">${will}</div></div>
-        <div class="stat-box cap"><div class="stat-label">Cap</div><div class="stat-val">${cap}</div></div>
-      </div>
-
-      <div class="sheet-divider"></div>
-      <div class="section-title">Skills</div>${skH}
-      <div class="section-title">Advantages</div>${advH}
-      <div class="sheet-divider"></div>
-      <div class="section-title">Golpes</div>${mvH}
-    </div>
-  `;
-
-  // Wire expanders
-  detailEl.querySelectorAll(".move-header").forEach((h) => {
-    h.addEventListener("click", () => {
-      const parent = h.parentElement;
-      if (parent) parent.classList.toggle("open");
-    });
-  });
-  _bindMegaControlButtons(detailEl);
+  detailEl.innerHTML = "";
+  detailEl.appendChild(renderSheetsInspectorCard(document.createElement("div")));
 
   if (safeStr(appState.activeTab) === "sheets") {
     const inspectorRoot = $("inspector_root");
