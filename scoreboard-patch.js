@@ -127,7 +127,7 @@ const sbRoot = document.getElementById("scoreboard");
   display: none;
   width: 100%;
   padding: 6px 14px;
-  margin-top: 72px;
+  margin-top: 0;
   background: rgba(2,6,23,.55);
   border-bottom: 1px solid rgba(148,163,184,.18);
   backdrop-filter: blur(10px);

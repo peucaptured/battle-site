@@ -1210,11 +1210,9 @@ function setTab(tabName) {
   }
   if (tabName === "arena" && useCanvas) {
     view.autoFit = true;
-    requestAnimationFrame(() => {
-      try { resizeCanvasToContainer(); } catch {}
-      try { fitToView(); } catch {}
-      try { requestArenaRefresh(true); } catch {}
-    });
+    scheduleViewportStabilization({ includeArena: true, includeSheets: false, passes: 5 });
+  } else if (tabName === "sheets") {
+    scheduleViewportStabilization({ includeArena: false, includeSheets: true, passes: 3 });
   }
 }
 
@@ -4378,17 +4376,33 @@ let domCells = []; // flat [row*gs+col] -> element
 
 function updateHudViewportHeight() {
   const hero = document.querySelector(".hero-header");
-  const tabs = document.querySelector(".hud-tabs");
   const scoreboard = document.getElementById("scoreboard");
 
   const heroH = hero?.offsetHeight || 0;
-  const tabsH = tabs?.offsetHeight || 0;
   const scoreH = (scoreboard && scoreboard.classList.contains("sb-visible")) ? (scoreboard.offsetHeight || 0) : 0;
 
   const viewport = window.innerHeight || document.documentElement.clientHeight || 0;
-  const hudH = Math.max(320, viewport - heroH - tabsH - scoreH - 16);
+  const hudH = Math.max(320, viewport - heroH - scoreH - 16);
 
   document.documentElement.style.setProperty("--hud-viewport-height", `${hudH}px`);
+}
+
+function scheduleViewportStabilization({ includeSheets = false, includeArena = true, passes = 4 } = {}) {
+  let remaining = Math.max(1, Number(passes) || 1);
+  const run = () => {
+    updateHudViewportHeight();
+    if (useCanvas) {
+      resizeCanvasToContainer();
+      if (includeArena && safeStr(appState.activeTab) === "arena" && view.autoFit) fitToView();
+    }
+    if (includeArena) requestArenaRefresh(true);
+    if (includeSheets) {
+      try { renderSheetsTab(); } catch {}
+    }
+    remaining -= 1;
+    if (remaining > 0) requestAnimationFrame(run);
+  };
+  requestAnimationFrame(run);
 }
 
 function resizeCanvasToContainer() {
@@ -4426,12 +4440,26 @@ function resizeCanvasToContainer() {
 if (typeof MutationObserver !== "undefined") {
   const scoreboard = document.getElementById("scoreboard");
   if (scoreboard) {
-    const mo = new MutationObserver(() => updateHudViewportHeight());
+    const mo = new MutationObserver(() => {
+      scheduleViewportStabilization({
+        includeArena: safeStr(appState.activeTab) === "arena",
+        includeSheets: safeStr(appState.activeTab) === "sheets",
+        passes: 4,
+      });
+    });
     mo.observe(scoreboard, { attributes: true, attributeFilter: ["class"] });
   }
 }
 
 updateHudViewportHeight();
+window.addEventListener("load", () => {
+  scheduleViewportStabilization({ includeArena: true, includeSheets: true, passes: 5 });
+});
+try {
+  document.fonts?.ready?.then?.(() => {
+    scheduleViewportStabilization({ includeArena: true, includeSheets: true, passes: 3 });
+  });
+} catch {}
 
 function fitToView() {
   if (!canvasWrap) return false;
@@ -9338,15 +9366,22 @@ function _injectSheetsStyleOnce() {
     }
     #tab_sheets .cards-grid{
       align-content:start;
+      max-height:min(calc(var(--hud-viewport-height, 780px) - 24px), 760px);
+      overflow:auto;
+      padding-right:6px;
     }
     #tab_sheets #sheetDetailWrap{
       display:block;
       min-width:0;
+      align-self:stretch;
     }
     #tab_sheets #sheetDetail{
       position:sticky;
       top:16px;
       min-width:0;
+      max-height:min(calc(var(--hud-viewport-height, 780px) - 24px), 760px);
+      overflow:auto;
+      padding-right:6px;
     }
     #tab_sheets #sheetDetail .inspector{
       min-width:0;
@@ -9372,6 +9407,80 @@ function _injectSheetsStyleOnce() {
     #tab_sheets #sheetDetail .inspector-sub{
       font-size:.82rem;
       opacity:.78;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .sheet-art{
+      width:112px;
+      height:112px;
+      padding:4px;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .sheet-name{
+      font-size:34px;
+      line-height:1;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .sheet-sub{
+      font-size:22px;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .type-pill,
+    #tab_sheets #sheetDetail .ficha-v2 .chip{
+      font-size:14px;
+      padding:4px 10px;
+      border-width:1px;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .hp-row{
+      font-size:18px;
+      margin:8px 0 5px;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .hp-track{
+      height:10px;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .stat-grid{
+      gap:8px;
+      margin:12px 0;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .stat-box{
+      padding:8px 6px;
+      border-radius:12px;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .stat-label{
+      font-size:12px;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .stat-val{
+      font-size:24px;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .section-title{
+      font-size:18px;
+      margin:12px 0 8px;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .move-expander{
+      margin-bottom:8px;
+      border-radius:12px;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .move-header{
+      padding:10px 12px;
+      gap:6px;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .move-h-name{
+      font-size:20px;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .mv-pill,
+    #tab_sheets #sheetDetail .ficha-v2 .mv-type-pill{
+      font-size:12px;
+      padding:2px 8px;
+      border-width:1px;
+    }
+    #tab_sheets #sheetDetail .ficha-v2 .move-notes-box{
+      font-size:.8rem;
+    }
+    #tab_sheets #sheetDetail .stat-boost-grid{
+      grid-template-columns:repeat(4,1fr);
+    }
+    #tab_sheets #sheetDetail .stat-boost-row{
+      padding:3px 5px;
+    }
+    #tab_sheets #sheetDetail .stat-boost-name,
+    #tab_sheets #sheetDetail .stat-boost-title,
+    #tab_sheets #sheetDetail .stat-boost-val{
+      font-size:11px;
     }
     .ins-conds{
       display:flex;

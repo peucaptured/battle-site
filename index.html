@@ -289,7 +289,7 @@
       50%{ box-shadow: 0 0 22px rgba(56,189,248,.3), 0 8px 20px rgba(0,0,0,.3); }
     }
     .hero-spacer{
-      height:76px;
+      height:72px;
       flex:0 0 auto;
     }
 
@@ -460,8 +460,8 @@
     .stage-controls{display:none !important;}
     .arena-wrap{
       position:relative;
-      min-height:640px;
-      height:min(76vh, 960px);
+      min-height:clamp(460px, calc(var(--hud-viewport-height, 780px) - 12px), 840px);
+      height:clamp(460px, calc(var(--hud-viewport-height, 780px) - 12px), 840px);
       border-radius:24px;
       overflow:hidden;
       border:1px solid rgba(120,210,255,.14);
