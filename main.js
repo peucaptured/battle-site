@@ -116,6 +116,9 @@ try {
   ctx = null;
   useCanvas = false;
 }
+let arenaRenderMode = useCanvas ? "canvas" : "dom";
+let arenaRenderReason = useCanvas ? "boot-canvas" : (canvas ? "context-failure" : "boot-dom");
+let arenaFrameHandle = 0;
 
 // ── Sprite overlay layer (renders GIFs as HTML <img> over canvas) ──
 const _spriteOverlay = document.createElement("div");
@@ -1558,7 +1561,7 @@ connectBtn?.addEventListener("click", async () => {
         // Garante que treinadores que entraram só via peças (sem registro em players) também têm
         // users_raw/users assinados, permitindo carregar party e avatar corretamente.
         ensureUserSubscriptions();
-        if (!useCanvas) renderArenaDom();
+        requestArenaRefresh(true);
         if (useCanvas && view.autoFit) fitToView();
       },
       (err) => {
@@ -1580,7 +1583,7 @@ unsub.push(
       updateSidePanels?.();
       updateArenaMeta?.();
       window.requestScoreboardRefresh?.();
-      if (!useCanvas) renderArenaDom?.();
+      requestArenaRefresh(true);
     },
     (err) => {
       console.warn("public_state/players error:", err?.message || err);
@@ -3745,6 +3748,107 @@ const view = {
 
 window.__arenaView = view; // expõe o view para patches (drawing, etc)
 
+function canUseArenaCanvas() {
+  return !!(canvas && ctx && useCanvas);
+}
+
+function getArenaRenderMode() {
+  return arenaRenderMode;
+}
+
+function getArenaBoardLayout() {
+  const gs = Math.max(1, Number(appState.gridSize) || 10);
+  const wrapRect = canvasWrap?.getBoundingClientRect?.();
+  if (!wrapRect || wrapRect.width <= 0 || wrapRect.height <= 0) return null;
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+
+  if (arenaRenderMode === "canvas" && Number.isFinite(view.scale) && view.scale > 0) {
+    return {
+      mode: "canvas",
+      gs,
+      width: gs * view.scale,
+      height: gs * view.scale,
+      tile: view.scale,
+      clientLeft: wrapRect.left + Number(view.offX || 0),
+      clientTop: wrapRect.top + Number(view.offY || 0),
+      relLeft: Number(view.offX || 0),
+      relTop: Number(view.offY || 0),
+      dpr,
+    };
+  }
+
+  const board = getArenaBoardMetrics();
+  return {
+    mode: arenaRenderMode === "dom" ? "dom" : "fallback",
+    gs,
+    width: board.side,
+    height: board.side,
+    tile: board.tile,
+    clientLeft: wrapRect.left + board.left,
+    clientTop: wrapRect.top + board.top,
+    relLeft: board.left,
+    relTop: board.top,
+    dpr,
+  };
+}
+
+function syncArenaPresentation() {
+  if (canvas) canvas.style.display = arenaRenderMode === "canvas" ? "block" : "none";
+  if (arenaDom) arenaDom.style.display = arenaRenderMode === "dom" ? "grid" : "none";
+  syncSpriteOverlayVisibility();
+}
+
+function cancelArenaCanvasFrame() {
+  if (!arenaFrameHandle) return;
+  cancelAnimationFrame(arenaFrameHandle);
+  arenaFrameHandle = 0;
+}
+
+function requestArenaCanvasFrame() {
+  if (!canUseArenaCanvas()) return;
+  if (arenaRenderMode !== "canvas") return;
+  if (arenaFrameHandle) return;
+  arenaFrameHandle = requestAnimationFrame(draw);
+}
+
+function activateCanvasMode(reason = "boot-canvas") {
+  if (!canUseArenaCanvas()) {
+    activateDomMode("context-failure");
+    return;
+  }
+  arenaRenderMode = "canvas";
+  arenaRenderReason = reason;
+  syncArenaPresentation();
+  requestArenaCanvasFrame();
+}
+
+function activateDomMode(reason = "manual-dom", error = null) {
+  const wasMode = arenaRenderMode;
+  const wasReason = arenaRenderReason;
+  arenaRenderMode = "dom";
+  arenaRenderReason = reason;
+  cancelArenaCanvasFrame();
+  syncArenaPresentation();
+  syncArenaDomIfNeeded(true);
+  if (error) {
+    console.error("[arena] DOM fallback reason:", reason, error);
+  } else if (wasMode !== "dom" || wasReason !== reason) {
+    console.warn("[arena] DOM fallback reason:", reason);
+  }
+  if ((wasMode !== "dom" || wasReason !== reason) && (reason === "context-failure" || reason === "frame-error")) {
+    try {
+      setStatus("warn", "canvas indisponivel; fallback DOM ativado");
+    } catch {}
+  }
+}
+
+function requestArenaRefresh(force = false) {
+  syncSpriteOverlayVisibility();
+  if (arenaRenderMode === "dom") {
+    syncArenaDomIfNeeded(force);
+  }
+}
+
 
 // DOM fallback grid cache
 let domGridSize = 0;
@@ -3766,7 +3870,11 @@ function updateHudViewportHeight() {
 }
 
 function resizeCanvasToContainer() {
+  if (!canvasWrap || !canvas || !ctx) return false;
   const rect = canvasWrap.getBoundingClientRect();
+  if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 0 || rect.height <= 0) {
+    return false;
+  }
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   const w = Math.max(320, Math.floor(rect.width));
   const h = Math.max(320, Math.floor(rect.height));
@@ -3774,13 +3882,14 @@ function resizeCanvasToContainer() {
   canvas.height = Math.floor(h * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (view.autoFit) fitToView();
+  return true;
 }
 
 if (typeof ResizeObserver !== "undefined") {
   const onArenaViewportChange = () => {
     updateHudViewportHeight();
     if (useCanvas) resizeCanvasToContainer();
-    if (!useCanvas || isArenaDomActive()) syncArenaDomIfNeeded(true);
+    requestArenaRefresh(true);
   };
   const ro = new ResizeObserver(() => {
     onArenaViewportChange();
@@ -3802,15 +3911,29 @@ if (typeof MutationObserver !== "undefined") {
 updateHudViewportHeight();
 
 function fitToView() {
+  if (!canvasWrap) return false;
   const gs = appState.gridSize || 10;
+  if (!Number.isFinite(gs) || gs <= 0) {
+    view.scale = 0;
+    view.offX = 0;
+    view.offY = 0;
+    return false;
+  }
   const rect = canvasWrap.getBoundingClientRect();
   const pad = 20;
   const w = rect.width - pad * 2;
   const h = rect.height - pad * 2;
   const tile = Math.floor(Math.min(w / gs, h / gs));
+  if (!Number.isFinite(tile) || tile <= 0) {
+    view.scale = 0;
+    view.offX = 0;
+    view.offY = 0;
+    return false;
+  }
   view.scale = tile;
   view.offX = Math.floor((rect.width - gs * tile) / 2);
   view.offY = Math.floor((rect.height - gs * tile) / 2);
+  return true;
 }
 
 $("btn_zoom_fit")?.addEventListener("click", () => {
@@ -4235,7 +4358,7 @@ async function fetchPokeApiData(slug) {
     };
     _pokeApiCache.set(slug, entry);
     if (typeof updateSidePanels === "function") updateSidePanels();
-    try { renderArenaDom?.(); } catch {}
+    try { requestArenaRefresh(true); } catch {}
     return entry;
   } catch {
     _pokeApiCache.set(slug, "error");
@@ -4635,7 +4758,7 @@ async function placePokemonOnBoardAt(pid, row, col) {
     try {
       appState.pieces = Array.isArray(appState.pieces) ? appState.pieces : [];
       appState.pieces = appState.pieces.concat([newPiece]);
-      if (!useCanvas) renderArenaDom();
+      requestArenaRefresh(true);
       // canvas: o loop de render já vai pegar no próximo frame
     } catch {}
 
@@ -5182,7 +5305,7 @@ function bindArenaInteractionsDom() {
     const clickedPiece = getDomClickedPiece(ev);
     if (clickedPiece) {
       selectPiece(clickedPiece.id);
-      renderArenaDom();
+      requestArenaRefresh(true);
       return;
     }
 
@@ -5193,7 +5316,7 @@ function bindArenaInteractionsDom() {
     }
     if (candidates.length === 1) {
       selectPiece(candidates[0].id);
-      renderArenaDom();
+      requestArenaRefresh(true);
       return;
     }
     openPiecePickerMenu(candidates, ev.clientX, ev.clientY);
@@ -5281,10 +5404,7 @@ function getArenaDomRenderKey() {
 }
 
 function isArenaDomActive() {
-  if (!arenaDom) return false;
-  if (!canvas) return true;
-  if (!useCanvas) return true;
-  return canvas.style.display === "none" || getComputedStyle(canvas).display === "none";
+  return !!arenaDom && arenaRenderMode === "dom";
 }
 
 function getArenaBoardMetrics() {
@@ -5302,11 +5422,11 @@ function getArenaBoardMetrics() {
 
 function syncSpriteOverlayVisibility() {
   if (!_spriteOverlay) return;
-  _spriteOverlay.style.display = isArenaDomActive() ? "none" : "";
+  _spriteOverlay.style.display = arenaRenderMode === "dom" ? "none" : "";
 }
 
 function syncArenaDomIfNeeded(force = false) {
-  if (!arenaDom || !isArenaDomActive()) return;
+  if (!arenaDom || arenaRenderMode !== "dom") return;
   const nextKey = getArenaDomRenderKey();
   if (!force && nextKey === arenaDomRenderKey) return;
   renderArenaDom();
@@ -5317,9 +5437,6 @@ function renderArenaDom() {
   _trimMegaEvolutionFx();
   ensureDomGrid();
   const board = getArenaBoardMetrics();
-  // mostra DOM, esconde canvas
-  if (canvas) canvas.style.display = "none";
-  arenaDom.style.display = "grid";
   arenaDom.style.left = `${board.left}px`;
   arenaDom.style.top = `${board.top}px`;
   arenaDom.style.width = `${board.side}px`;
@@ -7186,12 +7303,15 @@ function drawTraps(ctx, ox, oy, tile) {
 
 
 function draw() {
+  arenaFrameHandle = 0;
+  if (arenaRenderMode !== "canvas") return;
+  try {
   const rect = canvasWrap.getBoundingClientRect();
   const w = rect.width;
   const h = rect.height;
 // CORREÇÃO: Se a aba estiver escondida (largura 0), não tenta desenhar
   if (w <= 0 || h <= 0 || view.scale <= 0) {
-    requestAnimationFrame(draw);
+    requestArenaCanvasFrame();
     return;
   }
   syncSpriteOverlayVisibility();
@@ -7606,8 +7726,11 @@ drawTraps(ctx, ox, oy, tile);
       ctx.fill();
     }
   }
-
-  requestAnimationFrame(draw);
+  } catch (err) {
+    activateDomMode("frame-error", err);
+    return;
+  }
+  requestArenaCanvasFrame();
 }
 
 // Start arena
@@ -7615,20 +7738,18 @@ bindArenaInteractionsCanvas();
 bindArenaInteractionsDom();
 if (!arenaDomSyncTimer) {
   arenaDomSyncTimer = window.setInterval(() => {
-    try { syncArenaDomIfNeeded(); } catch {}
+    try { requestArenaRefresh(); } catch {}
   }, 250);
 }
 
 if (useCanvas) {
-  if (canvas) canvas.style.display = "block";
-  if (arenaDom) arenaDom.style.display = "none";
   updateHudViewportHeight();
   resizeCanvasToContainer();
   fitToView();
-  requestAnimationFrame(draw);
+  activateCanvasMode("boot-canvas");
 } else {
   // fallback DOM (sempre mostra algo, mesmo se o canvas falhar)
-  syncArenaDomIfNeeded(true);
+  activateDomMode("context-failure");
 }
 
 // -------------------------
@@ -7781,7 +7902,7 @@ function triggerMegaEvolutionFx(ownerName, pidLike, options = {}) {
     durationMs: Number(options.durationMs) > 0 ? Number(options.durationMs) : 1250,
   });
   try { updateSidePanels?.(); } catch {}
-  try { renderArenaDom?.(); } catch {}
+  try { requestArenaRefresh(true); } catch {}
 }
 
 function _collectActiveMegaMap(source) {
@@ -8276,7 +8397,7 @@ function ensureSheetsRealtime() {
       renderSheetsTab();
       try { updateSidePanels(); } catch {}
       try { window.requestScoreboardRefresh?.(); } catch {}
-      try { renderArenaDom?.(); } catch {}
+      try { requestArenaRefresh(true); } catch {}
     }, () => {});
   } catch {}
 
@@ -9107,6 +9228,9 @@ window.localSpriteUrl      = localSpriteUrl;
 window.spriteUrlWithFallback = spriteUrlWithFallback;
 window.spriteSlugFromPokemonName = spriteSlugFromPokemonName;
 window._arenaView              = view;
+window.getArenaRenderMode      = getArenaRenderMode;
+window.getArenaBoardLayout     = getArenaBoardLayout;
+window.requestArenaRefresh     = requestArenaRefresh;
 window.DEFAULT_FIREBASE_CONFIG = DEFAULT_FIREBASE_CONFIG; // exposto para patches (avatar URL)
 window.currentDb          = null;
 window.currentRid         = null;

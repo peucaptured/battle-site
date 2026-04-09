@@ -123,53 +123,60 @@ function ensureCanvas() {
   const wrap = document.getElementById("arena_wrap");
   if (!wrap) return;
 
-  // Match size to arena canvas
-  const arenaCanvas = document.getElementById("arena");
-  const w = arenaCanvas ? arenaCanvas.width  : 1200;
-  const h = arenaCanvas ? arenaCanvas.height : 800;
-
   _drawCanvas = document.createElement("canvas");
   _drawCanvas.id = "draw-canvas";
-  _drawCanvas.width  = w;
-  _drawCanvas.height = h;
+  _drawCanvas.width = 1;
+  _drawCanvas.height = 1;
   wrap.appendChild(_drawCanvas);
 
   _drawCtx = _drawCanvas.getContext("2d");
 
-  // Observe arena canvas size changes so draw canvas stays in sync
-  if (arenaCanvas) {
+  // Observe arena board container changes so the overlay stays aligned.
+  if (typeof ResizeObserver !== "undefined") {
     const ro = new ResizeObserver(() => syncCanvasSize());
-    ro.observe(arenaCanvas);
+    const arenaCanvas = document.getElementById("arena");
+    const domBoard = document.getElementById("arena_dom");
+    if (arenaCanvas) ro.observe(arenaCanvas);
+    if (domBoard) ro.observe(domBoard);
     ro.observe(wrap);
   }
 
   bindCanvasEvents();
+  syncCanvasSize();
 }
 
 function syncCanvasSize() {
   if (!_drawCanvas) return;
-  const arenaCanvas = document.getElementById("arena");
-  if (!arenaCanvas) return;
-  const newW = arenaCanvas.width;
-  const newH = arenaCanvas.height;
-  if (_drawCanvas.width !== newW || _drawCanvas.height !== newH) {
-    _drawCanvas.width  = newW;
-    _drawCanvas.height = newH;
-    redrawAll();
+  const layout = getBoardLayout();
+  if (!layout) {
+    _drawCanvas.style.display = "none";
+    return;
   }
+  _drawCanvas.style.display = "";
+  _drawCanvas.style.left = `${Number(layout.relLeft || 0)}px`;
+  _drawCanvas.style.top = `${Number(layout.relTop || 0)}px`;
+  _drawCanvas.style.width = `${Math.max(1, Number(layout.width) || 1)}px`;
+  _drawCanvas.style.height = `${Math.max(1, Number(layout.height) || 1)}px`;
+  const pixelWidth = Math.max(1, Math.round(Number(layout.width || 1) * Number(layout.dpr || 1)));
+  const pixelHeight = Math.max(1, Math.round(Number(layout.height || 1) * Number(layout.dpr || 1)));
+  if (_drawCanvas.width !== pixelWidth || _drawCanvas.height !== pixelHeight) {
+    _drawCanvas.width = pixelWidth;
+    _drawCanvas.height = pixelHeight;
+  }
+  _drawCtx?.setTransform(Number(layout.dpr || 1), 0, 0, Number(layout.dpr || 1), 0, 0);
+  redrawAll();
 }
 
 // ── Coordinate helpers ────────────────────────────────────────────────────
 function getCanvasPos(e) {
   if (!_drawCanvas) return { x: 0, y: 0 };
   const rect = _drawCanvas.getBoundingClientRect();
-  const scaleX = _drawCanvas.width  / rect.width;
-  const scaleY = _drawCanvas.height / rect.height;
+  if (!rect || rect.width <= 0 || rect.height <= 0) return { x: 0, y: 0 };
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
   const clientY = e.touches ? e.touches[0].clientY : e.clientY;
   return {
-    x: (clientX - rect.left) * scaleX,
-    y: (clientY - rect.top)  * scaleY,
+    x: clientX - rect.left,
+    y: clientY - rect.top,
   };
 }
 
@@ -178,22 +185,77 @@ function getArenaView() {
   return window.__arenaView || null;
 }
 
-function screenToWorld(x, y) {
+function getBoardLayout() {
+  const sharedLayout = window.getArenaBoardLayout?.();
+  if (
+    sharedLayout &&
+    Number.isFinite(Number(sharedLayout.width)) &&
+    Number.isFinite(Number(sharedLayout.height)) &&
+    Number(sharedLayout.width) > 0 &&
+    Number(sharedLayout.height) > 0 &&
+    Number.isFinite(Number(sharedLayout.tile)) &&
+    Number(sharedLayout.tile) > 0
+  ) {
+    return sharedLayout;
+  }
+
+  const wrap = document.getElementById("arena_wrap");
+  const wrapRect = wrap?.getBoundingClientRect?.();
+  if (!wrapRect || wrapRect.width <= 0 || wrapRect.height <= 0) return null;
+  const gs = Math.max(1, Number(window.appState?.gridSize) || 10);
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
   const v = getArenaView();
-  if (!v || !Number.isFinite(v.scale) || v.scale <= 0) return { u: x, v: y, ok: false };
-  return { u: (x - v.offX) / v.scale, v: (y - v.offY) / v.scale, ok: true };
+  if (v && Number.isFinite(Number(v.scale)) && Number(v.scale) > 0) {
+    return {
+      mode: "canvas",
+      gs,
+      width: gs * Number(v.scale),
+      height: gs * Number(v.scale),
+      tile: Number(v.scale),
+      clientLeft: wrapRect.left + Number(v.offX || 0),
+      clientTop: wrapRect.top + Number(v.offY || 0),
+      relLeft: Number(v.offX || 0),
+      relTop: Number(v.offY || 0),
+      dpr,
+    };
+  }
+
+  const side = Math.max(1, Math.min(wrapRect.width, wrapRect.height));
+  const relLeft = (wrapRect.width - side) / 2;
+  const relTop = (wrapRect.height - side) / 2;
+  return {
+    mode: "fallback",
+    gs,
+    width: side,
+    height: side,
+    tile: side / gs,
+    clientLeft: wrapRect.left + relLeft,
+    clientTop: wrapRect.top + relTop,
+    relLeft,
+    relTop,
+    dpr,
+  };
+}
+
+function screenToWorld(x, y) {
+  const layout = getBoardLayout();
+  const tile = Number(layout?.tile);
+  if (!layout || !Number.isFinite(tile) || tile <= 0) return { u: x, v: y, ok: false };
+  return { u: x / tile, v: y / tile, ok: true };
 }
 
 function worldToScreen(u, v_) {
-  const v = getArenaView();
-  if (!v || !Number.isFinite(v.scale) || v.scale <= 0) return { x: u, y: v_, ok: false };
-  return { x: v.offX + u * v.scale, y: v.offY + v_ * v.scale, ok: true };
+  const layout = getBoardLayout();
+  const tile = Number(layout?.tile);
+  if (!layout || !Number.isFinite(tile) || tile <= 0) return { x: u, y: v_, ok: false };
+  return { x: u * tile, y: v_ * tile, ok: true };
 }
 
 // ── Drawing logic ─────────────────────────────────────────────────────────
 function redrawAll() {
   if (!_drawCtx || !_drawCanvas) return;
-  _drawCtx.clearRect(0, 0, _drawCanvas.width, _drawCanvas.height);
+  const rect = _drawCanvas.getBoundingClientRect();
+  _drawCtx.clearRect(0, 0, rect?.width || _drawCanvas.width, rect?.height || _drawCanvas.height);
 
   for (const stroke of _strokes) {
     drawStroke(_drawCtx, stroke);

@@ -95,6 +95,19 @@ function isVisibleElement(el) {
 }
 
 function getBoardLayout() {
+  const sharedLayout = window.getArenaBoardLayout?.();
+  if (
+    sharedLayout &&
+    Number.isFinite(Number(sharedLayout.width)) &&
+    Number.isFinite(Number(sharedLayout.height)) &&
+    Number(sharedLayout.width) > 0 &&
+    Number(sharedLayout.height) > 0 &&
+    Number.isFinite(Number(sharedLayout.tile)) &&
+    Number(sharedLayout.tile) > 0
+  ) {
+    return sharedLayout;
+  }
+
   ensureArenaRefs();
   const gs = getGridSize();
   const wrapRect = arenaWrap?.getBoundingClientRect?.();
