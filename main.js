@@ -5224,6 +5224,11 @@ function isArenaDomActive() {
   return canvas.style.display === "none" || getComputedStyle(canvas).display === "none";
 }
 
+function syncSpriteOverlayVisibility() {
+  if (!_spriteOverlay) return;
+  _spriteOverlay.style.display = isArenaDomActive() ? "none" : "";
+}
+
 function syncArenaDomIfNeeded(force = false) {
   if (!arenaDom || !isArenaDomActive()) return;
   const nextKey = getArenaDomRenderKey();
@@ -5237,6 +5242,7 @@ function renderArenaDom() {
   // mostra DOM, esconde canvas
   if (canvas) canvas.style.display = "none";
   arenaDom.style.display = "grid";
+  syncSpriteOverlayVisibility();
   const bgCandidates = getActiveMapImageCandidates();
   const bgImageCss = bgCandidates
     .map((url) => `url("${String(url).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}")`)
@@ -5310,10 +5316,36 @@ function renderArenaDom() {
     if (!cell) continue;
     const token = document.createElement("div");
     token.className = "token";
+    if (safeStr(p?.kind) === "trainer") token.classList.add("trainer");
     const sizeCategory = p?.sizeCategory || "medium";
     if (sizeCategory === SIZE_CATEGORIES.tiny) token.style.cssText = "font-size:9px;transform:scale(0.5);";
     const label = p?.revealed ? shortLabelFromPiece(p, 4) : "?";
-    token.textContent = label;
+    const spriteUrl = p?.revealed
+      ? (getSpriteUrlForPiece(p, { type: "battle" }) || getSpriteUrlForPiece(p, { type: "art" }))
+      : "";
+    if (spriteUrl) {
+      const img = document.createElement("img");
+      img.className = "token-sprite";
+      img.alt = label;
+      img.loading = "eager";
+      img.decoding = "async";
+      const fallbackUrl = getSpriteFallbackUrlForPiece(p);
+      img.onerror = function () {
+        const fallback = this.dataset.fallback || "";
+        if (fallback && this.src !== fallback) this.src = fallback;
+        else this.style.display = "none";
+      };
+      img.dataset.fallback = fallbackUrl;
+      img.src = spriteUrl;
+      token.appendChild(img);
+    }
+    const labelEl = document.createElement("span");
+    labelEl.className = "token-label";
+    labelEl.textContent = label;
+    if (!spriteUrl) {
+      token.textContent = label;
+    }
+    token.appendChild(labelEl);
     cell.appendChild(token);
 
     if (safeStr(appState.selectedPieceId) && safeStr(appState.selectedPieceId) === safeStr(p?.id)) {
@@ -7043,6 +7075,7 @@ function draw() {
     requestAnimationFrame(draw);
     return;
   }
+  syncSpriteOverlayVisibility();
   // background
   ctx.clearRect(0, 0, w, h);
   // soft vignette
