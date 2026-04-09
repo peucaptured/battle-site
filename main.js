@@ -2569,8 +2569,7 @@ function renderPartyWindow() {
     const pid = safeStr(entry?.pid || entry || "");
     if (!pid) return `<button type="button" class="party-slot empty" data-slot="${idx}" disabled></button>`;
     const _psSlot = ((_partyStates && _partyStates[by]) ? _partyStates[by] : {})[pid] || {};
-    const _slotSlug = spriteSlugFromPokemonName(typeof resolvePokemonNameFromPid === "function" ? resolvePokemonNameFromPid(pid) : "") || "";
-    const sprite = (_slotSlug ? localSpriteUrl(_slotSlug, "art", !!_psSlot.shiny) : "") || getSpriteUrlFromPid(pid);
+    const sprite = getEffectiveSpriteUrlForTrainerPid(by, pid, { type: "art", shiny: !!_psSlot.shiny }) || getSpriteUrlFromPid(pid);
     const heldItem = getHeldItemForTrainerPid(by, entry || pid);
     const hp = getPartyHp(by, pid);
     const ko = hp <= 0;
@@ -4171,6 +4170,13 @@ function _getEffectivePokeApiSlug(ownerName, pidLike) {
   const effectiveSlug = _normalizePokeApiSlug(_getEffectivePokemonSlug(ownerName, pidLike));
   if (effectiveSlug) return effectiveSlug;
   return _pokeApiSlugFromPid(pidLike);
+}
+
+function getEffectiveSpriteUrlForTrainerPid(ownerName, pidLike, options = {}) {
+  const owner = safeStr(ownerName);
+  const pid = safePidValue(pidLike);
+  if (!pid) return "";
+  return getSpriteUrlForPiece({ owner, pid }, options);
 }
 
 function readSpeedFromStats(statsObj) {
@@ -9095,6 +9101,7 @@ window.canCurrentPlayerStartCombat = canCurrentPlayerStartCombat;
 window.canCurrentPlayerPassTurn = canCurrentPlayerPassTurn;
 window.isPieceVisibleToMe = isPieceVisibleToMe;
 window.getSpriteUrlFromPid = getSpriteUrlFromPid;
+window.getEffectiveSpriteUrlForTrainerPid = getEffectiveSpriteUrlForTrainerPid;
 window.localSpriteUrl      = localSpriteUrl;
 window.spriteUrlWithFallback = spriteUrlWithFallback;
 window.spriteSlugFromPokemonName = spriteSlugFromPokemonName;

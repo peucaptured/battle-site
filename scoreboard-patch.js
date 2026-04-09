@@ -498,7 +498,7 @@ function buildSlots(player) {
       const revealed = piece ? (!!piece.revealed || wasSeen) : wasSeen;
       const hp = ps.hp != null ? Number(ps.hp) : null;
       const ko = hp != null && hp <= 0;
-      const spriteUrl = getSpriteUrl(pid, { type: "art", shiny: !!ps.shiny });
+      const spriteUrl = getTrainerPidSpriteUrl(tn, pid, { type: "art", shiny: !!ps.shiny }) || getSpriteUrl(pid, { type: "art", shiny: !!ps.shiny });
       const heldItem = typeof window.getHeldItemForTrainerPid === "function"
         ? window.getHeldItemForTrainerPid(tn, partyEntry || pid)
         : null;
@@ -524,6 +524,16 @@ function getSpriteUrl(pid, opts) {
     return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${n}.png`;
   }
   return POKE_BALL_URL;
+}
+
+function getTrainerPidSpriteUrl(ownerName, pid, opts) {
+  const owner = safeStr(ownerName);
+  const monPid = safeStr(pid);
+  if (!monPid) return "";
+  if (typeof window.getEffectiveSpriteUrlForTrainerPid === "function") {
+    return window.getEffectiveSpriteUrlForTrainerPid(owner, monPid, opts) || "";
+  }
+  return getSpriteUrl(monPid, opts);
 }
 
 // ── Get trainer photo ──
