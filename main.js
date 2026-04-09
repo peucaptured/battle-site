@@ -2969,9 +2969,10 @@ function renderInspectorCard() {
   const mvBudget = isMine ? getPieceMovementBudget(p) : { speed: 0, maxTiles: 0, dash: false };
   const freeMove = !!appState.movement?.freeByPieceId?.[selId];
 
-  const slug = _pokeApiSlugFromPid(pid);
+  const slug = _getEffectivePokeApiSlug(owner, pid);
   const apiCachedEntry = (isMine && slug) ? _getPokeApiCached(slug) : null;
   const apiCached = apiCachedEntry ? apiCachedEntry.speed : undefined;
+  const megaFxActive = !!getMegaEvolutionFxState(owner, pid);
 
   // Tipos: ficha → peça → cache PokeAPI (mesma lógica para dono e adversário)
   const _hasValidTypes = (arr) => Array.isArray(arr) && arr.length && arr.some(t => normalizeType(t));
@@ -3035,7 +3036,7 @@ const sheetHasSpeed = isMine ? [
 
     <div class="inspector-card">
       <div class="inspector-media">
-        ${spriteUrl ? `<img src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" data-fallback="${escapeAttr(spriteFallbackUrl)}" onerror="if(this.dataset.fallback && this.src!==this.dataset.fallback){this.src=this.dataset.fallback;}else{this.style.display='none'}"/>` : `<div class="inspector-sprite-fallback">#</div>`}
+        ${spriteUrl ? `<img class="${megaFxActive ? "mega-evolving" : ""}" src="${escapeAttr(spriteUrl)}" alt="sprite" loading="lazy" data-fallback="${escapeAttr(spriteFallbackUrl)}" onerror="if(this.dataset.fallback && this.src!==this.dataset.fallback){this.src=this.dataset.fallback;}else{this.style.display='none'}"/>` : `<div class="inspector-sprite-fallback">#</div>`}
       </div>
       <div class="inspector-body">
         <div class="inspector-name">${escapeHtml(name)}</div>
@@ -3213,6 +3214,7 @@ function renderSheetsInspectorCard(wrap) {
   const hpCol = (hpPct > 50) ? "rgba(34,197,94,1)" : (hpPct > 25) ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
   const heldItem = getHeldItemForTrainerPid(by, pid || activeEntry._party_pid_raw || pname);
   const megaControlsHtml = _renderMegaControlsHtml(by, pid, activeEntry);
+  const megaFxActive = !!getMegaEvolutionFxState(by, pid);
   // Boosts temporários de stat
   const statBoosts = ps.stat_boosts || {};
   const isOnBoard = !!findBoardPieceForSheet(by, sh, sh?._party_pid_raw);
@@ -3352,7 +3354,7 @@ function renderSheetsInspectorCard(wrap) {
     </div>
     <div class="inspector-card ficha-v2" style="display:block;${inspTypeBgStyle}">
       <div class="sheet-header">
-        <div class="sheet-art-frame"><img class="sheet-art" src="${escapeAttr(art)}" alt="art" onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid || pname))}'"/></div>
+        <div class="sheet-art-frame"><img class="sheet-art ${megaFxActive ? "mega-evolving" : ""}" src="${escapeAttr(art)}" alt="art" onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid || pname))}'"/></div>
         <div style="flex:1; min-width:0;">
           <div class="sheet-name">${escapeHtml(pname)}</div>
           <div class="pill-row" style="margin-top:6px;">${tp}</div>
@@ -4156,6 +4158,21 @@ function _getEffectivePokemonSlug(ownerName, pidLike) {
   return safeStr(ctx?.activeMegaSlug);
 }
 
+function _normalizePokeApiSlug(raw) {
+  return safeStr(raw)
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9\-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function _getEffectivePokeApiSlug(ownerName, pidLike) {
+  const effectiveSlug = _normalizePokeApiSlug(_getEffectivePokemonSlug(ownerName, pidLike));
+  if (effectiveSlug) return effectiveSlug;
+  return _pokeApiSlugFromPid(pidLike);
+}
+
 function readSpeedFromStats(statsObj) {
   if (!statsObj || typeof statsObj !== "object") return 0;
   const keys = ["speed", "spe", "spd", "Speed", "velocidade", "vel"];
@@ -4181,7 +4198,7 @@ function _pokeApiSlugFromPid(pid) {
     name = dexNameFromPid(k) || k;
   }
   if (!name) return "";
-  return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return _normalizePokeApiSlug(name);
 }
 
 function _getPokeApiCached(slug) {
@@ -4212,6 +4229,7 @@ async function fetchPokeApiData(slug) {
     };
     _pokeApiCache.set(slug, entry);
     if (typeof updateSidePanels === "function") updateSidePanels();
+    try { renderArenaDom?.(); } catch {}
     return entry;
   } catch {
     _pokeApiCache.set(slug, "error");
@@ -4261,6 +4279,8 @@ function getPieceSpeed(piece) {
   const pid = safePidValue(piece?.pid);
   const owner = safeStr(piece?.owner);
   const ps = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
+  const megaState = _getBattleMegaStateForTrainerPid(owner, pid);
+  const effectiveSlug = _getEffectivePokeApiSlug(owner, pid);
 
   const candidates = [
     readSpeedFromStats(sh?.stats),
@@ -4274,11 +4294,18 @@ function getPieceSpeed(piece) {
   ];
   for (const c of candidates) {
     const n = Number(c);
-    if (Number.isFinite(n) && n > 0) return n;
+    if (!Number.isFinite(n) || n <= 0) continue;
+    if (megaState?.activeMegaSlug && effectiveSlug) {
+      const cachedMega = _getPokeApiCached(effectiveSlug);
+      if (cachedMega && cachedMega.speed > 0) return cachedMega.speed;
+      const pendingMega = _pokeApiCache.get(effectiveSlug);
+      if (pendingMega !== "pending") fetchPokeApiData(effectiveSlug);
+    }
+    return n;
   }
 
   // Try PokeAPI unified cache (sync read, async fetch if missing)
-  const slug = _pokeApiSlugFromPid(pid);
+  const slug = effectiveSlug || _pokeApiSlugFromPid(pid);
   if (slug) {
     const cached = _getPokeApiCached(slug);
     if (cached && cached.speed > 0) return cached.speed;
@@ -5281,6 +5308,7 @@ function syncArenaDomIfNeeded(force = false) {
 
 function renderArenaDom() {
   if (!arenaDom) return;
+  _trimMegaEvolutionFx();
   ensureDomGrid();
   const board = getArenaBoardMetrics();
   // mostra DOM, esconde canvas
@@ -5365,6 +5393,7 @@ function renderArenaDom() {
     const token = document.createElement("div");
     token.className = "token";
     token.dataset.pieceId = safeStr(p?.id);
+    if (getMegaEvolutionFxState(p?.owner, p?.pid)) token.classList.add("mega-evolving");
     const sizeCategory = p?.sizeCategory || "medium";
     const { tileW, tileH } = getSizeDimensions(sizeCategory);
     const label = p?.revealed ? shortLabelFromPiece(p, 4) : "?";
@@ -7159,6 +7188,7 @@ function draw() {
     return;
   }
   syncSpriteOverlayVisibility();
+  _trimMegaEvolutionFx();
   // background
   ctx.clearRect(0, 0, w, h);
   // soft vignette
@@ -7387,6 +7417,7 @@ drawTraps(ctx, ox, oy, tile);
     const owner = safeStr(p?.owner);
     const isSel = safeStr(appState.selectedPieceId) && safeStr(appState.selectedPieceId) === id;
     const isMine = _by && owner === _by;
+    const megaFx = getMegaEvolutionFxState(owner, p?.pid);
 
     const sizeCategory = getPieceSizeCategory(p);
     const { tileW, tileH, zIndex } = getSizeDimensions(sizeCategory);
@@ -7485,6 +7516,7 @@ drawTraps(ctx, ox, oy, tile);
       st.zIndex = mapLayersState.version === 2
         ? String(100 + Math.round(_item.sortY * 100))
         : String(zIndex);
+      entry.el.classList.toggle("mega-evolving", !!megaFx);
     } else {
       // fallback glyph
       ctx.fillStyle = "rgba(226,232,240,0.85)";
@@ -7513,6 +7545,20 @@ drawTraps(ctx, ox, oy, tile);
       ctx.strokeStyle = _selColor.border;
       ctx.lineWidth = 2;
       ctx.strokeRect(x + 1, y + 1, tile * tileW - 2, tile * tileH - 2);
+      ctx.restore();
+    }
+
+    if (megaFx) {
+      const pulse = Math.sin(megaFx.progress * Math.PI);
+      const fxPad = Math.max(6, tile * 0.08);
+      ctx.save();
+      ctx.strokeStyle = `rgba(96,165,250,${0.35 + pulse * 0.45})`;
+      ctx.fillStyle = `rgba(251,191,36,${0.08 + pulse * 0.12})`;
+      ctx.lineWidth = 2 + pulse * 2;
+      ctx.shadowColor = "rgba(250,204,21,0.65)";
+      ctx.shadowBlur = 12 + pulse * 18;
+      ctx.fillRect(x + fxPad, y + fxPad, tile * tileW - fxPad * 2, tile * tileH - fxPad * 2);
+      ctx.strokeRect(x - pulse * 6, y - pulse * 6, tile * tileW + pulse * 12, tile * tileH + pulse * 12);
       ctx.restore();
     }
   }
@@ -7676,11 +7722,86 @@ let _partyStatesUnsub = null;
 let _allSheetsLatest = [];   // lista (desc por updated_at) do trainer logado
 let _allSheetsCollections = _buildSheetCollections([]);
 let _partyStates = {};
+let _partyStatesBootstrapped = false;
 let _sheetsSelectedPid = null;
 let _sheetsLastError = "";
 // Persiste modificadores temporários de dano/acerto por golpe entre trocas de aba
 // chave: `${pid}::${moveIndex}`, valor: { acc: 0, dmg: 0 }
 const _sheetsMods = {};
+const _megaEvolutionFx = new Map();
+
+function _megaFxKey(ownerName, pidLike) {
+  const owner = _trainerLookupKey(ownerName);
+  const pid = pidKey(pidLike);
+  return owner && pid ? `${owner}::${pid}` : "";
+}
+
+function _trimMegaEvolutionFx(now = Date.now()) {
+  for (const [key, rec] of _megaEvolutionFx.entries()) {
+    if (!rec || now - Number(rec.startedAt || 0) > Number(rec.durationMs || 1200)) {
+      _megaEvolutionFx.delete(key);
+    }
+  }
+}
+
+function getMegaEvolutionFxState(ownerName, pidLike) {
+  const key = _megaFxKey(ownerName, pidLike);
+  if (!key) return null;
+  const rec = _megaEvolutionFx.get(key);
+  if (!rec) return null;
+  const now = Date.now();
+  const elapsed = now - Number(rec.startedAt || 0);
+  const durationMs = Math.max(1, Number(rec.durationMs || 1200));
+  if (elapsed >= durationMs) {
+    _megaEvolutionFx.delete(key);
+    return null;
+  }
+  return {
+    progress: Math.max(0, Math.min(1, elapsed / durationMs)),
+    durationMs,
+    elapsed,
+  };
+}
+
+function triggerMegaEvolutionFx(ownerName, pidLike, options = {}) {
+  const key = _megaFxKey(ownerName, pidLike);
+  if (!key) return;
+  const now = Date.now();
+  const existing = _megaEvolutionFx.get(key);
+  if (existing && now - Number(existing.startedAt || 0) < 250) return;
+  _megaEvolutionFx.set(key, {
+    startedAt: now,
+    durationMs: Number(options.durationMs) > 0 ? Number(options.durationMs) : 1250,
+  });
+  try { updateSidePanels?.(); } catch {}
+  try { renderArenaDom?.(); } catch {}
+}
+
+function _collectActiveMegaMap(source) {
+  const out = new Map();
+  const data = (source && typeof source === "object") ? source : {};
+  for (const [ownerName, bucket] of Object.entries(data)) {
+    if (!bucket || typeof bucket !== "object" || Array.isArray(bucket)) continue;
+    for (const [pidLike, entry] of Object.entries(bucket)) {
+      const slug = safeStr(entry?.active_mega_slug);
+      if (!slug) continue;
+      const key = _megaFxKey(ownerName, pidLike);
+      if (key) out.set(key, slug);
+    }
+  }
+  return out;
+}
+
+function _detectMegaEvolutionTransitions(prevState, nextState) {
+  const prevMap = _collectActiveMegaMap(prevState);
+  const nextMap = _collectActiveMegaMap(nextState);
+  for (const [key, nextSlug] of nextMap.entries()) {
+    const prevSlug = safeStr(prevMap.get(key));
+    if (prevSlug === nextSlug) continue;
+    const [ownerName, pidLike] = key.split("::");
+    if (ownerName && pidLike) triggerMegaEvolutionFx(ownerName, pidLike);
+  }
+}
 
 function safePidValue(x) {
   let v = safeStr(x);
@@ -8105,6 +8226,8 @@ function teardownSheetsRealtime() {
   _allSheetsLatest = [];
   _allSheetsCollections = _buildSheetCollections([]);
   _partyStates = {};
+  _partyStatesBootstrapped = false;
+  _megaEvolutionFx.clear();
   _sheetsSelectedPid = null;
   _sheetsLastError = "";
 }
@@ -8135,7 +8258,14 @@ function ensureSheetsRealtime() {
   try {
     const psDoc = doc(db, "rooms", rid, "public_state", "party_states");
     _partyStatesUnsub = onSnapshot(psDoc, (snap) => {
-      _partyStates = snap.exists() ? (snap.data() || {}) : {};
+      const nextPartyStates = snap.exists() ? (snap.data() || {}) : {};
+      if (_partyStatesBootstrapped) {
+        _detectMegaEvolutionTransitions(_partyStates, nextPartyStates);
+      } else {
+        _partyStatesBootstrapped = true;
+      }
+      _partyStates = nextPartyStates;
+      _trimMegaEvolutionFx();
       renderSheetsTab();
       try { updateSidePanels(); } catch {}
       try { window.requestScoreboardRefresh?.(); } catch {}
@@ -8454,8 +8584,20 @@ function _sheetMegaLabel(sheet) {
   return safeStr(sheet?.mega_label || sheet?.pokemon?.name || sheet?.mega_slug) || "Mega Evolucao";
 }
 
+function _getUniqueMegaSheets(list) {
+  const seen = new Set();
+  const out = [];
+  for (const sheet of (Array.isArray(list) ? list : [])) {
+    const key = safeStr(sheet?.mega_slug || sheet?.pokemon?.name || _sheetDocId(sheet)).toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(sheet);
+  }
+  return out;
+}
+
 function _renderMegaControlsHtml(ownerName, basePid, entry, options = {}) {
-  const megaSheets = Array.isArray(entry?.megaSheets) ? entry.megaSheets : [];
+  const megaSheets = _getUniqueMegaSheets(entry?.megaSheets);
   const activeSlug = safeStr(entry?.activeMegaSlug).toLowerCase();
   const sectionTitle = safeStr(options.title || "Mega Evolucao");
   if (!megaSheets.length) {
@@ -8473,28 +8615,20 @@ function _renderMegaControlsHtml(ownerName, basePid, entry, options = {}) {
     const active = slug && activeSlug === slug.toLowerCase();
     return `
       <button type="button" class="btn ${active ? "primary" : "secondary"}"
-        data-mega-act="activate"
+        data-mega-act="toggle"
         data-owner="${escapeAttr(ownerName)}"
         data-pid="${escapeAttr(basePid)}"
+        data-mega-active="${active ? "1" : "0"}"
         data-mega-slug="${escapeAttr(slug)}">
-        ${active ? `Mega ativa: ${escapeHtml(label)}` : `Mega Evoluir: ${escapeHtml(label)}`}
+        ${active ? `Cancelar Mega Evolucao: ${escapeHtml(label)}` : `Mega Evoluir: ${escapeHtml(label)}`}
       </button>
     `;
   }).join("");
-  const cancelHtml = activeSlug ? `
-    <button type="button" class="btn secondary"
-      data-mega-act="cancel"
-      data-owner="${escapeAttr(ownerName)}"
-      data-pid="${escapeAttr(basePid)}">
-      Cancelar Mega Evolucao
-    </button>
-  ` : "";
   return `
     <div class="sheet-divider"></div>
     <div class="section-title">${escapeHtml(sectionTitle)}</div>
     <div class="chip-row" data-mega-controls>
       ${buttons}
-      ${cancelHtml}
     </div>
   `;
 }
@@ -8507,7 +8641,7 @@ async function setBattleMegaEvolutionForTrainerPid(ownerName, pidLike, megaSlug 
   if (!db || !rid || !trainer || !basePid) return;
   const ref = doc(db, "rooms", rid, "public_state", "party_states");
   const resolved = _resolveSelfEffectiveSheet(basePid, trainer);
-  const megaSheets = Array.isArray(resolved?.megaSheets) ? resolved.megaSheets : [];
+  const megaSheets = _getUniqueMegaSheets(resolved?.megaSheets);
   const targetSlug = safeStr(megaSlug);
   const patch = {};
   if (targetSlug) {
@@ -8522,6 +8656,12 @@ async function setBattleMegaEvolutionForTrainerPid(ownerName, pidLike, megaSlug 
     patch.effective_pokemon = megaSheet?.pokemon || null;
     patch.effective_np = megaSheet?.np ?? megaSheet?.pokemon?.np ?? megaSheet?.pokemon?.NP ?? null;
     setStatus("ok", `${displayNameFromPid(basePid, { owner: trainer })}: Mega Evolucao ativada.`);
+    const megaApiSlug = _normalizePokeApiSlug(
+      (typeof spriteSlugFromPokemonName === "function" ? spriteSlugFromPokemonName(megaSheet?.pokemon?.name || "") : "")
+      || megaSheet?.pokemon?.name
+      || targetSlug
+    );
+    if (megaApiSlug) fetchPokeApiData(megaApiSlug);
   } else {
     patch.active_mega_slug = null;
     patch.effective_sheet_id = null;
@@ -8534,25 +8674,21 @@ async function setBattleMegaEvolutionForTrainerPid(ownerName, pidLike, megaSlug 
     [trainer]: { [basePid]: patch },
     updated_at: serverTimestamp(),
   }, { merge: true });
+  if (targetSlug) triggerMegaEvolutionFx(trainer, basePid);
 }
 
 function _bindMegaControlButtons(root) {
   if (!root) return;
-  root.querySelectorAll("[data-mega-act=\"activate\"]").forEach((btn) => {
+  root.querySelectorAll("[data-mega-act=\"toggle\"]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       btn.disabled = true;
       try {
-        await setBattleMegaEvolutionForTrainerPid(btn.dataset.owner, btn.dataset.pid, btn.dataset.megaSlug);
-      } finally {
-        btn.disabled = false;
-      }
-    });
-  });
-  root.querySelectorAll("[data-mega-act=\"cancel\"]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      btn.disabled = true;
-      try {
-        await setBattleMegaEvolutionForTrainerPid(btn.dataset.owner, btn.dataset.pid, "");
+        const shouldCancel = safeStr(btn.dataset.megaActive) === "1";
+        await setBattleMegaEvolutionForTrainerPid(
+          btn.dataset.owner,
+          btn.dataset.pid,
+          shouldCancel ? "" : btn.dataset.megaSlug
+        );
       } finally {
         btn.disabled = false;
       }
