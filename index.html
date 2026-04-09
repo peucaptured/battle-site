@@ -394,7 +394,10 @@
        HUD BODY — 3-column grid
        ═══════════════════════════════════════════════════════ */
     .hud-body{
-      display:block;
+      display:grid;
+      grid-template-columns:minmax(248px, 282px) minmax(0, 1fr);
+      gap:12px;
+      align-items:start;
       padding: 12px 20px 20px;
       width:100%;
       max-width:1680px;
@@ -408,7 +411,13 @@
       flex-direction:column;
       gap:12px;
     }
-    .sidebar-left,
+    .sidebar-left{
+      display:block !important;
+      min-width:0;
+    }
+    .sidebar-left .panel{
+      height:100%;
+    }
     .sidebar-right{
       display:none !important;
     }
@@ -436,6 +445,7 @@
       flex:1;
     }
     .arena-head{
+      display:none !important;
       padding:12px 14px;
       border-radius:var(--radius);
       background: var(--glass2);
@@ -468,6 +478,9 @@
     .arena-left-shell{
       top:18px;
       left:18px;
+    }
+    .arena-left-shell{
+      display:none !important;
     }
     .arena-tools-shell{
       top:18px;
@@ -631,6 +644,7 @@
     }
     .fzp-zone-chip button:hover{ color:#f87171; }
     .arena-hover-card{
+      display:none !important;
       position:absolute;
       top:18px;
       right:18px;
@@ -911,11 +925,11 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
       image-rendering:auto;
       filter: drop-shadow(0 4px 6px rgba(2,6,23,0.35));
     }
-    .arena-dom .token-label{
-      display:none;
-      position:absolute;
-      left:6px;
-      top:6px;
+      .arena-dom .token-label{
+        display:none;
+        position:absolute;
+        left:6px;
+        top:6px;
       padding:2px 6px;
       border-radius:999px;
       background:rgba(15,23,42,0.62);
@@ -923,14 +937,41 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
       font-size:10px;
       line-height:1;
       letter-spacing:.04em;
-      text-transform:uppercase;
-      color:rgba(241,245,249,0.92);
-      text-shadow:none;
-    }
-    .arena-dom .cell.place-ok{
-      outline: 1px solid rgba(163,230,53,.18);
-      background: rgba(163,230,53,.10);
-    }
+        text-transform:uppercase;
+        color:rgba(241,245,249,0.92);
+        text-shadow:none;
+      }
+      .arena-dom .token-hp{
+        position:absolute;
+        left:50%;
+        bottom:2px;
+        transform:translateX(-50%);
+        width:calc(100% - 10px);
+        height:4px;
+        border-radius:999px;
+        background:rgba(2,6,23,.72);
+        border:1px solid rgba(255,255,255,.12);
+        overflow:hidden;
+        pointer-events:none;
+      }
+      .arena-dom .token-hp-fill{
+        height:100%;
+        border-radius:inherit;
+        transition:width .18s ease;
+      }
+      .arena-dom .token.size-tiny .token-hp{
+        width:calc(100% - 4px);
+        height:3px;
+        bottom:1px;
+      }
+      .arena-dom .token.size-large .token-hp,
+      .arena-dom .token.size-huge .token-hp{
+        width:calc(100% - 14px);
+      }
+      .arena-dom .cell.place-ok{
+        outline: 1px solid rgba(163,230,53,.18);
+        background: rgba(163,230,53,.10);
+      }
     .arena-dom .cell.move-ok{
       background: rgba(244,114,182,.22);
       box-shadow: inset 0 0 0 1px rgba(244,114,182,.45);
@@ -1792,6 +1833,7 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
        ═══════════════════════════════════════════════════════ */
     @media (max-width: 1200px) {
       .hud-body{
+        grid-template-columns:minmax(224px, 252px) minmax(0, 1fr);
         padding: 8px 12px 14px;
       }
       .hero-header{
@@ -1807,6 +1849,9 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
     }
     @media (max-width: 1024px) {
       body{ overflow: auto; }
+      .hud-body{
+        grid-template-columns:1fr;
+      }
       .sidebar-left,
       .sidebar-right{
         max-height: 350px;
@@ -1861,6 +1906,9 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
 
       .hud-body{
         padding: 6px 8px 80px;
+      }
+      .sidebar-left{
+        width:100%;
       }
 
       /* Arena: use full width, touch-friendly height */
@@ -2176,6 +2224,9 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
             <div class="menu-divider"></div>
             <button type="button" data-menu-act="move">🚶 Mover</button>
             <button type="button" data-menu-act="movement" disabled>🧭 Deslocamento</button>
+            <button type="button" data-menu-act="summary">📋 Ficha resumida</button>
+            <button type="button" data-menu-act="hp-down">➖ HP -1</button>
+            <button type="button" data-menu-act="hp-up">➕ HP +1</button>
             <button type="button" data-menu-act="mega">✨ Mega Evoluir</button>
             <button type="button" data-menu-act="conditions">🧷 Condições</button>
             <button type="button" data-menu-act="toggle">👁️ Ocultar / revelar</button>
@@ -2354,7 +2405,7 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
        ═══════════════════════════════════════════════════════ -->
   <script type="module" src="./main.js?v=20260409d"></script>
   <script type="module" src="./combat-patch.js?v=20260409d"></script>
-  <script type="module" src="./combat-inspector-patch.js?v=20260409d"></script>  ← NOVO
+  <script type="module" src="./combat-inspector-patch.js?v=20260409d"></script>
   <script type="module" src="./initiative-patch.js?v=20260409d"></script>
   <script type="module" src="./arena-combat-patch.js?v=20260409d"></script>
   <script type="module" src="./scoreboard-patch.js?v=20260409d"></script>

@@ -1204,6 +1204,14 @@ function setTab(tabName) {
     inspectorRoot.innerHTML = "";
     inspectorRoot.appendChild(renderInspectorCard());
   }
+  if (tabName === "arena" && useCanvas) {
+    view.autoFit = true;
+    requestAnimationFrame(() => {
+      try { resizeCanvasToContainer(); } catch {}
+      try { fitToView(); } catch {}
+      try { requestArenaRefresh(true); } catch {}
+    });
+  }
 }
 
 function supportsHoverTabs() {
@@ -1220,7 +1228,6 @@ function moveNodeIntoContainer(node, container) {
 }
 
 function syncArenaOverlayLayout() {
-  moveNodeIntoContainer(document.querySelector(".sidebar-left .panel"), arenaLeftDrawer);
   moveNodeIntoContainer($("btn_draw_mode"), arenaToolsMenu);
   moveNodeIntoContainer($("draw-toolbar"), arenaToolsMenu);
   moveNodeIntoContainer($("field_conditions"), arenaToolsMenu);
@@ -2532,9 +2539,10 @@ function renderPartyCard(it, ownerName) {
   const hp = (ps.hp != null ? Number(ps.hp) : 6);
   const maxHp = 6;
   const cond = Array.isArray(ps.cond) ? ps.cond : [];
-  const hpPct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
-  const hpCol = hpPct > 66 ? "#22c55e" : hpPct > 33 ? "#f59e0b" : hp <= 0 ? "#64748b" : "#ef4444";
-  const hpIcon = hp >= 5 ? "💚" : hp >= 3 ? "🟡" : hp >= 1 ? "🔴" : "💀";
+  const hpUi = getHpUiState(hp);
+  const hpPct = hpUi.pct;
+  const hpCol = hpUi.color;
+  const hpIcon = hpUi.icon;
   const card = document.createElement("div");
   card.className = "pvp-party-card";
   card.dataset.pid = pid;
@@ -2643,6 +2651,136 @@ async function updatePartyStateHp(ownerName, pid, hp) {
     updated_at: serverTimestamp(),
   };
   await setDoc(ref, patch, { merge: true });
+  if (!_partyStates[trainer]) _partyStates[trainer] = {};
+  const cur = _partyStates[trainer][monPid] || {};
+  _partyStates[trainer][monPid] = { ...cur, hp: newHp };
+  try { renderSheetsTab(); } catch {}
+  try { updateSidePanels(); } catch {}
+  try { window.requestScoreboardRefresh?.(); } catch {}
+  try { requestArenaRefresh(true); } catch {}
+}
+
+function renderArenaSheetPreview() {
+  const root = $("arena_sheet_preview");
+  if (!root) return;
+  const selId = safeStr(appState.selectedPieceId);
+  if (!selId) {
+    root.innerHTML = `<div class="arena-sheet-card"><div class="muted">Clique em um pokémon na arena para abrir a ficha resumida.</div></div>`;
+    return;
+  }
+
+  const piece = (appState.pieces || []).find((item) => safeStr(item?.id) === selId) || null;
+  if (!piece || !isPieceVisibleToMe(piece)) {
+    root.innerHTML = `<div class="arena-sheet-card"><div class="muted">A peça selecionada não está visível.</div></div>`;
+    return;
+  }
+
+  const owner = safeStr(piece?.owner);
+  const pid = safeStr(piece?.pid);
+  const isMine = isPieceMine(piece);
+  const sheet = isMine ? getSheetForPiece(piece) : null;
+  const pkm = sheet?.pokemon || {};
+  const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine }) || "Pokémon";
+  const ownerLabel = humanizeInternalLabel(owner) || owner || "—";
+  const spriteState = _getPartyStateEntry(owner, pid) || {};
+  const sprite = getSpriteUrlForPiece(piece, { type: "art", shiny: !!spriteState.shiny })
+    || getSpriteFallbackUrlForPiece(piece)
+    || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
+  const hpUi = getHpUiState(spriteState.hp ?? 6);
+  const types = Array.isArray(pkm?.types) && pkm.types.length
+    ? pkm.types
+    : resolvePieceInspectorTypes(piece, { isMine });
+  const typeHtml = (types || []).map((type) => {
+    const color = getTypeColor(type);
+    return `<span class="chip" style="border-color:${color}66;color:${color};background:${color}22;">${escapeHtml(type)}</span>`;
+  }).join("");
+  const moveBudget = getPieceMovementBudget(piece);
+  const moveSummary = `Velocidade ${moveBudget.speed} • deslocamento ${moveBudget.maxTiles % 1 ? "1/2" : moveBudget.maxTiles} quadrado(s)`;
+  const stateBucket = sheet ? _getPartyStateForSheet(owner, sheet, pid) : spriteState;
+  const cond = Array.isArray(stateBucket?.cond) ? stateBucket.cond : [];
+  const condHtml = cond.length
+    ? `<div class="chip-row">${cond.slice(0, 4).map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>`
+    : "";
+
+  if (!sheet) {
+    root.innerHTML = `
+      <div class="arena-sheet-card">
+        <div class="sheet-top">
+          <img class="sheet-art" src="${escapeAttr(sprite)}" alt="${escapeAttr(name)}" />
+          <div style="flex:1;min-width:0;">
+            <div class="sheet-name">${escapeHtml(name)}</div>
+            <div class="sheet-sub">${escapeHtml(ownerLabel)} • ${escapeHtml(pid || "—")}</div>
+            <div class="chip-row">${typeHtml || `<span class="muted">Tipo indisponível</span>`}</div>
+          </div>
+        </div>
+        <div class="hp-row"><span>HP</span><span>${hpUi.value}/6</span></div>
+        <div class="hp-track"><div class="hp-fill" style="width:${hpUi.pct}%;background:${hpUi.color};"></div></div>
+        ${condHtml}
+        <div class="section-title">Resumo</div>
+        <div class="muted">${escapeHtml(moveSummary)}</div>
+        <div class="muted" style="margin-top:8px">${isMine ? "Ficha não encontrada para esta peça." : "Ficha completa privada. Apenas o resumo da arena está disponível."}</div>
+      </div>
+    `;
+    return;
+  }
+
+  const pidLabel = _sheetDisplayPid(sheet, sheet?._party_pid_raw || pid) || pid || "—";
+  const np = safeInt(sheet?.np ?? pkm?.np ?? 0, 0);
+  const abilities = Array.isArray(pkm?.abilities) ? pkm.abilities : [];
+  const st = sheet?.stats || {};
+  const stgr = safeInt(st.stgr, 0);
+  const intel = safeInt(st.int, 0);
+  let thg = safeInt(st.thg, 0);
+  let dodge = safeInt(st.dodge, 0);
+  const cap = np * 2;
+  if (thg <= 0 && cap > 0) thg = Math.round(cap / 2);
+  if (dodge <= 0 && cap > 0 && thg > 0) dodge = Math.max(0, cap - thg);
+  const heldItem = getHeldItemForTrainerPid(owner, pid || name);
+  const movesRaw = Array.isArray(sheet?.moves) ? sheet.moves : (sheet?.moves ? Object.values(sheet.moves) : []);
+  const moves = movesRaw.filter((move) => move && typeof move === "object").slice(0, 3);
+  const movesHtml = moves.length
+    ? moves.map((mv) => {
+        const moveName = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
+        const { rk, acc, area } = _mvSum(mv, st);
+        return `
+          <div class="move-row">
+            <div class="move-head">
+              <span class="move-name">${escapeHtml(moveName)}</span>
+              <span class="mv-pill">A+${acc}</span>
+              <span class="mv-pill">R${rk}</span>
+              <span class="mv-pill">${area ? "Área" : "Alvo"}</span>
+            </div>
+          </div>
+        `;
+      }).join("")
+    : `<div class="muted">Sem golpes nesta ficha.</div>`;
+
+  root.innerHTML = `
+    <div class="arena-sheet-card">
+      <div class="sheet-top">
+        <img class="sheet-art" src="${escapeAttr(sprite)}" alt="${escapeAttr(name)}" />
+        <div style="flex:1;min-width:0;">
+          <div class="sheet-name">${escapeHtml(name)}</div>
+          <div class="sheet-sub">#${escapeHtml(pidLabel)} • NP ${np}</div>
+          <div class="chip-row">${typeHtml || `<span class="muted">Sem tipo</span>`}</div>
+        </div>
+      </div>
+      ${abilities.length ? `<div class="chip-row">${abilities.slice(0, 3).map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>` : ""}
+      ${renderHeldItemSummaryHtml(heldItem, { label: "Item", size: "sm" })}
+      <div class="hp-row"><span>HP</span><span>${hpUi.value}/6</span></div>
+      <div class="hp-track"><div class="hp-fill" style="width:${hpUi.pct}%;background:${hpUi.color};"></div></div>
+      ${condHtml}
+      <div class="muted" style="margin-top:8px">${escapeHtml(moveSummary)}</div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-label">Stgr</div><div class="stat-val">${stgr}</div></div>
+        <div class="stat-box"><div class="stat-label">Int</div><div class="stat-val">${intel}</div></div>
+        <div class="stat-box"><div class="stat-label">Thg</div><div class="stat-val">${thg}</div></div>
+        <div class="stat-box"><div class="stat-label">Dodge</div><div class="stat-val">${dodge}</div></div>
+      </div>
+      <div class="section-title">Golpes</div>
+      ${movesHtml}
+    </div>
+  `;
 }
 
 
@@ -3743,6 +3881,7 @@ function updateSidePanels() {
 
   // Render pokébolas (Time / posicionamento)
   renderPartyWindow();
+  renderArenaSheetPreview();
 
   // Botão de cancelar: só aparece quando estiver armado
   try {
@@ -4148,12 +4287,13 @@ function resizeCanvasToContainer() {
   return true;
 }
 
-if (typeof ResizeObserver !== "undefined") {
-  const onArenaViewportChange = () => {
-    updateHudViewportHeight();
-    if (useCanvas) resizeCanvasToContainer();
-    requestArenaRefresh(true);
-  };
+  if (typeof ResizeObserver !== "undefined") {
+    const onArenaViewportChange = () => {
+      updateHudViewportHeight();
+      if (useCanvas) resizeCanvasToContainer();
+      if (useCanvas && view.autoFit) fitToView();
+      requestArenaRefresh(true);
+    };
   const ro = new ResizeObserver(() => {
     onArenaViewportChange();
   });
@@ -5408,6 +5548,8 @@ async function removePieceFromBoard(pieceId) {
       appState.selectedPieceId = null;
       selBadge.textContent = `seleção: —`;
     }
+    updateSidePanels();
+    requestArenaRefresh(true);
     setStatus("ok", "peça removida do campo");
   } catch (e) {
     setStatus("err", `falha ao remover peça: ${e?.message || e}`);
@@ -5420,7 +5562,7 @@ function hidePieceContextMenu() {
   pieceMenuState.pieceId = null;
 }
 
-function openPieceContextMenu(piece, x, y) {
+openPieceContextMenu = function(piece, x, y) {
   if (!pieceContextMenu || !piece || !canvasWrap) return;
   const id = safeStr(piece?.id);
   if (!id) return;
@@ -5615,6 +5757,161 @@ async function handlePieceMenuAction(action, pieceId) {
   }
 }
 
+function openPieceContextMenu(piece, x, y) {
+  if (!pieceContextMenu || !piece || !canvasWrap) return;
+  const id = safeStr(piece?.id);
+  if (!id) return;
+  pieceMenuState.pieceId = id;
+  selectPiece(id);
+  setArenaHoverPiece(id, { persist: true });
+
+  const isMine = isPieceMine(piece);
+  const revealed = piece?.revealed != null ? !!piece.revealed : true;
+  const ownerLabel = humanizeInternalLabel(safeStr(piece?.owner)) || safeStr(piece?.owner) || "—";
+  const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
+  const budget = getPieceMovementBudget(piece);
+  const hpValue = getPartyHp(safeStr(piece?.owner), safeStr(piece?.pid));
+  const movementText = `Deslocamento • ${budget.speed} SPD • ${budget.maxTiles % 1 ? "1/2" : budget.maxTiles} quad.`;
+  if (pieceContextSummary) {
+    pieceContextSummary.textContent = `${name} • ${ownerLabel} • HP ${hpValue}/6`;
+  }
+
+  const moveBtn = pieceContextMenu.querySelector('[data-menu-act="move"]');
+  const movementBtn = pieceContextMenu.querySelector('[data-menu-act="movement"]');
+  const summaryBtn = pieceContextMenu.querySelector('[data-menu-act="summary"]');
+  const hpDownBtn = pieceContextMenu.querySelector('[data-menu-act="hp-down"]');
+  const hpUpBtn = pieceContextMenu.querySelector('[data-menu-act="hp-up"]');
+  const megaBtn = pieceContextMenu.querySelector('[data-menu-act="mega"]');
+  const conditionsBtn = pieceContextMenu.querySelector('[data-menu-act="conditions"]');
+  const toggleBtn = pieceContextMenu.querySelector('[data-menu-act="toggle"]');
+  const removeBtn = pieceContextMenu.querySelector('[data-menu-act="remove"]');
+
+  if (moveBtn) moveBtn.disabled = !isMine;
+  if (movementBtn) {
+    movementBtn.disabled = true;
+    movementBtn.textContent = `🧭 ${movementText}`;
+    movementBtn.title = movementText;
+  }
+  if (summaryBtn) summaryBtn.disabled = false;
+  if (hpDownBtn) hpDownBtn.disabled = hpValue <= 0;
+  if (hpUpBtn) hpUpBtn.disabled = hpValue >= 6;
+
+  const megaState = getPieceMegaUiState(piece);
+  if (megaBtn) {
+    megaBtn.disabled = !megaState.canMega;
+    megaBtn.hidden = !megaState.canMega;
+    megaBtn.textContent = megaState.canMega && safeStr(megaState.entry?.activeMegaSlug)
+      ? "✨ Cancelar Mega Evolução"
+      : "✨ Mega Evoluir";
+  }
+  if (conditionsBtn) conditionsBtn.disabled = !isMine;
+  if (toggleBtn) {
+    toggleBtn.disabled = !isMine;
+    toggleBtn.textContent = revealed ? "👁️ Ocultar" : "👁️ Revelar";
+  }
+  if (removeBtn) removeBtn.disabled = !isMine;
+
+  const wrapRect = canvasWrap.getBoundingClientRect();
+  const localX = Math.max(0, Math.min(wrapRect.width - 8, x - wrapRect.left));
+  const localY = Math.max(0, Math.min(wrapRect.height - 8, y - wrapRect.top));
+
+  pieceContextMenu.style.display = "flex";
+  pieceContextMenu.style.left = `${localX}px`;
+  pieceContextMenu.style.top = `${localY}px`;
+
+  const menuRect = pieceContextMenu.getBoundingClientRect();
+  const overflowX = menuRect.right - wrapRect.right;
+  const overflowY = menuRect.bottom - wrapRect.bottom;
+  if (overflowX > 0) pieceContextMenu.style.left = `${Math.max(8, localX - overflowX - 8)}px`;
+  if (overflowY > 0) pieceContextMenu.style.top = `${Math.max(8, localY - overflowY - 8)}px`;
+};
+
+_ensurePickerEl = function() {
+  if (_pickerEl) return _pickerEl;
+  _pickerEl = document.createElement("div");
+  _pickerEl.id = "piece_picker_menu";
+  _pickerEl.className = "piece-context-menu";
+  _pickerEl.style.display = "none";
+  _pickerEl.style.flexDirection = "column";
+  _pickerEl.style.maxHeight = "200px";
+  _pickerEl.style.overflowY = "auto";
+  canvasWrap?.appendChild(_pickerEl);
+  _pickerEl.addEventListener("click", (ev) => {
+    const btn = ev.target?.closest("[data-picker-id]");
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const pickedId = safeStr(btn.dataset.pickerId);
+    const afterPick = _pickerState.afterPick;
+    const cx = _pickerState.clientX;
+    const cy = _pickerState.clientY;
+    hidePiecePickerMenu();
+    const piece = (appState.pieces || []).find((p) => safeStr(p?.id) === pickedId);
+    if (!piece) return;
+    if (afterPick === "context") {
+      openPieceContextMenu(piece, cx, cy);
+    } else {
+      selectPiece(pickedId);
+    }
+  });
+  return _pickerEl;
+};
+
+handlePieceMenuAction = async function(action, pieceId) {
+  const id = safeStr(pieceId);
+  if (!id) return;
+  const piece = (appState.pieces || []).find((p) => safeStr(p?.id) === id) || null;
+  if (!piece) {
+    setStatus("warn", "peça não encontrada");
+    return;
+  }
+
+  const mine = isPieceMine(piece);
+  if (!mine && ["move", "mega", "conditions", "toggle", "remove"].includes(action)) {
+    setStatus("err", "você só pode usar essas ações em peças suas");
+    return;
+  }
+
+  if (action === "move") {
+    selectPiece(id);
+    setStatus("ok", "Mover: clique no tile de destino na arena");
+    return;
+  }
+  if (action === "movement") return;
+  if (action === "summary") {
+    selectPiece(id);
+    renderArenaSheetPreview();
+    requestArenaRefresh(true);
+    return;
+  }
+  if (action === "hp-down" || action === "hp-up") {
+    const owner = safeStr(piece?.owner);
+    const pid = safeStr(piece?.pid);
+    if (!owner || !pid) {
+      setStatus("warn", "hp indisponível para esta peça");
+      return;
+    }
+    const delta = action === "hp-up" ? 1 : -1;
+    await updatePartyStateHp(owner, pid, getPartyHp(owner, pid) + delta);
+    return;
+  }
+  if (action === "mega") {
+    openPieceMegaModal(piece);
+    return;
+  }
+  if (action === "conditions") {
+    await openPieceConditionsModal(piece);
+    return;
+  }
+  if (action === "toggle") {
+    await togglePieceRevealed(id);
+    return;
+  }
+  if (action === "remove") {
+    await removePieceFromBoard(id);
+  }
+};
+
 window.handlePieceMenuAction = handlePieceMenuAction;
 
 pieceContextMenu?.addEventListener("click", async (ev) => {
@@ -5681,7 +5978,7 @@ function bindArenaInteractionsCanvas() {
     const rect = canvas.getBoundingClientRect();
     const x = ev.clientX - rect.left;
     const y = ev.clientY - rect.top;
-    const piece = getCanvasPieceHitAtPoint(x, y, { mineOnly: true });
+    const piece = getCanvasPieceHitAtPoint(x, y);
     armArenaLongPress(piece, ev.clientX, ev.clientY);
   });
   canvas.addEventListener("pointermove", (ev) => {
@@ -5800,13 +6097,13 @@ function bindArenaInteractionsCanvas() {
     const y = ev.clientY - rect.top;
     const tile = screenToTile(x, y);
     if (!tile) return;
-    const clickedPiece = getCanvasPieceHitAtPoint(x, y, { mineOnly: true });
+    const clickedPiece = getCanvasPieceHitAtPoint(x, y);
     if (clickedPiece) {
       ev.preventDefault();
       openPieceContextMenu(clickedPiece, ev.clientX, ev.clientY);
       return;
     }
-    const candidates = getPiecesAt(tile.row, tile.col).filter(p => isPieceMine(p));
+    const candidates = getPiecesAt(tile.row, tile.col).filter((p) => isPieceVisibleToMe(p));
     if (candidates.length === 0) return;
     ev.preventDefault();
     if (candidates.length === 1) {
@@ -5823,7 +6120,7 @@ function bindArenaInteractionsDom() {
 
   arenaDom.addEventListener("pointerdown", (ev) => {
     if (supportsHoverTabs() || ev.pointerType !== "touch") return;
-    armArenaLongPress(getDomClickedPiece(ev, { mineOnly: true }), ev.clientX, ev.clientY);
+    armArenaLongPress(getDomClickedPiece(ev), ev.clientX, ev.clientY);
   });
   arenaDom.addEventListener("pointermove", (ev) => {
     cancelArenaLongPressIfMoved(ev.clientX, ev.clientY);
@@ -5894,13 +6191,13 @@ function bindArenaInteractionsDom() {
     if (!cell) return;
     const row = Number(cell.dataset.row);
     const col = Number(cell.dataset.col);
-    const clickedPiece = getDomClickedPiece(ev, { mineOnly: true });
+    const clickedPiece = getDomClickedPiece(ev);
     if (clickedPiece) {
       ev.preventDefault();
       openPieceContextMenu(clickedPiece, ev.clientX, ev.clientY);
       return;
     }
-    const candidates = getPiecesAt(row, col).filter(p => isPieceMine(p));
+    const candidates = getPiecesAt(row, col).filter((p) => isPieceVisibleToMe(p));
     if (candidates.length === 0) return;
     ev.preventDefault();
     if (candidates.length === 1) {
@@ -6090,6 +6387,7 @@ function renderArenaDom() {
     const spriteUrl = p?.revealed
       ? (getSpriteUrlForPiece(p, { type: "battle" }) || getSpriteUrlForPiece(p, { type: "art" }))
       : "";
+    token.classList.add(`size-${sizeCategory}`);
     if (safeStr(p?.kind) === "trainer") token.classList.add("trainer");
     if (spriteUrl) token.classList.add("has-sprite");
 
@@ -6148,6 +6446,17 @@ function renderArenaDom() {
       labelEl.style.fontSize = "8px";
     }
     token.appendChild(labelEl);
+    if (safeStr(p?.kind) !== "trainer") {
+      const hpUi = getHpUiState(getPartyHp(safeStr(p?.owner), safeStr(p?.pid)));
+      const hpTrack = document.createElement("div");
+      hpTrack.className = "token-hp";
+      const hpFill = document.createElement("div");
+      hpFill.className = "token-hp-fill";
+      hpFill.style.width = `${hpUi.pct}%`;
+      hpFill.style.background = hpUi.color;
+      hpTrack.appendChild(hpFill);
+      token.appendChild(hpTrack);
+    }
     cell.appendChild(token);
 
     if (safeStr(appState.selectedPieceId) && safeStr(appState.selectedPieceId) === safeStr(p?.id)) {
@@ -8252,6 +8561,25 @@ drawTraps(ctx, ox, oy, tile);
       ctx.restore();
     }
 
+    if (safeStr(p?.kind) !== "trainer") {
+      const hpUi = getHpUiState(getPartyHp(owner, safeStr(p?.pid)));
+      const barHeight = sizeCategory === SIZE_CATEGORIES.tiny ? 3 : Math.max(4, Math.round(tile * 0.07));
+      const barWidth = Math.max(12, Math.min(tile * tileW - 8, spriteW));
+      const barX = x + Math.max(4, (tile * tileW - barWidth) / 2);
+      const barY = y + tile * tileH - barHeight - 4;
+      ctx.save();
+      ctx.fillStyle = "rgba(2,6,23,0.72)";
+      ctx.fillRect(barX, barY, barWidth, barHeight);
+      if (hpUi.value > 0) {
+        ctx.fillStyle = hpUi.color;
+        ctx.fillRect(barX, barY, (barWidth * hpUi.pct) / 100, barHeight);
+      }
+      ctx.strokeStyle = "rgba(255,255,255,0.12)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(barX + 0.5, barY + 0.5, Math.max(0, barWidth - 1), Math.max(0, barHeight - 1));
+      ctx.restore();
+    }
+
     if (megaFx) {
       const pulse = Math.sin(megaFx.progress * Math.PI);
       const fxPad = Math.max(6, tile * 0.08);
@@ -9341,6 +9669,20 @@ function _renderMegaControlsHtml(ownerName, basePid, entry, options = {}) {
   `;
 }
 
+function getHpUiState(rawHp) {
+  const value = Math.max(0, Math.min(6, Number(rawHp) || 0));
+  if (value >= 5) {
+    return { value, pct: (value / 6) * 100, color: "#22c55e", icon: "💚", tone: "full" };
+  }
+  if (value >= 3) {
+    return { value, pct: (value / 6) * 100, color: "#f59e0b", icon: "🟡", tone: "mid" };
+  }
+  if (value >= 1) {
+    return { value, pct: (value / 6) * 100, color: "#ef4444", icon: "🔴", tone: "low" };
+  }
+  return { value, pct: 0, color: "#64748b", icon: "💀", tone: "ko" };
+}
+
 async function setBattleMegaEvolutionForTrainerPid(ownerName, pidLike, megaSlug = "") {
   const db = currentDb;
   const rid = currentRid;
@@ -9436,10 +9778,11 @@ function renderSheetsTab() {
   const contentEl = document.getElementById("sheetsContent");
   const cardsGrid = document.getElementById("cardsGrid");
   const detailEl = document.getElementById("sheetDetail");
+  const detailWrap = document.getElementById("sheetDetailWrap");
   const countEl = document.getElementById("sheetsCount");
   const errEl = document.getElementById("sheetsError");
 
-  if (!cardsGrid || !detailEl || !loadingEl || !contentEl) return;
+  if (!cardsGrid || !detailEl || !loadingEl || !contentEl || !detailWrap) return;
 
   if (errEl) {
     if (_sheetsLastError) {
@@ -9455,6 +9798,7 @@ function renderSheetsTab() {
     if (countEl) countEl.textContent = "0";
     loadingEl.style.display = "";
     contentEl.style.display = "none";
+    detailWrap.style.display = "none";
     cardsGrid.innerHTML = "";
     detailEl.innerHTML = `<div class="sheets-empty">Conecte numa sala para ver as fichas.</div>`;
     return;
@@ -9465,6 +9809,7 @@ function renderSheetsTab() {
     if (countEl) countEl.textContent = "0";
     loadingEl.style.display = "";
     contentEl.style.display = "none";
+    detailWrap.style.display = "none";
     cardsGrid.innerHTML = "";
     detailEl.innerHTML = `<div class="sheets-empty">Preencha <b>by</b> e conecte (login) para puxar sua party.</div>`;
     return;
@@ -9491,6 +9836,7 @@ function renderSheetsTab() {
   contentEl.style.display = "";
 
   if (!partyPids.length) {
+    detailWrap.style.display = "none";
     cardsGrid.innerHTML = `<div class="sheets-empty" style="grid-column:1/-1">Sua party está vazia (ou não foi encontrada ainda).<br/>
     Dica: entre na sala pelo Streamlit 1x (espelha users_raw) ou garanta que <code>party_snapshot</code> está preenchido.</div>`;
     detailEl.innerHTML = `<div class="sheets-empty">—</div>`;
@@ -9498,11 +9844,14 @@ function renderSheetsTab() {
   }
 
   if (!sheetEntries.length) {
+    detailWrap.style.display = "none";
     cardsGrid.innerHTML = `<div class="sheets-empty" style="grid-column:1/-1">📭 Sem fichas encontradas para a sua party.<br/>
     Salve fichas em <b>Criação Guiada</b> e mantenha a party no <b>Trainer Hub</b>.</div>`;
     detailEl.innerHTML = `<div class="sheets-empty">—</div>`;
     return;
   }
+
+  detailWrap.style.display = "";
 
   // selecionado
   if (!_sheetsSelectedPid || !sheetEntries.some((entry) => entry._base_pid === _sheetsSelectedPid)) {
@@ -9710,11 +10059,8 @@ function renderSheetsTab() {
     || _artUrlFromPidForSheets(pname || pid, ps.shiny)
     || _spriteUrlFromPidForSheets(pname || pid)
     || "";
-  // Fundo tipo-estilizado para a ficha
-  const typeBgStyle = _fichaTypeBg(types);
-
   detailEl.innerHTML = `
-    <div class="sheet-panel ficha-v2" style="${typeBgStyle}">
+    <div class="sheet-panel">
       <div class="sheet-header">
         <div class="sheet-art-frame"><img class="sheet-art" src="${escapeAttr(art)}" alt="art"
           onerror="this.src='${escapeAttr(_spriteUrlFromPidForSheets(pid || pname))}'"/></div>
