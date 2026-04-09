@@ -126,6 +126,11 @@ _spriteOverlay.id = "sprite_overlay";
 _spriteOverlay.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:2;";
 if (canvasWrap) canvasWrap.appendChild(_spriteOverlay);
 const _spritePool = new Map(); // pieceId -> {el, url}
+const PIECE_FIELD_FX_MS = 420;
+let _pieceScreenBounds = new Map(); // pieceId -> { left, top, width, height, hitZIndex }
+let _piecePresenceCache = new Map(); // pieceId -> piece snapshot
+let _pieceFieldFxBootstrapped = false;
+const _pieceEnteringIds = new Map(); // pieceId -> startedAt
 
 // -------------------------
 // Firebase config (fixo)
@@ -1392,6 +1397,7 @@ function cleanup() {
   appState.renderedLogKeys = new Set();
   appState.placing = null;
   appState.placingPid = null;
+  resetPieceFieldFx();
 
   if (playersPre) playersPre.textContent = "—";
   if (statePre) statePre.textContent = "—";
@@ -4005,6 +4011,176 @@ function getPiecesAt(row, col) {
   return candidates;
 }
 
+function buildPieceSpritePlacement(piece, allPieces = appState.pieces || [], opts = {}) {
+  const row = Number(piece?.row);
+  const col = Number(piece?.col);
+  const tile = Number(opts.tile ?? view.scale);
+  const ox = Number(opts.ox ?? view.offX);
+  const oy = Number(opts.oy ?? view.offY);
+  if (!Number.isFinite(row) || !Number.isFinite(col) || !Number.isFinite(tile) || tile <= 0) return null;
+
+  const sizeCategory = getPieceSizeCategory(piece);
+  const { tileW, tileH, zIndex } = getSizeDimensions(sizeCategory);
+  const x = ox + col * tile;
+  const y = oy + row * tile;
+  const pad = Math.max(6, Math.floor(tile * 0.12));
+
+  let spriteX = x + pad;
+  let spriteY = y + pad;
+  let spriteW = tile - pad * 2;
+  let spriteH = tile - pad * 2;
+
+  if (sizeCategory === SIZE_CATEGORIES.tiny) {
+    const tinyOnTile = getPiecesOccupyingTile(row, col, allPieces)
+      .filter((candidate) => getPieceSizeCategory(candidate) === SIZE_CATEGORIES.tiny && isPieceVisibleToMe(candidate));
+    const slotIndex = Math.max(0, tinyOnTile.findIndex((candidate) => safeStr(candidate?.id) === safeStr(piece?.id)));
+    const slot = getTinySlotPosition(slotIndex);
+    spriteX = x + slot.offsetXRatio * tile;
+    spriteY = y + slot.offsetYRatio * tile;
+    spriteW = slot.sizeRatio * tile;
+    spriteH = slot.sizeRatio * tile;
+  } else if (sizeCategory === SIZE_CATEGORIES.large || sizeCategory === SIZE_CATEGORIES.huge) {
+    const pad2 = Math.max(4, Math.floor(tile * 0.06));
+    spriteX = x + pad2;
+    spriteY = y + pad2;
+    spriteW = tile * tileW - pad2 * 2;
+    spriteH = tile * tileH - pad2 * 2;
+  }
+
+  const hitZIndex = mapLayersState.version === 2 && Number.isFinite(opts.sortY)
+    ? 100 + Math.round(Number(opts.sortY) * 100)
+    : zIndex;
+
+  return {
+    row,
+    col,
+    x,
+    y,
+    tileW,
+    tileH,
+    sizeCategory,
+    spriteX,
+    spriteY,
+    spriteW,
+    spriteH,
+    hitZIndex,
+  };
+}
+
+function resetPieceFieldFx() {
+  _pieceScreenBounds = new Map();
+  _piecePresenceCache = new Map();
+  _pieceEnteringIds.clear();
+  _pieceFieldFxBootstrapped = false;
+  _spriteOverlay?.querySelectorAll?.(".piece-exit-ghost")?.forEach?.((node) => node.remove());
+  for (const entry of _spritePool.values()) {
+    entry?.el?.classList?.remove?.("piece-entering");
+  }
+}
+
+function spawnPieceExitGhost(piece, bounds) {
+  if (!_spriteOverlay || !piece || !bounds) return;
+  const liveEntry = _spritePool.get(safeStr(piece?.id));
+  const _psPiece = ((_partyStates && _partyStates[safeStr(piece?.owner)]) ? _partyStates[safeStr(piece?.owner)] : {})[safeStr(piece?.pid)] || {};
+  const src = liveEntry?.el?.currentSrc || liveEntry?.el?.src || getSpriteUrlForPiece(piece, { type: "battle", shiny: !!_psPiece.shiny }) || getSpriteFallbackUrlForPiece(piece);
+  if (!src) return;
+
+  const ghost = document.createElement("img");
+  ghost.className = "spr-overlay-img piece-exit-ghost piece-exiting";
+  ghost.draggable = false;
+  ghost.loading = "eager";
+  ghost.decoding = "async";
+  ghost.alt = "";
+  ghost.src = src;
+  ghost.style.left = `${bounds.left}px`;
+  ghost.style.top = `${bounds.top}px`;
+  ghost.style.width = `${bounds.width}px`;
+  ghost.style.height = `${bounds.height}px`;
+  ghost.style.zIndex = String(bounds.hitZIndex || 1);
+  ghost.setAttribute("aria-hidden", "true");
+  _spriteOverlay.appendChild(ghost);
+
+  const cleanupGhost = () => ghost.remove();
+  ghost.addEventListener("animationend", cleanupGhost, { once: true });
+  window.setTimeout(cleanupGhost, PIECE_FIELD_FX_MS + 120);
+}
+
+function updatePieceFieldFx(activePieces, now = (window.performance?.now?.() ?? Date.now())) {
+  const nextPresence = new Map();
+  for (const piece of activePieces || []) {
+    const id = safeStr(piece?.id);
+    if (!id) continue;
+    nextPresence.set(id, { ...piece });
+  }
+
+  if (!_pieceFieldFxBootstrapped) {
+    if (appState.board == null) return;
+    _piecePresenceCache = nextPresence;
+    _pieceFieldFxBootstrapped = true;
+    return;
+  }
+
+  for (const [id, prevPiece] of _piecePresenceCache) {
+    if (nextPresence.has(id)) continue;
+    _pieceEnteringIds.delete(id);
+    spawnPieceExitGhost(prevPiece, _pieceScreenBounds.get(id) || null);
+  }
+
+  for (const [id] of nextPresence) {
+    if (_piecePresenceCache.has(id)) continue;
+    _pieceEnteringIds.set(id, now);
+  }
+
+  _piecePresenceCache = nextPresence;
+}
+
+function syncPieceEnteringClass(el, pieceId, now = (window.performance?.now?.() ?? Date.now())) {
+  if (!el) return;
+  const id = safeStr(pieceId);
+  const startedAt = _pieceEnteringIds.get(id);
+  if (!startedAt) {
+    el.classList.remove("piece-entering");
+    return;
+  }
+  if ((now - startedAt) >= PIECE_FIELD_FX_MS) {
+    _pieceEnteringIds.delete(id);
+    el.classList.remove("piece-entering");
+    return;
+  }
+  el.classList.add("piece-entering");
+}
+
+function getCanvasPieceHitAtPoint(x, y, { mineOnly = false } = {}) {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+  const hits = [];
+  for (const piece of (appState.pieces || [])) {
+    if (safeStr(piece?.status || "active") !== "active") continue;
+    if (!isPieceVisibleToMe(piece)) continue;
+    if (mineOnly && !isPieceMine(piece)) continue;
+
+    const id = safeStr(piece?.id);
+    if (!id) continue;
+    const bounds = _pieceScreenBounds.get(id) || null;
+    if (!bounds) continue;
+
+    if (x < bounds.left || y < bounds.top) continue;
+    if (x > (bounds.left + bounds.width) || y > (bounds.top + bounds.height)) continue;
+
+    hits.push({ piece, bounds });
+  }
+
+  hits.sort((a, b) => {
+    const zDelta = Number(b.bounds.hitZIndex || 0) - Number(a.bounds.hitZIndex || 0);
+    if (zDelta !== 0) return zDelta;
+    const areaA = Number(a.bounds.width || 0) * Number(a.bounds.height || 0);
+    const areaB = Number(b.bounds.width || 0) * Number(b.bounds.height || 0);
+    return areaA - areaB;
+  });
+
+  return hits[0]?.piece || null;
+}
+
 function getDomClickedPiece(ev, { mineOnly = false } = {}) {
   const token = ev.target?.closest?.(".token[data-piece-id]");
   if (!token) return null;
@@ -5189,7 +5365,7 @@ function bindArenaInteractionsCanvas() {
     const y = ev.clientY - rect.top;
     const tile = screenToTile(x, y);
     if (!tile) return;
-    const p = getPieceAt(tile.row, tile.col);
+    const p = getCanvasPieceHitAtPoint(x, y, { mineOnly: true }) || getPieceAt(tile.row, tile.col);
     if (!p) return;
     if (!isPieceMine(p)) return;
     const id = safeStr(p.id);
@@ -5236,6 +5412,12 @@ function bindArenaInteractionsCanvas() {
       return;
     }
 
+    const clickedPiece = getCanvasPieceHitAtPoint(x, y);
+    if (clickedPiece) {
+      selectPiece(clickedPiece.id);
+      return;
+    }
+
     // Stacking: se múltiplos pieces no tile, abre picker
     const candidates = getPiecesAt(tile.row, tile.col);
     if (candidates.length === 0) {
@@ -5255,6 +5437,12 @@ function bindArenaInteractionsCanvas() {
     const y = ev.clientY - rect.top;
     const tile = screenToTile(x, y);
     if (!tile) return;
+    const clickedPiece = getCanvasPieceHitAtPoint(x, y, { mineOnly: true });
+    if (clickedPiece) {
+      ev.preventDefault();
+      openPieceContextMenu(clickedPiece, ev.clientX, ev.clientY);
+      return;
+    }
     const candidates = getPiecesAt(tile.row, tile.col).filter(p => isPieceMine(p));
     if (candidates.length === 0) return;
     ev.preventDefault();
@@ -7453,6 +7641,11 @@ drawTraps(ctx, ox, oy, tile);
 
   // pieces — dynamic borders per owner
   const pieces = appState.pieces || [];
+  const activePieces = pieces.filter((piece) => safeStr(piece?.status || "active") === "active");
+  const visiblePieces = activePieces.filter((piece) => isPieceVisibleToMe(piece));
+  const frameNow = window.performance?.now?.() ?? Date.now();
+  updatePieceFieldFx(activePieces, frameNow);
+  const nextPieceScreenBounds = new Map();
   const _by = safeStr(appState.by);
 
   // Build stable opponent color map
@@ -7467,8 +7660,8 @@ drawTraps(ctx, ox, oy, tile);
   const _defaultColor = { border: "rgba(148,163,184,0.22)", fill: "rgba(0,0,0,0.18)", glow: "transparent" };
 
   // Map unique opponent names to colors (stable ordering)
-  const oppOwners = [...new Set(pieces
-    .filter(p => safeStr(p?.owner) && safeStr(p?.owner) !== _by && safeStr(p?.status || "active") === "active")
+  const oppOwners = [...new Set(activePieces
+    .filter(p => safeStr(p?.owner) && safeStr(p?.owner) !== _by)
     .map(p => safeStr(p.owner))
   )].sort();
   const _oppColorMap = {};
@@ -7485,8 +7678,7 @@ drawTraps(ctx, ox, oy, tile);
   // v2 Objects:  sortY = obj.y + anchor.ay * footprint.h  (anchor foot)
   const _yStack = [];
 
-  for (const p of pieces.filter(q =>
-      safeStr(q?.status || "active") === "active" && isPieceVisibleToMe(q))) {
+  for (const p of visiblePieces) {
     const r = Number(p?.row);
     if (!Number.isFinite(r)) continue;
     const { tileH } = getSizeDimensions(p?.sizeCategory || "medium");
@@ -7546,11 +7738,18 @@ drawTraps(ctx, ox, oy, tile);
     const isMine = _by && owner === _by;
     const megaFx = getMegaEvolutionFxState(owner, p?.pid);
 
-    const sizeCategory = getPieceSizeCategory(p);
-    const { tileW, tileH, zIndex } = getSizeDimensions(sizeCategory);
-
-    const x = ox + col * tile;
-    const y = oy + row * tile;
+    const spritePlacement = buildPieceSpritePlacement(p, visiblePieces, { ox, oy, tile, sortY: _item.sortY });
+    if (!spritePlacement) continue;
+    const { sizeCategory, tileW, tileH, x, y, spriteX: placementSpriteX, spriteY: placementSpriteY, spriteW: placementSpriteW, spriteH: placementSpriteH, hitZIndex } = spritePlacement;
+    if (id) {
+      nextPieceScreenBounds.set(id, {
+        left: placementSpriteX,
+        top: placementSpriteY,
+        width: placementSpriteW,
+        height: placementSpriteH,
+        hitZIndex,
+      });
+    }
 
     // Determine color scheme
     let colorScheme;
@@ -7577,7 +7776,7 @@ drawTraps(ctx, ox, oy, tile);
     let spriteX, spriteY, spriteW, spriteH;
     if (sizeCategory === SIZE_CATEGORIES.tiny) {
       // Quadrante: encontra slot entre tinies no mesmo tile
-      const tinyOnTile = getPiecesOccupyingTile(row, col, pieces)
+      const tinyOnTile = getPiecesOccupyingTile(row, col, visiblePieces)
         .filter(q => (q?.sizeCategory || "medium") === SIZE_CATEGORIES.tiny && isPieceVisibleToMe(q));
       const slotIndex = Math.max(0, tinyOnTile.findIndex(q => safeStr(q.id) === id));
       const slot = getTinySlotPosition(slotIndex);
@@ -7610,6 +7809,7 @@ drawTraps(ctx, ox, oy, tile);
         el.loading = "eager";
         el.decoding = "async";
         el.alt = "";
+        el.dataset.pieceId = id;
         el.onerror = function () {
           const cur = this.getAttribute("src") || "";
           const fb = this.dataset.fallback || "";
@@ -7639,10 +7839,8 @@ drawTraps(ctx, ox, oy, tile);
       st.top    = spriteY + "px";
       st.width  = spriteW + "px";
       st.height = spriteH + "px";
-      // v2: Y-sort z-index for consistent depth with map objects; v1: size-based
-      st.zIndex = mapLayersState.version === 2
-        ? String(100 + Math.round(_item.sortY * 100))
-        : String(zIndex);
+      st.zIndex = String(hitZIndex);
+      syncPieceEnteringClass(entry.el, id, frameNow);
       entry.el.classList.toggle("mega-evolving", !!megaFx);
     } else {
       // fallback glyph
@@ -7689,6 +7887,8 @@ drawTraps(ctx, ox, oy, tile);
       ctx.restore();
     }
   }
+
+  _pieceScreenBounds = nextPieceScreenBounds;
 
   // Remove stale overlay sprites (pieces no longer visible)
   for (const [pid, entry] of _spritePool) {

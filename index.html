@@ -647,6 +647,25 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
       user-select:none;
       -webkit-user-drag:none;
     }
+    @keyframes pieceFieldIn{
+      0%{ transform:translateY(18px) scale(.72); opacity:0; filter:brightness(1.25) saturate(.82); }
+      55%{ transform:translateY(-4px) scale(1.06); opacity:1; filter:brightness(1.1) saturate(1.04); }
+      100%{ transform:translateY(0) scale(1); opacity:1; filter:brightness(1) saturate(1); }
+    }
+    @keyframes pieceFieldOut{
+      0%{ transform:translateY(0) scale(1); opacity:1; filter:brightness(1) saturate(1); }
+      100%{ transform:translateY(-18px) scale(.74); opacity:0; filter:brightness(1.12) saturate(.78); }
+    }
+    .spr-overlay-img.piece-entering{
+      animation: pieceFieldIn .42s cubic-bezier(.2,.85,.28,1.15);
+      transform-origin:center bottom;
+      will-change:transform,opacity,filter;
+    }
+    .spr-overlay-img.piece-exiting{
+      animation: pieceFieldOut .42s ease-in forwards;
+      transform-origin:center bottom;
+      will-change:transform,opacity,filter;
+    }
     @keyframes megaBurst{
       0%{ transform:scale(.78) rotate(-10deg); filter:brightness(1) saturate(1); opacity:.85; }
       35%{ transform:scale(1.16) rotate(4deg); filter:brightness(1.85) saturate(1.45) drop-shadow(0 0 22px rgba(250,204,21,.85)); opacity:1; }
@@ -746,7 +765,8 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
 
     .arena-hint{
       position:absolute;left:10px;bottom:10px;
-      display:flex;flex-direction:column;gap:6px;
+      display:none;
+      flex-direction:column;gap:6px;
       pointer-events:none;
     }
     .hint{
