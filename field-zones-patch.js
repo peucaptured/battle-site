@@ -1,26 +1,22 @@
-/**
- * field-zones-patch.js — Zonas de clima/terreno + Armadilhas por célula
+﻿/**
+ * field-zones-patch.js
  *
- * - Zonas zonais: múltiplos retângulos no mapa com efeitos visuais animados
- * - Armadilhas: Stealth Rock, Spikes, Toxic Spikes, Sticky Web (ocultas até revelação)
- * - NÃO modifica main.js — usa window.appState, window.screenToTile, etc.
+ * Zoned weather / terrain with two placement flows:
+ * - square: choose a radius, click a center tile, clip at board edges
+ * - freehand: trace an outline, convert the filled area to board cells
  *
- * Firestore:
- *   public_state/state → zones[], traps[]
+ * Traps keep their existing behavior.
  */
 
-// ─── Helpers ──────────────────────────────────────────────────────────────
 function $(id) { return document.getElementById(id); }
 function safeStr(x) { return (x == null ? "" : String(x)).trim(); }
 function nanoid8() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-// ─── Aguarda globals do main.js ───────────────────────────────────────────
 function waitForGlobals(cb, attempts = 0) {
   if (
     window.appState &&
-    window.screenToTile &&
     window.getStateDocRef &&
     window.runTransaction &&
     window.currentDb !== undefined
@@ -29,281 +25,696 @@ function waitForGlobals(cb, attempts = 0) {
   } else if (attempts < 40) {
     setTimeout(() => waitForGlobals(cb, attempts + 1), 300);
   } else {
-    console.warn("[field-zones-patch] globals não disponíveis após 12s — abortando");
+    console.warn("[field-zones-patch] globals not available after 12s");
   }
 }
 
-// ─── State local ──────────────────────────────────────────────────────────
-let _selectedZoneType  = null; // "weather" | "terrain"
-let _selectedZoneValue = null; // "sun", "rain", "electric_terrain", etc.
-let _drawingMode       = false; // modo arrastar retângulo ativo
-let _drawStart         = null;  // { row, col, px, py }
-let _drawCurrent       = null;  // { row, col }
-let _trapMode          = null;  // "🪨" | "🔺" | "☠️" | "🕸️" | null
+let _selectedZoneType = null;
+let _selectedZoneValue = null;
+let _trapMode = null;
 
-// ─── Elementos DOM ────────────────────────────────────────────────────────
+let _zonePlacementMode = null; // "square" | "freehand"
+let _squareRadius = null;
+let _zoneHoverTile = null;
+let _freehandPoints = [];
+let _isFreehandDrawing = false;
+
 let canvas, zoneCanvas, zoneCtx, drawCanvas, drawCtx, arenaWrap;
 let fcZonePanel, fzpTypeLabel, fzpAreaSelect, fzpBtnDraw, fzpBtnCancel, fzpZonesList;
 let trapModalBackdrop, trapModalList, trapModalConfirm, trapModalCancel, trapModalClose;
 let conflictBackdrop, conflictText, conflictKeepNew, conflictKeepOld;
-let _conflictResolve = null; // promise resolver para o modal de conflito
+let _conflictResolve = null;
 
-// ─── Cor de cada efeito para o chip e preview ────────────────────────────
 const ZONE_COLORS = {
-  sun:              { bg: "rgba(253,224,71,0.35)",  border: "rgba(253,224,71,0.7)",  label: "☀️ Sol Forte"   },
-  rain:             { bg: "rgba(56,189,248,0.25)",  border: "rgba(56,189,248,0.7)",  label: "🌧️ Chuva"       },
-  sandstorm:        { bg: "rgba(217,119,6,0.30)",   border: "rgba(217,119,6,0.7)",   label: "🌪️ Areia"        },
-  hail:             { bg: "rgba(186,230,253,0.30)", border: "rgba(186,230,253,0.7)", label: "🌨️ Granizo"      },
-  snow:             { bg: "rgba(186,230,253,0.25)", border: "rgba(186,230,253,0.7)", label: "❄️ Neve"         },
-  electric_terrain: { bg: "rgba(250,204,21,0.30)",  border: "rgba(250,204,21,0.7)",  label: "⚡ El. Terrain"  },
-  grassy_terrain:   { bg: "rgba(74,222,128,0.25)",  border: "rgba(74,222,128,0.7)",  label: "🌿 Grassy Ter."  },
-  psychic_terrain:  { bg: "rgba(192,132,252,0.25)", border: "rgba(192,132,252,0.7)", label: "🔮 Psychic Ter." },
-  misty_terrain:    { bg: "rgba(249,168,212,0.25)", border: "rgba(249,168,212,0.7)", label: "🌸 Misty Ter."   },
+  sun:              { bg: "rgba(253,224,71,0.35)",  border: "rgba(253,224,71,0.7)",  label: "☀️ Sol Forte" },
+  rain:             { bg: "rgba(56,189,248,0.25)",  border: "rgba(56,189,248,0.7)",  label: "🌧️ Chuva" },
+  sandstorm:        { bg: "rgba(217,119,6,0.30)",   border: "rgba(217,119,6,0.7)",   label: "🌪️ Areia" },
+  hail:             { bg: "rgba(186,230,253,0.30)", border: "rgba(186,230,253,0.7)", label: "🌨️ Granizo" },
+  snow:             { bg: "rgba(186,230,253,0.25)", border: "rgba(186,230,253,0.7)", label: "❄️ Neve" },
+  electric_terrain: { bg: "rgba(250,204,21,0.30)",  border: "rgba(250,204,21,0.7)",  label: "⚡ Terreno Eletrico" },
+  grassy_terrain:   { bg: "rgba(74,222,128,0.25)",  border: "rgba(74,222,128,0.7)",  label: "🌿 Terreno Herboso" },
+  psychic_terrain:  { bg: "rgba(192,132,252,0.25)", border: "rgba(192,132,252,0.7)", label: "🔮 Terreno Psiquico" },
+  misty_terrain:    { bg: "rgba(249,168,212,0.25)", border: "rgba(249,168,212,0.7)", label: "🌸 Terreno de Nevoa" },
 };
 
-// ─── Init ─────────────────────────────────────────────────────────────────
-function init() {
-  canvas      = document.getElementById("arena");
-  zoneCanvas  = $("zone_canvas");
-  drawCanvas  = $("zone_draw_canvas");
-  arenaWrap   = document.getElementById("arena_wrap");
-
-  if (!canvas || !zoneCanvas || !arenaWrap) {
-    setTimeout(init, 500);
-    return;
-  }
-
-  zoneCtx  = zoneCanvas.getContext("2d");
-  drawCtx  = drawCanvas.getContext("2d");
-
-  // DOM refs
-  fcZonePanel   = $("fc_zone_panel");
-  fzpTypeLabel  = $("fzp_type_label");
-  fzpAreaSelect = $("fzp_area_select");
-  fzpBtnDraw    = $("fzp_btn_draw");
-  fzpBtnCancel  = $("fzp_btn_cancel");
-  fzpZonesList  = $("fzp_zones_list");
-
-  trapModalBackdrop = $("trap_modal_backdrop");
-  trapModalList     = $("trap_modal_list");
-  trapModalConfirm  = $("trap_modal_confirm");
-  trapModalCancel   = $("trap_modal_cancel");
-  trapModalClose    = $("trap_modal_close");
-
-  conflictBackdrop  = $("zone_conflict_backdrop");
-  conflictText      = $("zone_conflict_text");
-  conflictKeepNew   = $("zone_conflict_keep_new");
-  conflictKeepOld   = $("zone_conflict_keep_old");
-
-  bindFieldConditions();
-  bindZonePanel();
-  bindCanvasEvents();
-  bindTrapModal();
-  bindConflictModal();
-
-  startZoneRaf();
-
-  // Sincroniza UI quando o state muda
-  const _origOnSnapshot = window.appState;
-  setInterval(syncZonePanelUI, 800);
-
-  console.log("[field-zones-patch] ✅ inicializado");
+function getGridSize() {
+  return Number(window.appState?.gridSize) || 10;
 }
 
-// ─── Sincroniza o canvas de zonas com o tamanho real do canvas principal ──
-function syncCanvasSize() {
-  if (!canvas || !zoneCanvas || !drawCanvas) return;
-  const w = canvas.width;
-  const h = canvas.height;
-  if (zoneCanvas.width !== w || zoneCanvas.height !== h) {
-    zoneCanvas.width = w; zoneCanvas.height = h;
-  }
-  if (drawCanvas.width !== w || drawCanvas.height !== h) {
-    drawCanvas.width = w; drawCanvas.height = h;
-  }
+function getZoneLabel(value) {
+  const key = safeStr(value).toLowerCase();
+  return ZONE_COLORS[key]?.label || safeStr(value);
 }
 
-// ─── RAF: animação das zonas ───────────────────────────────────────────────
-function startZoneRaf() {
-  function loop() {
-    syncCanvasSize();
-    renderZones();
-    requestAnimationFrame(loop);
+function ensureArenaRefs() {
+  const nextCanvas = document.getElementById("arena");
+  const nextZoneCanvas = $("zone_canvas");
+  const nextDrawCanvas = $("zone_draw_canvas");
+  const nextArenaWrap = document.getElementById("arena_wrap");
+
+  if (nextCanvas) canvas = nextCanvas;
+  if (nextZoneCanvas && nextZoneCanvas !== zoneCanvas) {
+    zoneCanvas = nextZoneCanvas;
+    zoneCtx = zoneCanvas.getContext("2d");
   }
-  requestAnimationFrame(loop);
+  if (nextDrawCanvas && nextDrawCanvas !== drawCanvas) {
+    drawCanvas = nextDrawCanvas;
+    drawCtx = drawCanvas.getContext("2d");
+  }
+  if (nextArenaWrap) arenaWrap = nextArenaWrap;
 }
 
-// ─── Offscreen canvas reutilizável para renderização de zonas ─────────────
+function cellKey(row, col) {
+  return `${row},${col}`;
+}
+
+function normalizeCell(cell) {
+  const row = Number(cell?.row);
+  const col = Number(cell?.col);
+  if (!Number.isFinite(row) || !Number.isFinite(col)) return null;
+  const gs = getGridSize();
+  if (row < 0 || col < 0 || row >= gs || col >= gs) return null;
+  return { row, col };
+}
+
+function dedupeCells(cells) {
+  const out = [];
+  const seen = new Set();
+  for (const cell of Array.isArray(cells) ? cells : []) {
+    const normalized = normalizeCell(cell);
+    if (!normalized) continue;
+    const key = cellKey(normalized.row, normalized.col);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function getZoneCells(zone) {
+  return dedupeCells(Array.isArray(zone?.cells) ? zone.cells : []);
+}
+
+function getCanvasPointFromEvent(ev) {
+  const view = window._arenaView;
+  const gs = getGridSize();
+  const domBoard = document.getElementById("arena_dom");
+  const domRect = domBoard?.getBoundingClientRect();
+  if (
+    domRect &&
+    domRect.width > 0 &&
+    domRect.height > 0 &&
+    view &&
+    Number.isFinite(view.scale)
+  ) {
+    const fracX = (ev.clientX - domRect.left) / domRect.width;
+    const fracY = (ev.clientY - domRect.top) / domRect.height;
+    const span = gs * Number(view.scale || 0);
+    return {
+      x: Number(view.offX || 0) + fracX * span,
+      y: Number(view.offY || 0) + fracY * span,
+    };
+  }
+
+  const liveCanvas = document.getElementById("arena");
+  if (liveCanvas) canvas = liveCanvas;
+  const canvasRect = liveCanvas?.getBoundingClientRect();
+  if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) return null;
+  return {
+    x: ev.clientX - canvasRect.left,
+    y: ev.clientY - canvasRect.top,
+  };
+}
+
+function canvasPointToTilePoint(x, y) {
+  const view = window._arenaView;
+  if (!view) return null;
+  const tile = Number(view.scale);
+  const ox = Number(view.offX);
+  const oy = Number(view.offY);
+  const gs = getGridSize();
+  if (!Number.isFinite(tile) || tile <= 0) return null;
+  const row = Math.floor((y - oy) / tile);
+  const col = Math.floor((x - ox) / tile);
+  if (row < 0 || col < 0 || row >= gs || col >= gs) return null;
+  return { row, col };
+}
+
+function getTileFromEvent(ev) {
+  const point = getCanvasPointFromEvent(ev);
+  if (!point) return null;
+  if (typeof window.screenToTile === "function") {
+    const tile = window.screenToTile(point.x, point.y);
+    if (tile) return tile;
+  }
+  return canvasPointToTilePoint(point.x, point.y);
+}
+
+function buildRectCells(r0, c0, r1, c1) {
+  const gs = getGridSize();
+  const minRow = Math.max(0, Math.min(gs - 1, Math.min(r0, r1)));
+  const maxRow = Math.max(0, Math.min(gs - 1, Math.max(r0, r1)));
+  const minCol = Math.max(0, Math.min(gs - 1, Math.min(c0, c1)));
+  const maxCol = Math.max(0, Math.min(gs - 1, Math.max(c0, c1)));
+  const cells = [];
+  for (let row = minRow; row <= maxRow; row++) {
+    for (let col = minCol; col <= maxCol; col++) {
+      cells.push({ row, col });
+    }
+  }
+  return cells;
+}
+
+function buildSquareCells(centerRow, centerCol, radius) {
+  const safeRadius = Math.max(0, Number(radius) || 0);
+  return buildRectCells(
+    centerRow - safeRadius,
+    centerCol - safeRadius,
+    centerRow + safeRadius,
+    centerCol + safeRadius
+  );
+}
+
 let _offscreenCanvas = null;
 let _offscreenCtx = null;
+let _zoneMaskCanvas = null;
+let _zoneMaskCtx = null;
 
-function getOffscreen(w, h) {
+function getOffscreen(width, height) {
   if (!_offscreenCanvas) {
     _offscreenCanvas = document.createElement("canvas");
-    _offscreenCtx    = _offscreenCanvas.getContext("2d");
+    _offscreenCtx = _offscreenCanvas.getContext("2d");
   }
-  if (_offscreenCanvas.width !== w || _offscreenCanvas.height !== h) {
-    _offscreenCanvas.width  = w;
-    _offscreenCanvas.height = h;
+  if (_offscreenCanvas.width !== width || _offscreenCanvas.height !== height) {
+    _offscreenCanvas.width = width;
+    _offscreenCanvas.height = height;
   }
   return { canvas: _offscreenCanvas, ctx: _offscreenCtx };
 }
 
-// ─── Render zonas no zone_canvas ─────────────────────────────────────────
-function renderZones() {
-  if (!zoneCtx) return;
-  const W = zoneCanvas.width;
-  const H = zoneCanvas.height;
-  zoneCtx.clearRect(0, 0, W, H);
+function getZoneMaskCanvas(width, height) {
+  if (!_zoneMaskCanvas) {
+    _zoneMaskCanvas = document.createElement("canvas");
+    _zoneMaskCtx = _zoneMaskCanvas.getContext("2d", { willReadFrequently: true });
+  }
+  if (_zoneMaskCanvas.width !== width || _zoneMaskCanvas.height !== height) {
+    _zoneMaskCanvas.width = width;
+    _zoneMaskCanvas.height = height;
+  }
+  return { canvas: _zoneMaskCanvas, ctx: _zoneMaskCtx };
+}
 
-  const zones = window.appState?.zones;
-  if (!Array.isArray(zones) || zones.length === 0) return;
+function getZoneBounds(cells) {
+  const normalized = dedupeCells(cells);
+  if (normalized.length === 0) return null;
+  let minRow = Infinity;
+  let maxRow = -Infinity;
+  let minCol = Infinity;
+  let maxCol = -Infinity;
+  for (const cell of normalized) {
+    minRow = Math.min(minRow, cell.row);
+    maxRow = Math.max(maxRow, cell.row);
+    minCol = Math.min(minCol, cell.col);
+    maxCol = Math.max(maxCol, cell.col);
+  }
+  return { minRow, maxRow, minCol, maxCol };
+}
+
+function traceZonePath(ctx, cells, ox, oy, tile) {
+  const normalized = dedupeCells(cells);
+  const set = new Set(normalized.map((cell) => cellKey(cell.row, cell.col)));
+  ctx.beginPath();
+  for (const cell of normalized) {
+    const x = ox + cell.col * tile;
+    const y = oy + cell.row * tile;
+    if (!set.has(cellKey(cell.row - 1, cell.col))) {
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + tile, y);
+    }
+    if (!set.has(cellKey(cell.row, cell.col + 1))) {
+      ctx.moveTo(x + tile, y);
+      ctx.lineTo(x + tile, y + tile);
+    }
+    if (!set.has(cellKey(cell.row + 1, cell.col))) {
+      ctx.moveTo(x + tile, y + tile);
+      ctx.lineTo(x, y + tile);
+    }
+    if (!set.has(cellKey(cell.row, cell.col - 1))) {
+      ctx.moveTo(x, y + tile);
+      ctx.lineTo(x, y);
+    }
+  }
+}
+
+function clipZoneCells(ctx, cells, ox, oy, tile) {
+  const normalized = dedupeCells(cells);
+  if (normalized.length === 0) return false;
+  ctx.beginPath();
+  for (const cell of normalized) {
+    ctx.rect(ox + cell.col * tile, oy + cell.row * tile, tile, tile);
+  }
+  ctx.clip();
+  return true;
+}
+
+function getPlacementSummary() {
+  if (_zonePlacementMode === "square") {
+    return `Quadrado raio ${Math.max(0, Number(_squareRadius) || 0)}`;
+  }
+  if (_zonePlacementMode === "freehand") {
+    return "Traco livre";
+  }
+  return "Sem modo";
+}
+
+function resetFreehandState() {
+  _freehandPoints = [];
+  _isFreehandDrawing = false;
+}
+
+function refreshZoneSelectionUI() {
+  document.querySelectorAll(".fc-btn[data-fc-type='weather'], .fc-btn[data-fc-type='terrain']").forEach((button) => {
+    const active =
+      button.dataset.fcType === _selectedZoneType &&
+      button.dataset.fcValue === _selectedZoneValue;
+    button.classList.toggle("fc-zone-armed", active);
+  });
+}
+
+function updateZonePanelControls() {
+  if (fcZonePanel) fcZonePanel.style.display = _selectedZoneValue ? "" : "none";
+  if (fzpTypeLabel) {
+    const base = _selectedZoneValue ? getZoneLabel(_selectedZoneValue) : "—";
+    fzpTypeLabel.textContent = _selectedZoneValue ? `${base} • ${getPlacementSummary()}` : base;
+  }
+  if (fzpBtnDraw) {
+    if (!_selectedZoneValue) {
+      fzpBtnDraw.textContent = "▶ Escolher modo";
+    } else if (_zonePlacementMode === "square") {
+      fzpBtnDraw.textContent = `⬛ Quadrado raio ${Math.max(0, Number(_squareRadius) || 0)}`;
+    } else if (_zonePlacementMode === "freehand") {
+      fzpBtnDraw.textContent = "🖊️ Traco livre";
+    } else {
+      fzpBtnDraw.textContent = "▶ Escolher modo";
+    }
+  }
+}
+
+function syncCanvasSize() {
+  ensureArenaRefs();
+  if (!canvas || !zoneCanvas || !drawCanvas) return;
+  const width = canvas.width;
+  const height = canvas.height;
+  const rect = canvas.getBoundingClientRect();
+  const dpr = rect.width > 0 ? canvas.width / rect.width : 1;
+  if (zoneCanvas.width !== width || zoneCanvas.height !== height) {
+    zoneCanvas.width = width;
+    zoneCanvas.height = height;
+  }
+  if (drawCanvas.width !== width || drawCanvas.height !== height) {
+    drawCanvas.width = width;
+    drawCanvas.height = height;
+  }
+  zoneCtx?.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawCtx?.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function drawZoneCellsPreview(ctx, cells, label) {
+  const view = window._arenaView;
+  if (!view) return;
+  const tile = Number(view.scale);
+  const ox = Number(view.offX);
+  const oy = Number(view.offY);
+  const color = ZONE_COLORS[safeStr(_selectedZoneValue).toLowerCase()] || {
+    bg: "rgba(56,189,248,0.2)",
+    border: "rgba(56,189,248,0.8)",
+  };
+  const normalized = dedupeCells(cells);
+  if (!Number.isFinite(tile) || tile <= 0 || normalized.length === 0) return;
+
+  ctx.save();
+  ctx.fillStyle = color.bg;
+  for (const cell of normalized) {
+    ctx.fillRect(ox + cell.col * tile + 1, oy + cell.row * tile + 1, tile - 2, tile - 2);
+  }
+  ctx.strokeStyle = color.border;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5, 4]);
+  traceZonePath(ctx, normalized, ox, oy, tile);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const bounds = getZoneBounds(normalized);
+  if (bounds && label) {
+    const centerX = ox + ((bounds.minCol + bounds.maxCol + 1) * tile) / 2;
+    const centerY = oy + ((bounds.minRow + bounds.maxRow + 1) * tile) / 2;
+    ctx.font = "bold 12px system-ui";
+    ctx.fillStyle = "#fff";
+    ctx.globalAlpha = 0.92;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.shadowColor = "rgba(0,0,0,0.9)";
+    ctx.shadowBlur = 6;
+    ctx.fillText(label, centerX, centerY);
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+}
+
+function renderZones() {
+  ensureArenaRefs();
+  if (!zoneCtx || !zoneCanvas) return;
+  const rect = canvas?.getBoundingClientRect();
+  const cssWidth = rect?.width || 0;
+  const cssHeight = rect?.height || 0;
+  const width = zoneCanvas.width;
+  const height = zoneCanvas.height;
+  zoneCtx.clearRect(0, 0, cssWidth, cssHeight);
+
+  const zones = Array.isArray(window.appState?.zones) ? window.appState.zones : [];
+  if (zones.length === 0) return;
 
   const view = window._arenaView;
   if (!view) return;
+  const tile = Number(view.scale);
+  const ox = Number(view.offX);
+  const oy = Number(view.offY);
+  const gs = getGridSize();
+  if (!Number.isFinite(tile) || tile <= 0) return;
 
-  const tile = view.scale;
-  const ox   = view.offX;
-  const oy   = view.offY;
-  if (!tile || tile <= 0) return;
-
-  const gs = window.appState?.gridSize || 10;
-  // Obtém offscreen do tamanho total do canvas
-  const { canvas: off, ctx: offCtx } = getOffscreen(W, H);
-
+  const { canvas: offscreen, ctx: offCtx } = getOffscreen(width, height);
+  const dpr = cssWidth > 0 ? width / cssWidth : 1;
   for (const zone of zones) {
-    const cells = Array.isArray(zone.cells) ? zone.cells : [];
+    const cells = getZoneCells(zone);
     if (cells.length === 0) continue;
 
-    // Bounding box das células da zona
-    let minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
-    for (const c of cells) {
-      minR = Math.min(minR, c.row); maxR = Math.max(maxR, c.row);
-      minC = Math.min(minC, c.col); maxC = Math.max(maxC, c.col);
-    }
-    const x  = ox + minC * tile;
-    const y  = oy + minR * tile;
-    const zw = (maxC - minC + 1) * tile;
-    const zh = (maxR - minR + 1) * tile;
+    offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    offCtx.clearRect(0, 0, cssWidth, cssHeight);
 
-    // 1) Renderiza o efeito completo no offscreen (sem clip) ──────────────
-    offCtx.clearRect(0, 0, W, H);
-
-    if (typeof drawWeatherOverlay === "function") {
-      // Substitui temporariamente appState.battle para a zona
-      const _origBattle = window.appState.battle;
-      const fakeBattle  = { weather: null, terrain: null };
-      if (zone.type === "weather") fakeBattle.weather = zone.value;
-      if (zone.type === "terrain") fakeBattle.terrain = zone.value;
-      window.appState.battle = fakeBattle;
-      drawWeatherOverlay(offCtx, ox, oy, gs, tile, W, H);
-      window.appState.battle = _origBattle;
+    const drawWeather = window.drawWeatherOverlay;
+    if (typeof drawWeather === "function") {
+      const originalBattle = window.appState.battle;
+      const scopedBattle = { weather: null, terrain: null };
+      if (safeStr(zone.type) === "weather") scopedBattle.weather = zone.value;
+      if (safeStr(zone.type) === "terrain") scopedBattle.terrain = zone.value;
+      window.appState.battle = scopedBattle;
+      drawWeather(offCtx, ox, oy, gs, tile, cssWidth, cssHeight);
+      window.appState.battle = originalBattle;
     } else {
-      // Fallback: cor sólida
-      const col = ZONE_COLORS[safeStr(zone.value).toLowerCase()] || { bg: "rgba(56,189,248,0.2)" };
-      offCtx.fillStyle = col.bg;
+      const color = ZONE_COLORS[safeStr(zone.value).toLowerCase()] || { bg: "rgba(56,189,248,0.2)" };
+      offCtx.fillStyle = color.bg;
       offCtx.fillRect(ox, oy, gs * tile, gs * tile);
     }
 
-    // 2) Copia apenas a região da zona para o zone_canvas (clip aqui, não no offscreen) ─
     zoneCtx.save();
-    zoneCtx.beginPath();
-    zoneCtx.rect(x, y, zw, zh);
-    zoneCtx.clip();
-    zoneCtx.drawImage(off, 0, 0);
+    if (clipZoneCells(zoneCtx, cells, ox, oy, tile)) {
+      zoneCtx.drawImage(offscreen, 0, 0, cssWidth, cssHeight);
+    }
     zoneCtx.restore();
 
-    // 3) Borda pontilhada da zona ─────────────────────────────────────────
-    const col = ZONE_COLORS[safeStr(zone.value).toLowerCase()];
-    if (col) {
+    const color = ZONE_COLORS[safeStr(zone.value).toLowerCase()];
+    if (color) {
       zoneCtx.save();
-      zoneCtx.strokeStyle = col.border;
+      zoneCtx.strokeStyle = color.border;
       zoneCtx.lineWidth = 2;
       zoneCtx.setLineDash([4, 4]);
-      zoneCtx.strokeRect(x + 1, y + 1, zw - 2, zh - 2);
+      traceZonePath(zoneCtx, cells, ox, oy, tile);
+      zoneCtx.stroke();
       zoneCtx.setLineDash([]);
       zoneCtx.restore();
     }
 
-    // 4) Label mini no canto superior ─────────────────────────────────────
-    const label = col?.label || safeStr(zone.value);
+    const bounds = getZoneBounds(cells);
+    if (!bounds) continue;
+    const label = getZoneLabel(zone.value);
     zoneCtx.save();
-    zoneCtx.globalAlpha = 0.9;
+    zoneCtx.globalAlpha = 0.92;
     zoneCtx.font = `bold ${Math.max(9, Math.min(12, tile * 0.3))}px system-ui`;
     zoneCtx.fillStyle = "#fff";
     zoneCtx.textAlign = "left";
     zoneCtx.textBaseline = "top";
     zoneCtx.shadowColor = "rgba(0,0,0,0.9)";
     zoneCtx.shadowBlur = 5;
-    zoneCtx.fillText(label, x + 4, y + 3);
+    zoneCtx.fillText(label, ox + bounds.minCol * tile + 4, oy + bounds.minRow * tile + 3);
     zoneCtx.shadowBlur = 0;
     zoneCtx.restore();
   }
 }
-
-// ─── Preview de desenho (drawCanvas) ─────────────────────────────────────
-function renderDrawPreview() {
-  if (!drawCtx) return;
-  drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-  if (!_drawStart || !_drawCurrent) return;
-
-  const view = window._arenaView;
-  if (!view) return;
-  const tile = view.scale;
-  const ox   = view.offX;
-  const oy   = view.offY;
-
-  // Retângulo de tiles cobertos
-  const r0 = Math.min(_drawStart.row, _drawCurrent.row);
-  const r1 = Math.max(_drawStart.row, _drawCurrent.row);
-  const c0 = Math.min(_drawStart.col, _drawCurrent.col);
-  const c1 = Math.max(_drawStart.col, _drawCurrent.col);
-
-  const x  = ox + c0 * tile;
-  const y  = oy + r0 * tile;
-  const rw = (c1 - c0 + 1) * tile;
-  const rh = (r1 - r0 + 1) * tile;
-
-  const col = ZONE_COLORS[safeStr(_selectedZoneValue)] || { bg: "rgba(56,189,248,0.2)", border: "rgba(56,189,248,0.8)" };
-
-  drawCtx.save();
-  drawCtx.fillStyle = col.bg;
-  drawCtx.fillRect(x, y, rw, rh);
-  drawCtx.strokeStyle = col.border;
-  drawCtx.lineWidth = 2;
-  drawCtx.setLineDash([5, 4]);
-  drawCtx.strokeRect(x + 1, y + 1, rw - 2, rh - 2);
-  drawCtx.setLineDash([]);
-
-  // Dimensão em tiles
-  drawCtx.font = "bold 12px system-ui";
-  drawCtx.fillStyle = "#fff";
-  drawCtx.globalAlpha = 0.9;
-  drawCtx.textAlign = "center";
-  drawCtx.textBaseline = "middle";
-  drawCtx.shadowColor = "rgba(0,0,0,0.9)";
-  drawCtx.shadowBlur = 6;
-  drawCtx.fillText(`${c1-c0+1}×${r1-r0+1}`, x + rw / 2, y + rh / 2);
-  drawCtx.shadowBlur = 0;
-  drawCtx.restore();
+function addSampledPathCells(points, keys, tile) {
+  if (!Array.isArray(points) || points.length === 0) return;
+  const addPoint = (point) => {
+    const tilePoint = canvasPointToTilePoint(point.x, point.y);
+    if (tilePoint) keys.add(cellKey(tilePoint.row, tilePoint.col));
+  };
+  addPoint(points[0]);
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const dist = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+    const steps = Math.max(1, Math.ceil(dist / Math.max(4, tile * 0.35)));
+    for (let step = 0; step <= steps; step++) {
+      const t = step / steps;
+      addPoint({
+        x: prev.x + (curr.x - prev.x) * t,
+        y: prev.y + (curr.y - prev.y) * t,
+      });
+    }
+  }
 }
 
-// ─── Bind: campo de condições (botões weather/terrain/trap) ───────────────
+function buildFreehandCells(points) {
+  const usablePoints = Array.isArray(points) ? points.filter(Boolean) : [];
+  if (!drawCanvas || usablePoints.length === 0) return [];
+  if (usablePoints.length === 1) {
+    const tilePoint = canvasPointToTilePoint(usablePoints[0].x, usablePoints[0].y);
+    return tilePoint ? [tilePoint] : [];
+  }
+
+  const view = window._arenaView;
+  if (!view) return [];
+  const tile = Number(view.scale);
+  const ox = Number(view.offX);
+  const oy = Number(view.offY);
+  const gs = getGridSize();
+  if (!Number.isFinite(tile) || tile <= 0) return [];
+
+  const rect = canvas?.getBoundingClientRect();
+  const maskWidth = Math.max(1, Math.round(rect?.width || drawCanvas.width));
+  const maskHeight = Math.max(1, Math.round(rect?.height || drawCanvas.height));
+  const { ctx: maskCtx } = getZoneMaskCanvas(maskWidth, maskHeight);
+  if (!maskCtx) return [];
+
+  maskCtx.clearRect(0, 0, maskWidth, maskHeight);
+  maskCtx.save();
+  maskCtx.fillStyle = "#000";
+  maskCtx.strokeStyle = "#000";
+  maskCtx.lineWidth = Math.max(4, tile * 0.45);
+  maskCtx.lineJoin = "round";
+  maskCtx.lineCap = "round";
+  maskCtx.beginPath();
+  maskCtx.moveTo(usablePoints[0].x, usablePoints[0].y);
+  for (let i = 1; i < usablePoints.length; i++) {
+    maskCtx.lineTo(usablePoints[i].x, usablePoints[i].y);
+  }
+  maskCtx.closePath();
+  maskCtx.fill();
+  maskCtx.stroke();
+  maskCtx.restore();
+
+  const imageData = maskCtx.getImageData(0, 0, maskWidth, maskHeight);
+  const alpha = imageData.data;
+  const cellKeys = new Set();
+  addSampledPathCells(usablePoints, cellKeys, tile);
+
+  const samples = [
+    [0.5, 0.5],
+    [0.25, 0.25],
+    [0.75, 0.25],
+    [0.25, 0.75],
+    [0.75, 0.75],
+  ];
+
+  for (let row = 0; row < gs; row++) {
+    for (let col = 0; col < gs; col++) {
+      const baseX = ox + col * tile;
+      const baseY = oy + row * tile;
+      let inside = false;
+      for (const [sx, sy] of samples) {
+        const px = Math.max(0, Math.min(maskWidth - 1, Math.round(baseX + tile * sx)));
+        const py = Math.max(0, Math.min(maskHeight - 1, Math.round(baseY + tile * sy)));
+        if (alpha[(py * maskWidth + px) * 4 + 3] > 12) {
+          inside = true;
+          break;
+        }
+      }
+      if (inside) cellKeys.add(cellKey(row, col));
+    }
+  }
+
+  return Array.from(cellKeys).map((key) => {
+    const [row, col] = key.split(",").map(Number);
+    return { row, col };
+  });
+}
+
+function renderDrawPreview() {
+  ensureArenaRefs();
+  if (!drawCtx || !drawCanvas) return;
+  const rect = canvas?.getBoundingClientRect();
+  drawCtx.clearRect(0, 0, rect?.width || drawCanvas.width, rect?.height || drawCanvas.height);
+  if (!_selectedZoneValue) return;
+
+  if (_zonePlacementMode === "square" && _zoneHoverTile) {
+    drawZoneCellsPreview(
+      drawCtx,
+      buildSquareCells(_zoneHoverTile.row, _zoneHoverTile.col, _squareRadius),
+      `Raio ${Math.max(0, Number(_squareRadius) || 0)}`
+    );
+    return;
+  }
+
+  if (_zonePlacementMode === "freehand" && _freehandPoints.length > 0) {
+    const color = ZONE_COLORS[safeStr(_selectedZoneValue).toLowerCase()] || {
+      bg: "rgba(56,189,248,0.2)",
+      border: "rgba(56,189,248,0.8)",
+    };
+
+    drawCtx.save();
+    drawCtx.beginPath();
+    drawCtx.moveTo(_freehandPoints[0].x, _freehandPoints[0].y);
+    for (let i = 1; i < _freehandPoints.length; i++) {
+      drawCtx.lineTo(_freehandPoints[i].x, _freehandPoints[i].y);
+    }
+    if (_freehandPoints.length > 2) {
+      drawCtx.closePath();
+      drawCtx.fillStyle = color.bg;
+      drawCtx.fill();
+    }
+    drawCtx.strokeStyle = color.border;
+    drawCtx.lineWidth = 3;
+    drawCtx.lineJoin = "round";
+    drawCtx.lineCap = "round";
+    drawCtx.setLineDash([6, 4]);
+    drawCtx.stroke();
+    drawCtx.setLineDash([]);
+    drawCtx.restore();
+  }
+}
+
+function startZoneRaf() {
+  function loop() {
+    syncCanvasSize();
+    renderZones();
+    renderDrawPreview();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+}
+
+function askPlacementMode(effectLabel) {
+  while (true) {
+    const raw = window.prompt(
+      `${effectLabel}: digite "livre" para traco livre ou "quadrado" para area centralizada.`,
+      _zonePlacementMode === "square" ? "quadrado" : "livre"
+    );
+    if (raw == null) return null;
+    const answer = safeStr(raw).toLowerCase();
+    if (!answer) continue;
+    if (["livre", "free", "freehand", "l"].includes(answer)) {
+      return { mode: "freehand", radius: null };
+    }
+    if (["quadrado", "square", "q"].includes(answer)) {
+      break;
+    }
+    alert('Resposta invalida. Use "livre" ou "quadrado".');
+  }
+
+  while (true) {
+    const rawRadius = window.prompt(
+      "Raio em tiles a partir do centro (0 = so o tile central, 5 = ate 5 tiles para cada lado quando houver espaco):",
+      String(Number.isFinite(_squareRadius) ? _squareRadius : 2)
+    );
+    if (rawRadius == null) return null;
+    const radius = Number.parseInt(rawRadius, 10);
+    if (Number.isFinite(radius) && radius >= 0) {
+      return { mode: "square", radius };
+    }
+    alert("Informe um numero inteiro maior ou igual a 0.");
+  }
+}
+
+function armZonePlacement(mode, radius) {
+  _zonePlacementMode = mode;
+  _squareRadius = mode === "square" ? Math.max(0, Number(radius) || 0) : null;
+  _zoneHoverTile = null;
+  resetFreehandState();
+  if (arenaWrap) arenaWrap.classList.add("arena-drawing-mode");
+  updateZonePanelControls();
+}
+
+function setZoneSelection(type, value, placement) {
+  clearTrapMode();
+  _selectedZoneType = type;
+  _selectedZoneValue = value;
+  refreshZoneSelectionUI();
+  updateZonePanelControls();
+  armZonePlacement(placement.mode, placement.radius);
+}
+
+function clearZoneSelection() {
+  _selectedZoneType = null;
+  _selectedZoneValue = null;
+  _zonePlacementMode = null;
+  _squareRadius = null;
+  _zoneHoverTile = null;
+  resetFreehandState();
+  if (arenaWrap) arenaWrap.classList.remove("arena-drawing-mode");
+  refreshZoneSelectionUI();
+  updateZonePanelControls();
+}
+
+function setTrapMode(icon) {
+  clearZoneSelection();
+  _trapMode = icon;
+  document.querySelectorAll(".fc-btn[data-fc-type='trap']").forEach((button) => {
+    button.classList.toggle("fc-trap-active", button.dataset.fcValue === icon);
+  });
+  if (arenaWrap) arenaWrap.classList.add("arena-trap-mode");
+}
+
+function clearTrapMode() {
+  _trapMode = null;
+  document.querySelectorAll(".fc-btn[data-fc-type='trap']").forEach((button) => {
+    button.classList.remove("fc-trap-active");
+  });
+  if (arenaWrap) arenaWrap.classList.remove("arena-trap-mode");
+}
+
+async function chooseZonePlacement(type, value) {
+  const placement = askPlacementMode(getZoneLabel(value));
+  if (!placement) return;
+  setZoneSelection(type, value, placement);
+}
+
 function bindFieldConditions() {
   const bar = $("field_conditions");
   if (!bar) return;
 
-  bar.addEventListener("click", e => {
-    const btn = e.target.closest(".fc-btn[data-fc-type]");
-    if (!btn) return;
+  bar.addEventListener("click", async (ev) => {
+    const button = ev.target.closest(".fc-btn[data-fc-type]");
+    if (!button) return;
+
     const role = safeStr(window.appState?.role);
     if (role === "spectator") return;
 
-    const type  = btn.dataset.fcType;
-    const value = btn.dataset.fcValue;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    ev.stopPropagation();
+
+    const type = button.dataset.fcType;
+    const value = button.dataset.fcValue;
 
     if (type === "trap") {
-      // Modo armadilha
       if (_trapMode === value) {
         clearTrapMode();
       } else {
@@ -312,264 +723,165 @@ function bindFieldConditions() {
       return;
     }
 
-    if (type === "weather" || type === "terrain") {
-      // Toggle zona: seleciona ou deseleciona para desenhar
-      if (_selectedZoneValue === value) {
-        clearZoneSelection();
-      } else {
-        setZoneSelection(type, value);
-      }
+    if (_selectedZoneType === type && _selectedZoneValue === value) {
+      clearZoneSelection();
+      return;
     }
-  });
 
-  // Botão de revelar armadilhas
+    await chooseZonePlacement(type, value);
+  }, true);
+
   const btnReveal = $("btn_reveal_traps");
   if (btnReveal) {
     btnReveal.addEventListener("click", openTrapModal);
   }
 }
 
-// ─── Seleção de zona ──────────────────────────────────────────────────────
-function setZoneSelection(type, value) {
-  clearTrapMode();
-  _selectedZoneType  = type;
-  _selectedZoneValue = value;
-
-  // Atualiza botão ativo
-  document.querySelectorAll(".fc-btn[data-fc-type='weather'], .fc-btn[data-fc-type='terrain']").forEach(b => {
-    b.classList.toggle("fc-active", b.dataset.fcValue === value);
-  });
-
-  // Abre painel de zona
-  if (fcZonePanel) fcZonePanel.style.display = "";
-  if (fzpTypeLabel) {
-    const col = ZONE_COLORS[value];
-    fzpTypeLabel.textContent = col ? col.label : value;
-  }
-  syncZonePanelUI();
-}
-
-function clearZoneSelection() {
-  _selectedZoneType  = null;
-  _selectedZoneValue = null;
-  document.querySelectorAll(".fc-btn[data-fc-type='weather'], .fc-btn[data-fc-type='terrain']").forEach(b => {
-    b.classList.remove("fc-active");
-  });
-  if (fcZonePanel) fcZonePanel.style.display = "none";
-  exitDrawingMode();
-}
-
-// ─── Modo armadilha ───────────────────────────────────────────────────────
-function setTrapMode(icon) {
-  clearZoneSelection();
-  _trapMode = icon;
-  document.querySelectorAll(".fc-btn[data-fc-type='trap']").forEach(b => {
-    b.classList.toggle("fc-trap-active", b.dataset.fcValue === icon);
-  });
-  if (arenaWrap) arenaWrap.classList.add("arena-trap-mode");
-}
-
-function clearTrapMode() {
-  _trapMode = null;
-  document.querySelectorAll(".fc-btn[data-fc-type='trap']").forEach(b => b.classList.remove("fc-trap-active"));
-  if (arenaWrap) arenaWrap.classList.remove("arena-trap-mode");
-}
-
-// ─── Bind: painel de zona (Desenhar / Cancelar) ───────────────────────────
 function bindZonePanel() {
+  if (fzpAreaSelect) {
+    fzpAreaSelect.disabled = true;
+    const group = fzpAreaSelect.closest(".fzp-area-group");
+    if (group) group.style.display = "none";
+  }
+
   if (fzpBtnDraw) {
-    fzpBtnDraw.addEventListener("click", () => {
-      const areaMode = fzpAreaSelect?.value || "free";
-      if (areaMode === "all") {
-        placeFullArenaZone();
-      } else if (areaMode === "3x3" || areaMode === "5x5") {
-        const sz = areaMode === "3x3" ? 3 : 5;
-        startPresetMode(sz);
-      } else {
-        enterDrawingMode();
-      }
+    fzpBtnDraw.addEventListener("click", async () => {
+      if (!_selectedZoneType || !_selectedZoneValue) return;
+      await chooseZonePlacement(_selectedZoneType, _selectedZoneValue);
     });
   }
+
   if (fzpBtnCancel) {
     fzpBtnCancel.addEventListener("click", () => clearZoneSelection());
   }
 }
-
-// ─── Modo desenho (arrastar retângulo) ────────────────────────────────────
-function enterDrawingMode() {
-  _drawingMode = true;
-  if (arenaWrap) arenaWrap.classList.add("arena-drawing-mode");
-  if (fzpBtnDraw) fzpBtnDraw.textContent = "🖱️ Arraste no mapa…";
-}
-
-function exitDrawingMode() {
-  _drawingMode = false;
-  _drawStart   = null;
-  _drawCurrent = null;
-  if (arenaWrap) arenaWrap.classList.remove("arena-drawing-mode");
-  if (fzpBtnDraw) fzpBtnDraw.textContent = "▶ Desenhar área";
-  if (drawCtx) drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-}
-
-// Modo preset: usuário clica no centro e o sistema expande N×N
-let _presetSize = null;
-function startPresetMode(sz) {
-  _presetSize  = sz;
-  _drawingMode = false;
-  if (arenaWrap) arenaWrap.classList.add("arena-drawing-mode");
-  if (fzpBtnDraw) fzpBtnDraw.textContent = `🖱️ Clique no centro (${sz}×${sz})…`;
-}
-
-// ─── Bind: eventos de canvas (capture phase) ──────────────────────────────
 function bindCanvasEvents() {
-  if (!canvas) return;
+  document.addEventListener("mousedown", onCanvasDown, true);
+  document.addEventListener("mousemove", onCanvasMove, true);
+  window.addEventListener("mouseup", onCanvasUp, true);
 
-  canvas.addEventListener("mousedown", onCanvasDown, true);
-  canvas.addEventListener("mousemove", onCanvasMove, true);
-  window.addEventListener("mouseup",   onCanvasUp,   true);
-
-  // ESC cancela
-  document.addEventListener("keydown", e => {
-    if (e.key !== "Escape") return;
-    if (_drawingMode || _presetSize !== null) {
-      exitDrawingMode();
-      _presetSize = null;
-      if (arenaWrap) arenaWrap.classList.remove("arena-drawing-mode");
-      if (fzpBtnDraw) fzpBtnDraw.textContent = "▶ Desenhar área";
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape") return;
+    if (_trapMode) {
+      clearTrapMode();
+      return;
     }
-    if (_trapMode) clearTrapMode();
+    if (_selectedZoneValue) {
+      clearZoneSelection();
+    }
   });
-}
-
-function getTileFromEvent(ev) {
-  const rect = canvas.getBoundingClientRect();
-  const x = ev.clientX - rect.left;
-  const y = ev.clientY - rect.top;
-  return window.screenToTile ? window.screenToTile(x, y) : null;
 }
 
 function onCanvasDown(ev) {
   if (ev.button !== 0) return;
 
-  // Modo preset: clique para posicionar
-  if (_presetSize !== null) {
-    const tile = getTileFromEvent(ev);
-    if (!tile) return;
-    ev.stopImmediatePropagation();
-    const half = Math.floor(_presetSize / 2);
-    const gs   = window.appState?.gridSize || 10;
-    const r0   = Math.max(0, tile.row - half);
-    const r1   = Math.min(gs - 1, tile.row + half);
-    const c0   = Math.max(0, tile.col - half);
-    const c1   = Math.min(gs - 1, tile.col + half);
-    _presetSize = null;
-    arenaWrap?.classList.remove("arena-drawing-mode");
-    if (fzpBtnDraw) fzpBtnDraw.textContent = "▶ Desenhar área";
-    commitZone(r0, c0, r1, c1);
-    return;
-  }
-
-  // Modo armadilha
   if (_trapMode) {
     const tile = getTileFromEvent(ev);
     if (!tile) return;
     ev.stopImmediatePropagation();
+    ev.stopPropagation();
     placeTrap(_trapMode, tile.row, tile.col);
     return;
   }
 
-  // Modo desenho livre
-  if (_drawingMode) {
+  if (!_selectedZoneValue || !_zonePlacementMode) return;
+
+  if (_zonePlacementMode === "square") {
     const tile = getTileFromEvent(ev);
     if (!tile) return;
     ev.stopImmediatePropagation();
-    _drawStart   = { ...tile };
-    _drawCurrent = { ...tile };
-    renderDrawPreview();
+    ev.stopPropagation();
+    const cells = buildSquareCells(tile.row, tile.col, _squareRadius);
+    commitZoneCells(cells, { shape: "square", radius: _squareRadius, center: tile });
+    return;
+  }
+
+  if (_zonePlacementMode === "freehand") {
+    const point = getCanvasPointFromEvent(ev);
+    const tile = point ? canvasPointToTilePoint(point.x, point.y) : null;
+    if (!point || !tile) return;
+    ev.stopImmediatePropagation();
+    ev.stopPropagation();
+    _isFreehandDrawing = true;
+    _freehandPoints = [point];
+    _zoneHoverTile = tile;
   }
 }
 
 function onCanvasMove(ev) {
-  if (!_drawingMode || !_drawStart) return;
-  const tile = getTileFromEvent(ev);
-  if (!tile) return;
-  ev.stopImmediatePropagation();
-  _drawCurrent = { ...tile };
-  renderDrawPreview();
+  if (_trapMode) return;
+  if (!_selectedZoneValue || !_zonePlacementMode) return;
+
+  if (_zonePlacementMode === "square") {
+    _zoneHoverTile = getTileFromEvent(ev);
+    return;
+  }
+
+  if (_zonePlacementMode === "freehand") {
+    const point = getCanvasPointFromEvent(ev);
+    const tile = point ? canvasPointToTilePoint(point.x, point.y) : null;
+    if (tile) _zoneHoverTile = tile;
+    if (!_isFreehandDrawing || !point || !tile) return;
+    ev.stopImmediatePropagation();
+    ev.stopPropagation();
+    _freehandPoints.push(point);
+  }
 }
 
 function onCanvasUp(ev) {
-  if (!_drawingMode || !_drawStart || !_drawCurrent) return;
+  if (!_selectedZoneValue || _zonePlacementMode !== "freehand" || !_isFreehandDrawing) return;
   ev.stopImmediatePropagation();
-  exitDrawingMode();
-
-  const r0 = Math.min(_drawStart.row, _drawCurrent.row);
-  const r1 = Math.max(_drawStart.row, _drawCurrent.row);
-  const c0 = Math.min(_drawStart.col, _drawCurrent.col);
-  const c1 = Math.max(_drawStart.col, _drawCurrent.col);
-  commitZone(r0, c0, r1, c1);
+  ev.stopPropagation();
+  _isFreehandDrawing = false;
+  const cells = buildFreehandCells(_freehandPoints);
+  resetFreehandState();
+  if (cells.length === 0) return;
+  commitZoneCells(cells, { shape: "freehand" });
 }
 
-// ─── Zona: toda arena ──────────────────────────────────────────────────────
-async function placeFullArenaZone() {
-  const gs = window.appState?.gridSize || 10;
-  await commitZone(0, 0, gs - 1, gs - 1);
-}
+async function commitZoneCells(cells, meta = {}) {
+  if (!_selectedZoneType || !_selectedZoneValue) return;
 
-// ─── Commit: salva zona no Firestore (com detecção de conflito) ───────────
-async function commitZone(r0, c0, r1, c1) {
-  if (!_selectedZoneValue || !_selectedZoneType) return;
+  const normalizedCells = dedupeCells(cells);
+  if (normalizedCells.length === 0) return;
 
-  // Gera lista de células
-  const cells = [];
-  for (let r = r0; r <= r1; r++)
-    for (let c = c0; c <= c1; c++)
-      cells.push({ row: r, col: c });
-
-  const cellSet = new Set(cells.map(c => `${c.row},${c.col}`));
-
-  // Checa conflitos com zonas existentes
+  const cellSet = new Set(normalizedCells.map((cell) => cellKey(cell.row, cell.col)));
   const existing = Array.isArray(window.appState?.zones) ? window.appState.zones : [];
-  const conflicts = existing.filter(z => {
-    if (!Array.isArray(z.cells)) return false;
-    return z.cells.some(c => cellSet.has(`${c.row},${c.col}`));
+  const conflicts = existing.filter((zone) => {
+    const zoneCells = getZoneCells(zone);
+    return zoneCells.some((cell) => cellSet.has(cellKey(cell.row, cell.col)));
   });
 
-  let finalCells = cells;
+  let finalCells = normalizedCells;
   let zonesToRemove = [];
 
   if (conflicts.length > 0) {
-    // Pergunta ao jogador o que fazer
-    const conflictNames = conflicts.map(z => {
-      const col = ZONE_COLORS[safeStr(z.value).toLowerCase()];
-      return col ? col.label : safeStr(z.value);
-    }).join(", ");
-
-    const newName = ZONE_COLORS[_selectedZoneValue]?.label || _selectedZoneValue;
-
-    const keep = await showConflictModal(conflictNames, newName);
+    const conflictNames = conflicts.map((zone) => getZoneLabel(zone.value)).join(", ");
+    const keep = await showConflictModal(conflictNames, getZoneLabel(_selectedZoneValue));
     if (keep === "old") {
-      // Mantém existente: remove células conflitantes da nova zona
-      const conflictCells = new Set();
-      for (const z of conflicts)
-        for (const c of (z.cells || []))
-          conflictCells.add(`${c.row},${c.col}`);
-      finalCells = cells.filter(c => !conflictCells.has(`${c.row},${c.col}`));
-      if (finalCells.length === 0) return; // nada sobrou
+      const conflictKeys = new Set();
+      for (const zone of conflicts) {
+        for (const cell of getZoneCells(zone)) {
+          conflictKeys.add(cellKey(cell.row, cell.col));
+        }
+      }
+      finalCells = normalizedCells.filter((cell) => !conflictKeys.has(cellKey(cell.row, cell.col)));
+      if (finalCells.length === 0) return;
     } else if (keep === "new") {
-      // Remove zonas conflitantes
-      zonesToRemove = conflicts.map(z => z.id);
+      zonesToRemove = conflicts.map((zone) => zone.id);
     } else {
-      return; // cancelou
+      return;
     }
   }
 
   const newZone = {
-    id:        "z_" + nanoid8(),
-    type:      _selectedZoneType,
-    value:     _selectedZoneValue,
-    cells:     finalCells,
-    owner:     safeStr(window.appState?.by),
+    id: "z_" + nanoid8(),
+    type: _selectedZoneType,
+    value: _selectedZoneValue,
+    cells: finalCells,
+    owner: safeStr(window.appState?.by),
+    shape: meta.shape || _zonePlacementMode || "square",
+    radius: meta.shape === "square" ? Math.max(0, Number(meta.radius) || 0) : null,
     createdAt: Date.now(),
   };
 
@@ -579,23 +891,20 @@ async function commitZone(r0, c0, r1, c1) {
 
 async function writeZoneToFirestore(newZone, idsToRemove = []) {
   const ref = window.getStateDocRef?.();
-  if (!ref) { console.warn("[field-zones-patch] stateRef null"); return; }
-  const db  = window.currentDb;
-  if (!db)  { console.warn("[field-zones-patch] currentDb null"); return; }
+  const db = window.currentDb;
+  if (!ref || !db) return;
 
   try {
-    await window.runTransaction(db, async tx => {
+    await window.runTransaction(db, async (tx) => {
       const snap = await tx.get(ref);
       const data = snap.exists() ? snap.data() : {};
-      let zones  = Array.isArray(data.zones) ? [...data.zones] : [];
+      let zones = Array.isArray(data.zones) ? [...data.zones] : [];
 
-      // Remove zonas conflitantes
-      if (idsToRemove.length > 0)
-        zones = zones.filter(z => !idsToRemove.includes(z.id));
+      if (idsToRemove.length > 0) {
+        zones = zones.filter((zone) => !idsToRemove.includes(zone.id));
+      }
 
-      // Adiciona a nova
       zones.push(newZone);
-
       tx.set(ref, { zones, updatedAt: Date.now() }, { merge: true });
     });
   } catch (err) {
@@ -603,16 +912,16 @@ async function writeZoneToFirestore(newZone, idsToRemove = []) {
   }
 }
 
-// ─── Remover zona ──────────────────────────────────────────────────────────
 async function removeZone(zoneId) {
   const ref = window.getStateDocRef?.();
-  const db  = window.currentDb;
+  const db = window.currentDb;
   if (!ref || !db) return;
+
   try {
-    await window.runTransaction(db, async tx => {
+    await window.runTransaction(db, async (tx) => {
       const snap = await tx.get(ref);
       const data = snap.exists() ? snap.data() : {};
-      const zones = (Array.isArray(data.zones) ? data.zones : []).filter(z => z.id !== zoneId);
+      const zones = (Array.isArray(data.zones) ? data.zones : []).filter((zone) => zone.id !== zoneId);
       tx.set(ref, { zones, updatedAt: Date.now() }, { merge: true });
     });
   } catch (err) {
@@ -620,60 +929,79 @@ async function removeZone(zoneId) {
   }
 }
 
-// ─── Sincronizar lista de zonas no painel ────────────────────────────────
-function syncZonePanelUI() {
-  if (!fzpZonesList) return;
+function getZoneConditionsAtTile(row, col) {
+  const result = { weather: null, terrain: null, zones: [] };
   const zones = Array.isArray(window.appState?.zones) ? window.appState.zones : [];
+  for (const zone of zones) {
+    const hasCell = getZoneCells(zone).some((cell) => cell.row === row && cell.col === col);
+    if (!hasCell) continue;
+    result.zones.push(zone);
+    if (zone.type === "weather") result.weather = zone.value;
+    if (zone.type === "terrain") result.terrain = zone.value;
+  }
+  return result;
+}
+
+window.getZoneConditionsAtTile = getZoneConditionsAtTile;
+
+function syncZonePanelUI() {
+  refreshZoneSelectionUI();
+  updateZonePanelControls();
+
+  if (!fzpZonesList) return;
+  const zones = (Array.isArray(window.appState?.zones) ? [...window.appState.zones] : [])
+    .sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0));
+
   if (zones.length === 0) {
     fzpZonesList.innerHTML = '<span style="font-size:11px;color:var(--muted,#64748b)">Nenhuma zona</span>';
     return;
   }
+
   fzpZonesList.innerHTML = "";
-  for (const z of zones) {
-    const col   = ZONE_COLORS[safeStr(z.value).toLowerCase()];
-    const label = col?.label || safeStr(z.value);
-    const chip  = document.createElement("div");
+  for (const zone of zones) {
+    const color = ZONE_COLORS[safeStr(zone.value).toLowerCase()];
+    const chip = document.createElement("div");
     chip.className = "fzp-zone-chip";
-    chip.style.background   = col?.bg     || "rgba(56,189,248,.18)";
-    chip.style.borderColor  = col?.border || "rgba(56,189,248,.35)";
-    chip.innerHTML = `<span>${label}</span><span style="font-size:10px;color:var(--muted,#64748b)">(${Array.isArray(z.cells) ? z.cells.length : "?"})</span>`;
-    const del = document.createElement("button");
-    del.textContent = "×";
-    del.title = "Remover zona";
-    del.addEventListener("click", () => removeZone(z.id));
-    chip.appendChild(del);
+    chip.style.background = color?.bg || "rgba(56,189,248,.18)";
+    chip.style.borderColor = color?.border || "rgba(56,189,248,.35)";
+    const cellCount = getZoneCells(zone).length;
+    const shapeLabel =
+      safeStr(zone.shape) === "square"
+        ? `quadrado r${Math.max(0, Number(zone.radius) || 0)}`
+        : "livre";
+    chip.innerHTML = `<span>${getZoneLabel(zone.value)}</span><span style="font-size:10px;color:var(--muted,#64748b)">(${cellCount} • ${shapeLabel})</span>`;
+
+    const removeButton = document.createElement("button");
+    removeButton.textContent = "×";
+    removeButton.title = "Remover zona";
+    removeButton.addEventListener("click", () => removeZone(zone.id));
+    chip.appendChild(removeButton);
     fzpZonesList.appendChild(chip);
   }
 }
-
-// ─── Armadilhas ───────────────────────────────────────────────────────────
 async function placeTrap(icon, row, col) {
   const ref = window.getStateDocRef?.();
-  const db  = window.currentDb;
-  if (!ref || !db) return;
+  const db = window.currentDb;
   const by = safeStr(window.appState?.by);
-  if (!by) return;
+  if (!ref || !db || !by) return;
 
   const newTrap = {
-    id:         "t_" + nanoid8(),
+    id: "t_" + nanoid8(),
     icon,
     row,
     col,
-    owner:      by,
-    revealed:   false,
+    owner: by,
+    revealed: false,
     revealedAt: null,
   };
 
   try {
-    await window.runTransaction(db, async tx => {
-      const snap  = await tx.get(ref);
-      const data  = snap.exists() ? snap.data() : {};
+    await window.runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref);
+      const data = snap.exists() ? snap.data() : {};
       const traps = Array.isArray(data.traps) ? [...data.traps] : [];
-
-      // Impede duplicata na mesma célula com o mesmo ícone
-      const dup = traps.find(t => t.row === row && t.col === col && t.icon === icon);
-      if (dup) return;
-
+      const duplicate = traps.find((trap) => trap.row === row && trap.col === col && trap.icon === icon);
+      if (duplicate) return;
       traps.push(newTrap);
       tx.set(ref, { traps, updatedAt: Date.now() }, { merge: true });
     });
@@ -682,37 +1010,42 @@ async function placeTrap(icon, row, col) {
   }
 }
 
-// ─── Modal: Revelar Armadilhas ─────────────────────────────────────────────
+function trapName(icon) {
+  return icon === "🪨" ? "Stealth Rock"
+    : icon === "🔺" ? "Spikes"
+    : icon === "☠️" ? "Toxic Spikes"
+    : icon === "🕸️" ? "Sticky Web"
+    : icon || "Armadilha";
+}
+
 function openTrapModal() {
   const role = safeStr(window.appState?.role);
   if (role === "spectator") return;
 
-  const by    = safeStr(window.appState?.by);
+  const by = safeStr(window.appState?.by);
   const traps = (Array.isArray(window.appState?.traps) ? window.appState.traps : [])
-    .filter(t => safeStr(t.owner) === by && !t.revealed);
+    .filter((trap) => safeStr(trap.owner) === by && !trap.revealed);
 
   if (traps.length === 0) {
-    alert("Você não tem armadilhas ocultas no campo.");
+    alert("Voce nao tem armadilhas ocultas no campo.");
     return;
   }
 
   trapModalList.innerHTML = "";
-  for (const t of traps) {
+  for (const trap of traps) {
     const item = document.createElement("label");
-    item.className = "trap-modal-item";
+    item.className = "trap-modal-item selected";
     item.innerHTML = `
-      <input type="checkbox" value="${t.id}" checked>
-      <span class="tmi-icon">${t.icon || "🪨"}</span>
-      <span class="tmi-name">${trapName(t.icon)}</span>
-      <span class="tmi-pos">(${t.row}, ${t.col})</span>
+      <input type="checkbox" value="${trap.id}" checked>
+      <span class="tmi-icon">${trap.icon || "🪨"}</span>
+      <span class="tmi-name">${trapName(trap.icon)}</span>
+      <span class="tmi-pos">(${trap.row}, ${trap.col})</span>
     `;
-    item.addEventListener("click", e => {
-      if (e.target.tagName === "INPUT") {
-        item.classList.toggle("selected", e.target.checked);
+    item.addEventListener("click", (ev) => {
+      if (ev.target.tagName === "INPUT") {
+        item.classList.toggle("selected", ev.target.checked);
       }
     });
-    const cb = item.querySelector("input");
-    item.classList.add("selected"); // começa marcado
     trapModalList.appendChild(item);
   }
 
@@ -724,22 +1057,30 @@ function closeTrapModal() {
 }
 
 async function confirmReveal() {
-  const checkboxes = trapModalList.querySelectorAll("input[type=checkbox]:checked");
-  const ids = Array.from(checkboxes).map(cb => cb.value);
-  if (ids.length === 0) { closeTrapModal(); return; }
+  const ids = Array.from(
+    trapModalList.querySelectorAll("input[type=checkbox]:checked"),
+    (checkbox) => checkbox.value
+  );
+  if (ids.length === 0) {
+    closeTrapModal();
+    return;
+  }
 
   const ref = window.getStateDocRef?.();
-  const db  = window.currentDb;
+  const db = window.currentDb;
   if (!ref || !db) return;
 
   try {
-    await window.runTransaction(db, async tx => {
-      const snap  = await tx.get(ref);
-      const data  = snap.exists() ? snap.data() : {};
+    await window.runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref);
+      const data = snap.exists() ? snap.data() : {};
       const traps = Array.isArray(data.traps) ? [...data.traps] : [];
-      const now   = Date.now();
-      for (const t of traps) {
-        if (ids.includes(t.id)) { t.revealed = true; t.revealedAt = now; }
+      const now = Date.now();
+      for (const trap of traps) {
+        if (ids.includes(trap.id)) {
+          trap.revealed = true;
+          trap.revealedAt = now;
+        }
       }
       tx.set(ref, { traps, updatedAt: now }, { merge: true });
     });
@@ -751,53 +1092,91 @@ async function confirmReveal() {
 
 function bindTrapModal() {
   if (trapModalConfirm) trapModalConfirm.addEventListener("click", confirmReveal);
-  if (trapModalCancel)  trapModalCancel.addEventListener("click",  closeTrapModal);
-  if (trapModalClose)   trapModalClose.addEventListener("click",   closeTrapModal);
+  if (trapModalCancel) trapModalCancel.addEventListener("click", closeTrapModal);
+  if (trapModalClose) trapModalClose.addEventListener("click", closeTrapModal);
   if (trapModalBackdrop) {
-    trapModalBackdrop.addEventListener("click", e => {
-      if (e.target === trapModalBackdrop) closeTrapModal();
+    trapModalBackdrop.addEventListener("click", (ev) => {
+      if (ev.target === trapModalBackdrop) closeTrapModal();
     });
   }
 }
 
-function trapName(icon) {
-  return icon === "🪨" ? "Stealth Rock"
-       : icon === "🔺" ? "Spikes"
-       : icon === "☠️" ? "Toxic Spikes"
-       : icon === "🕸️" ? "Sticky Web"
-       : icon || "Armadilha";
-}
-
-// ─── Modal: Conflito de zona ───────────────────────────────────────────────
 function showConflictModal(existingNames, newName) {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     _conflictResolve = resolve;
     if (conflictText) {
       conflictText.textContent =
-        `Área conflita com zona(s) existente(s): ${existingNames}. O que fazer?`;
+        `Area conflita com zona(s) existente(s): ${existingNames}. O que fazer?`;
     }
-    if (conflictKeepNew)  conflictKeepNew.textContent  = `Manter Novo (${newName})`;
-    if (conflictKeepOld)  conflictKeepOld.textContent  = `Manter Existente (${existingNames})`;
+    if (conflictKeepNew) conflictKeepNew.textContent = `Manter Novo (${newName})`;
+    if (conflictKeepOld) conflictKeepOld.textContent = `Manter Existente (${existingNames})`;
     if (conflictBackdrop) conflictBackdrop.style.display = "";
   });
 }
 
 function closeConflictModal(result) {
   if (conflictBackdrop) conflictBackdrop.style.display = "none";
-  if (_conflictResolve) { _conflictResolve(result); _conflictResolve = null; }
+  if (_conflictResolve) {
+    _conflictResolve(result);
+    _conflictResolve = null;
+  }
 }
 
 function bindConflictModal() {
   if (conflictKeepNew) conflictKeepNew.addEventListener("click", () => closeConflictModal("new"));
   if (conflictKeepOld) conflictKeepOld.addEventListener("click", () => closeConflictModal("old"));
   if (conflictBackdrop) {
-    conflictBackdrop.addEventListener("click", e => {
-      if (e.target === conflictBackdrop) closeConflictModal(null);
+    conflictBackdrop.addEventListener("click", (ev) => {
+      if (ev.target === conflictBackdrop) closeConflictModal(null);
     });
   }
 }
 
-// ─── Bootstrap ────────────────────────────────────────────────────────────
+function init() {
+  ensureArenaRefs();
+  canvas = document.getElementById("arena");
+  zoneCanvas = $("zone_canvas");
+  drawCanvas = $("zone_draw_canvas");
+  arenaWrap = document.getElementById("arena_wrap");
+
+  if (!canvas || !zoneCanvas || !drawCanvas || !arenaWrap) {
+    setTimeout(init, 500);
+    return;
+  }
+
+  zoneCtx = zoneCanvas.getContext("2d");
+  drawCtx = drawCanvas.getContext("2d");
+
+  fcZonePanel = $("fc_zone_panel");
+  fzpTypeLabel = $("fzp_type_label");
+  fzpAreaSelect = $("fzp_area_select");
+  fzpBtnDraw = $("fzp_btn_draw");
+  fzpBtnCancel = $("fzp_btn_cancel");
+  fzpZonesList = $("fzp_zones_list");
+
+  trapModalBackdrop = $("trap_modal_backdrop");
+  trapModalList = $("trap_modal_list");
+  trapModalConfirm = $("trap_modal_confirm");
+  trapModalCancel = $("trap_modal_cancel");
+  trapModalClose = $("trap_modal_close");
+
+  conflictBackdrop = $("zone_conflict_backdrop");
+  conflictText = $("zone_conflict_text");
+  conflictKeepNew = $("zone_conflict_keep_new");
+  conflictKeepOld = $("zone_conflict_keep_old");
+
+  bindFieldConditions();
+  bindZonePanel();
+  bindCanvasEvents();
+  bindTrapModal();
+  bindConflictModal();
+  startZoneRaf();
+  syncZonePanelUI();
+  setInterval(syncZonePanelUI, 800);
+
+  console.log("[field-zones-patch] ready");
+}
+
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => setTimeout(() => waitForGlobals(init), 700));
 } else {

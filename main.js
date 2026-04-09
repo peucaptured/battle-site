@@ -6730,6 +6730,7 @@ function drawWeatherOverlay(ctx, ox, oy, gs, tile, w, h) {
 // Substitui os PNGs por shapes desenhados no canvas
 // Chame DEPOIS do drawWeatherOverlay e ANTES das peças
 // =============================================================================
+window.drawWeatherOverlay = drawWeatherOverlay;
 function drawCellEffects(ctx, ox, oy, tile, _override) {
   const effects = Array.isArray(_override) ? _override : appState.board?.effects;
   if (!Array.isArray(effects) || effects.length === 0) return;
