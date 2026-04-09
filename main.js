@@ -3881,6 +3881,17 @@ function getPiecesAt(row, col) {
   return candidates;
 }
 
+function getDomClickedPiece(ev, { mineOnly = false } = {}) {
+  const token = ev.target?.closest?.(".token[data-piece-id]");
+  if (!token) return null;
+  const pieceId = safeStr(token.dataset.pieceId);
+  if (!pieceId) return null;
+  const piece = (appState.pieces || []).find((p) => safeStr(p?.id) === pieceId) || null;
+  if (!piece || !isPieceVisibleToMe(piece)) return null;
+  if (mineOnly && !isPieceMine(piece)) return null;
+  return piece;
+}
+
 /**
  * Returns v2 map objects whose footprint includes grid tile (row, col).
  * Objects are sorted by descending sortY (topmost-rendered object first).
@@ -5135,6 +5146,13 @@ function bindArenaInteractionsDom() {
       return;
     }
 
+    const clickedPiece = getDomClickedPiece(ev);
+    if (clickedPiece) {
+      selectPiece(clickedPiece.id);
+      renderArenaDom();
+      return;
+    }
+
     const candidates = getPiecesAt(row, col);
     if (candidates.length === 0) {
       if (appState.selectedPieceId) sendMoveSelected(row, col);
@@ -5153,6 +5171,12 @@ function bindArenaInteractionsDom() {
     if (!cell) return;
     const row = Number(cell.dataset.row);
     const col = Number(cell.dataset.col);
+    const clickedPiece = getDomClickedPiece(ev, { mineOnly: true });
+    if (clickedPiece) {
+      ev.preventDefault();
+      openPieceContextMenu(clickedPiece, ev.clientX, ev.clientY);
+      return;
+    }
     const candidates = getPiecesAt(row, col).filter(p => isPieceMine(p));
     if (candidates.length === 0) return;
     ev.preventDefault();
@@ -5340,6 +5364,7 @@ function renderArenaDom() {
     if (!cell) continue;
     const token = document.createElement("div");
     token.className = "token";
+    token.dataset.pieceId = safeStr(p?.id);
     const sizeCategory = p?.sizeCategory || "medium";
     const { tileW, tileH } = getSizeDimensions(sizeCategory);
     const label = p?.revealed ? shortLabelFromPiece(p, 4) : "?";
