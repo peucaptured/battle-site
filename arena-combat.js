@@ -1138,6 +1138,12 @@ export class ArenaCombatUI {
     const canvas = document.getElementById("arena");
     if (!canvas) return;
 
+    const _isMine = (piece) => {
+      const owner = safeStr(piece?.owner).toLowerCase();
+      const by = safeStr(this.getBy?.()).toLowerCase();
+      return !!owner && !!by && owner === by;
+    };
+
     const _getEnemyPieces = (ev) => {
       if (window.appState?.placingPid) return null;
       const rect = canvas.getBoundingClientRect();
@@ -1147,31 +1153,31 @@ export class ArenaCombatUI {
       if (!tile) return null;
       const all = (window.getPiecesAt?.(tile.row, tile.col) || []).filter(Boolean);
       if (!all.length) return null;
-      const by = this.getBy();
+      const by = safeStr(this.getBy?.()).toLowerCase();
       const role = this.getRole();
       const isPlayer = (role === "owner" || role === "challenger");
       const canStartCombat = !!window.canCurrentPlayerStartCombat?.();
       if (!isPlayer || !canStartCombat) return null;
       return all.filter((piece) => {
-        const owner = safeStr(piece.owner);
+        const owner = safeStr(piece.owner).toLowerCase();
         const isPokemon = safeStr(piece.kind) !== "trainer";
         return !!owner && owner !== by && isPokemon;
       });
     };
 
-    canvas.addEventListener("mousedown", (ev) => {
-      if (ev.button !== 0) return;
-      const enemies = _getEnemyPieces(ev);
-      if (Array.isArray(enemies) && enemies.length > 0) ev.stopImmediatePropagation();
-    }, true);
-
     canvas.addEventListener("click", (ev) => {
       if (window.appState?.drag?.justDropped) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = ev.clientX - rect.left;
+      const y = ev.clientY - rect.top;
+      const tile = window.screenToTile?.(x, y);
+      if (!tile) return;
+      const piecesOnTile = (window.getPiecesAt?.(tile.row, tile.col) || []).filter(Boolean);
+      if (piecesOnTile.some(_isMine)) return;
       const enemies = _getEnemyPieces(ev);
       if (!Array.isArray(enemies) || enemies.length === 0) return;
-      ev.stopImmediatePropagation();
+      ev.stopPropagation();
       if (enemies.length === 1) {
-        this._closeAll();
         window.selectPiece?.(safeStr(enemies[0].id));
         return;
       }
@@ -1194,29 +1200,39 @@ export class ArenaCombatUI {
     const canvas = document.getElementById("arena");
     if (!canvas) return;
 
+    const _isMine = (piece) => {
+      const owner = safeStr(piece?.owner).toLowerCase();
+      const by = safeStr(this.getBy?.()).toLowerCase();
+      return !!owner && !!by && owner === by;
+    };
+
     canvas.addEventListener("contextmenu", (ev) => {
-      ev.preventDefault();
-      ev.stopImmediatePropagation();
       const rect = canvas.getBoundingClientRect();
       const x = ev.clientX - rect.left;
       const y = ev.clientY - rect.top;
       const tile = window.screenToTile?.(x, y);
       if (!tile) return;
 
-      this._closeAll();
-
       const wrapRect = this.container.getBoundingClientRect();
       const cx = ev.clientX - wrapRect.left;
       const cy = ev.clientY - wrapRect.top;
       const piecesOnTile = (window.getPiecesAt?.(tile.row, tile.col) || []).filter(Boolean);
       const interactable = piecesOnTile.filter((piece) => safeStr(piece.kind) !== "trainer");
+      const mine = interactable.filter((piece) => _isMine(piece));
+      if (mine.length > 0) return;
+      const enemies = interactable.filter((piece) => !_isMine(piece));
+      if (enemies.length === 0) return;
 
-      if (interactable.length <= 1) {
-        this._showContextMenu(interactable[0] || null, tile, cx, cy);
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      this._closeAll();
+
+      if (enemies.length <= 1) {
+        this._showContextMenu(enemies[0] || null, tile, cx, cy);
         return;
       }
 
-      this._showPieceChoiceMenu(interactable, ev.clientX, ev.clientY, {
+      this._showPieceChoiceMenu(enemies, ev.clientX, ev.clientY, {
         title: "Escolha um pokémon para abrir as ações",
         onSelect: (piece) => this._showContextMenu(piece, tile, cx, cy),
       });

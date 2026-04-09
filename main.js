@@ -5098,7 +5098,6 @@ function bindArenaInteractionsCanvas() {
 }
 
 function bindArenaInteractionsDom() {
-  if (useCanvas) return;
   if (!arenaDom) return;
 
   // Delegação de eventos nas células
@@ -5188,6 +5187,50 @@ function ensureDomGrid() {
   arenaDom.appendChild(frag);
 }
 
+let arenaDomRenderKey = "";
+let arenaDomSyncTimer = null;
+
+function getArenaDomRenderKey() {
+  const bgKey = getActiveMapImageCandidates().join("|");
+  const pieceKey = (appState.pieces || [])
+    .filter(Boolean)
+    .map((p) => [
+      safeStr(p?.id),
+      safeStr(p?.pid),
+      safeStr(p?.owner),
+      safeStr(p?.kind),
+      safeStr(p?.status || "active"),
+      Number(p?.row),
+      Number(p?.col),
+      safeStr(p?.sizeCategory || "medium"),
+      p?.revealed ? "1" : "0",
+    ].join(":"))
+    .join("|");
+  return [
+    String(appState.gridSize || 10),
+    bgKey,
+    pieceKey,
+    safeStr(appState.selectedPieceId),
+    safeStr(getPlacingPokemonPid()),
+    safeStr(appState.by),
+    safeStr(appState.role),
+  ].join("~");
+}
+
+function isArenaDomActive() {
+  if (!arenaDom) return false;
+  if (!canvas) return true;
+  if (!useCanvas) return true;
+  return canvas.style.display === "none" || getComputedStyle(canvas).display === "none";
+}
+
+function syncArenaDomIfNeeded(force = false) {
+  if (!arenaDom || !isArenaDomActive()) return;
+  const nextKey = getArenaDomRenderKey();
+  if (!force && nextKey === arenaDomRenderKey) return;
+  renderArenaDom();
+}
+
 function renderArenaDom() {
   if (!arenaDom) return;
   ensureDomGrid();
@@ -5198,6 +5241,7 @@ function renderArenaDom() {
   const bgImageCss = bgCandidates
     .map((url) => `url("${String(url).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}")`)
     .join(", ");
+  arenaDom.classList.toggle("has-map-bg", !!bgImageCss);
   arenaDom.style.backgroundImage = bgImageCss || "";
   arenaDom.style.backgroundSize = bgImageCss ? "100% 100%" : "";
   arenaDom.style.backgroundRepeat = bgImageCss ? "no-repeat" : "";
@@ -5278,6 +5322,7 @@ function renderArenaDom() {
   }
 
   updateArenaDomHover();
+  arenaDomRenderKey = getArenaDomRenderKey();
 }
 
 function updateArenaDomHover() {
@@ -7018,11 +7063,20 @@ function draw() {
 
   // ── Pass 1: ground layer (terrain PNG or procedural) — cached ────────────
   maybeRebuildMapCache();
-  const groundCacheCanvas = _ensureGroundCache(gs, tile);
-  ctx.drawImage(groundCacheCanvas, ox, oy);
+  const bg = ensureMapBackgroundRecord();
+  if (bg && bg.ready && !bg.failed) {
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    ctx.drawImage(bg.img, ox, oy, gs * tile, gs * tile);
+    ctx.restore();
+    ctx.fillStyle = "rgba(2,6,23,0.10)";
+    ctx.fillRect(ox, oy, gs * tile, gs * tile);
+  } else {
+    const groundCacheCanvas = _ensureGroundCache(gs, tile);
+    ctx.drawImage(groundCacheCanvas, ox, oy);
+  }
 
   // ── Pass 2: overlayLow — animated water + shore foam ─────────────────────
-  const bg = mapCache.bgRec;
   if (bg && bg.ready && !bg.failed) {
     // Animação de água sobre as células de terreno hídrico (terrain_grid == 2)
     drawWaterCells(ctx, ox, oy, gs, tile);
@@ -7390,6 +7444,11 @@ drawTraps(ctx, ox, oy, tile);
 // Start arena
 bindArenaInteractionsCanvas();
 bindArenaInteractionsDom();
+if (!arenaDomSyncTimer) {
+  arenaDomSyncTimer = window.setInterval(() => {
+    try { syncArenaDomIfNeeded(); } catch {}
+  }, 250);
+}
 
 if (useCanvas) {
   if (canvas) canvas.style.display = "block";
@@ -7400,7 +7459,7 @@ if (useCanvas) {
   requestAnimationFrame(draw);
 } else {
   // fallback DOM (sempre mostra algo, mesmo se o canvas falhar)
-  renderArenaDom();
+  syncArenaDomIfNeeded(true);
 }
 
 // -------------------------
