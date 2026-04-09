@@ -3775,15 +3775,18 @@ function resizeCanvasToContainer() {
   if (view.autoFit) fitToView();
 }
 
-if (useCanvas && typeof ResizeObserver !== "undefined") {
-  const ro = new ResizeObserver(() => {
+if (typeof ResizeObserver !== "undefined") {
+  const onArenaViewportChange = () => {
     updateHudViewportHeight();
-    resizeCanvasToContainer();
+    if (useCanvas) resizeCanvasToContainer();
+    if (!useCanvas || isArenaDomActive()) syncArenaDomIfNeeded(true);
+  };
+  const ro = new ResizeObserver(() => {
+    onArenaViewportChange();
   });
   ro.observe(canvasWrap);
   window.addEventListener("resize", () => {
-    updateHudViewportHeight();
-    resizeCanvasToContainer();
+    onArenaViewportChange();
   });
 }
 
@@ -5191,6 +5194,8 @@ let arenaDomRenderKey = "";
 let arenaDomSyncTimer = null;
 
 function getArenaDomRenderKey() {
+  const wrapRect = canvasWrap?.getBoundingClientRect?.() || { width: 0, height: 0 };
+  const wrapKey = `${Math.round(wrapRect.width)}x${Math.round(wrapRect.height)}`;
   const bgKey = getActiveMapImageCandidates().join("|");
   const pieceKey = (appState.pieces || [])
     .filter(Boolean)
@@ -5208,6 +5213,7 @@ function getArenaDomRenderKey() {
     .join("|");
   return [
     String(appState.gridSize || 10),
+    wrapKey,
     bgKey,
     pieceKey,
     safeStr(appState.selectedPieceId),
@@ -5222,6 +5228,19 @@ function isArenaDomActive() {
   if (!canvas) return true;
   if (!useCanvas) return true;
   return canvas.style.display === "none" || getComputedStyle(canvas).display === "none";
+}
+
+function getArenaBoardMetrics() {
+  const gs = Math.max(1, Number(appState.gridSize) || 10);
+  const rect = canvasWrap?.getBoundingClientRect?.() || { width: 0, height: 0 };
+  const pad = 20;
+  const usableW = Math.max(0, rect.width - pad * 2);
+  const usableH = Math.max(0, rect.height - pad * 2);
+  const tile = Math.max(1, Math.floor(Math.min(usableW / gs, usableH / gs)));
+  const side = gs * tile;
+  const left = Math.floor((rect.width - side) / 2);
+  const top = Math.floor((rect.height - side) / 2);
+  return { gs, rect, pad, tile, side, left, top };
 }
 
 function syncSpriteOverlayVisibility() {
@@ -5239,9 +5258,14 @@ function syncArenaDomIfNeeded(force = false) {
 function renderArenaDom() {
   if (!arenaDom) return;
   ensureDomGrid();
+  const board = getArenaBoardMetrics();
   // mostra DOM, esconde canvas
   if (canvas) canvas.style.display = "none";
   arenaDom.style.display = "grid";
+  arenaDom.style.left = `${board.left}px`;
+  arenaDom.style.top = `${board.top}px`;
+  arenaDom.style.width = `${board.side}px`;
+  arenaDom.style.height = `${board.side}px`;
   syncSpriteOverlayVisibility();
   const bgCandidates = getActiveMapImageCandidates();
   const bgImageCss = bgCandidates
@@ -5316,13 +5340,41 @@ function renderArenaDom() {
     if (!cell) continue;
     const token = document.createElement("div");
     token.className = "token";
-    if (safeStr(p?.kind) === "trainer") token.classList.add("trainer");
     const sizeCategory = p?.sizeCategory || "medium";
-    if (sizeCategory === SIZE_CATEGORIES.tiny) token.style.cssText = "font-size:9px;transform:scale(0.5);";
+    const { tileW, tileH } = getSizeDimensions(sizeCategory);
     const label = p?.revealed ? shortLabelFromPiece(p, 4) : "?";
     const spriteUrl = p?.revealed
       ? (getSpriteUrlForPiece(p, { type: "battle" }) || getSpriteUrlForPiece(p, { type: "art" }))
       : "";
+    if (safeStr(p?.kind) === "trainer") token.classList.add("trainer");
+    if (spriteUrl) token.classList.add("has-sprite");
+
+    const pad = Math.max(6, Math.floor(board.tile * 0.12));
+    let tokenLeft = pad;
+    let tokenTop = pad;
+    let tokenWidth = board.tile - pad * 2;
+    let tokenHeight = board.tile - pad * 2;
+    if (sizeCategory === SIZE_CATEGORIES.tiny) {
+      const tinyOnTile = getPiecesOccupyingTile(r, c, appState.pieces || [])
+        .filter((q) => (q?.sizeCategory || SIZE_CATEGORIES.medium) === SIZE_CATEGORIES.tiny && isPieceVisibleToMe(q));
+      const slotIndex = Math.max(0, tinyOnTile.findIndex((q) => safeStr(q?.id) === safeStr(p?.id)));
+      const slot = getTinySlotPosition(slotIndex);
+      tokenLeft = Math.round(slot.offsetXRatio * board.tile);
+      tokenTop = Math.round(slot.offsetYRatio * board.tile);
+      tokenWidth = Math.round(slot.sizeRatio * board.tile);
+      tokenHeight = Math.round(slot.sizeRatio * board.tile);
+    } else if (sizeCategory === SIZE_CATEGORIES.large || sizeCategory === SIZE_CATEGORIES.huge) {
+      const pad2 = Math.max(4, Math.floor(board.tile * 0.06));
+      tokenLeft = pad2;
+      tokenTop = pad2;
+      tokenWidth = board.tile * tileW - pad2 * 2;
+      tokenHeight = board.tile * tileH - pad2 * 2;
+    }
+    token.style.left = `${tokenLeft}px`;
+    token.style.top = `${tokenTop}px`;
+    token.style.width = `${tokenWidth}px`;
+    token.style.height = `${tokenHeight}px`;
+
     if (spriteUrl) {
       const img = document.createElement("img");
       img.className = "token-sprite";
@@ -5344,6 +5396,12 @@ function renderArenaDom() {
     labelEl.textContent = label;
     if (!spriteUrl) {
       token.textContent = label;
+    }
+    if (sizeCategory === SIZE_CATEGORIES.tiny) {
+      labelEl.style.left = "2px";
+      labelEl.style.top = "2px";
+      labelEl.style.padding = "1px 4px";
+      labelEl.style.fontSize = "8px";
     }
     token.appendChild(labelEl);
     cell.appendChild(token);
