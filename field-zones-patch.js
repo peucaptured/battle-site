@@ -42,8 +42,10 @@ let _isFreehandDrawing = false;
 let canvas, zoneCanvas, zoneCtx, drawCanvas, drawCtx, arenaWrap;
 let fcZonePanel, fzpTypeLabel, fzpAreaSelect, fzpBtnDraw, fzpBtnCancel, fzpZonesList;
 let trapModalBackdrop, trapModalList, trapModalConfirm, trapModalCancel, trapModalClose;
+let zoneModeBackdrop, zoneModeTitle, zoneModeHint, zoneModeSelect, zoneRadiusRow, zoneRadiusInput, zoneModeConfirm, zoneModeCancel, zoneModeClose;
 let conflictBackdrop, conflictText, conflictKeepNew, conflictKeepOld;
 let _conflictResolve = null;
+let _zoneModeResolve = null;
 
 const ZONE_COLORS = {
   sun:              { bg: "rgba(253,224,71,0.35)",  border: "rgba(253,224,71,0.7)",  label: "☀️ Sol Forte" },
@@ -84,6 +86,89 @@ function ensureArenaRefs() {
   if (nextArenaWrap) arenaWrap = nextArenaWrap;
 }
 
+function isVisibleElement(el) {
+  if (!el) return false;
+  const rect = el.getBoundingClientRect?.();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+  const style = window.getComputedStyle?.(el);
+  return style?.display !== "none" && style?.visibility !== "hidden";
+}
+
+function getBoardLayout() {
+  ensureArenaRefs();
+  const gs = getGridSize();
+  const wrapRect = arenaWrap?.getBoundingClientRect?.();
+  if (!wrapRect || wrapRect.width <= 0 || wrapRect.height <= 0 || gs <= 0) return null;
+
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const domBoard = document.getElementById("arena_dom");
+  if (isVisibleElement(domBoard)) {
+    const rect = domBoard.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+    const tile = Math.min(width, height) / gs;
+    if (Number.isFinite(tile) && tile > 0) {
+      return {
+        mode: "dom",
+        gs,
+        width,
+        height,
+        tile,
+        clientLeft: rect.left,
+        clientTop: rect.top,
+        relLeft: rect.left - wrapRect.left,
+        relTop: rect.top - wrapRect.top,
+        dpr,
+      };
+    }
+  }
+
+  const view = window._arenaView;
+  const canvasRect = canvas?.getBoundingClientRect?.();
+  if (
+    canvasRect &&
+    canvasRect.width > 0 &&
+    canvasRect.height > 0 &&
+    view &&
+    Number.isFinite(Number(view.scale)) &&
+    Number(view.scale) > 0
+  ) {
+    const tile = Number(view.scale);
+    const width = gs * tile;
+    const height = gs * tile;
+    const clientLeft = canvasRect.left + Number(view.offX || 0);
+    const clientTop = canvasRect.top + Number(view.offY || 0);
+    return {
+      mode: "canvas",
+      gs,
+      width,
+      height,
+      tile,
+      clientLeft,
+      clientTop,
+      relLeft: clientLeft - wrapRect.left,
+      relTop: clientTop - wrapRect.top,
+      dpr,
+    };
+  }
+
+  const side = Math.max(1, Math.min(wrapRect.width, wrapRect.height));
+  const clientLeft = wrapRect.left + (wrapRect.width - side) / 2;
+  const clientTop = wrapRect.top + (wrapRect.height - side) / 2;
+  return {
+    mode: "fallback",
+    gs,
+    width: side,
+    height: side,
+    tile: side / gs,
+    clientLeft,
+    clientTop,
+    relLeft: clientLeft - wrapRect.left,
+    relTop: clientTop - wrapRect.top,
+    dpr,
+  };
+}
+
 function cellKey(row, col) {
   return `${row},${col}`;
 }
@@ -116,46 +201,21 @@ function getZoneCells(zone) {
 }
 
 function getCanvasPointFromEvent(ev) {
-  const view = window._arenaView;
-  const gs = getGridSize();
-  const domBoard = document.getElementById("arena_dom");
-  const domRect = domBoard?.getBoundingClientRect();
-  if (
-    domRect &&
-    domRect.width > 0 &&
-    domRect.height > 0 &&
-    view &&
-    Number.isFinite(view.scale)
-  ) {
-    const fracX = (ev.clientX - domRect.left) / domRect.width;
-    const fracY = (ev.clientY - domRect.top) / domRect.height;
-    const span = gs * Number(view.scale || 0);
-    return {
-      x: Number(view.offX || 0) + fracX * span,
-      y: Number(view.offY || 0) + fracY * span,
-    };
-  }
-
-  const liveCanvas = document.getElementById("arena");
-  if (liveCanvas) canvas = liveCanvas;
-  const canvasRect = liveCanvas?.getBoundingClientRect();
-  if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) return null;
-  return {
-    x: ev.clientX - canvasRect.left,
-    y: ev.clientY - canvasRect.top,
-  };
+  const layout = getBoardLayout();
+  if (!layout) return null;
+  const x = ev.clientX - layout.clientLeft;
+  const y = ev.clientY - layout.clientTop;
+  if (x < 0 || y < 0 || x > layout.width || y > layout.height) return null;
+  return { x, y };
 }
 
-function canvasPointToTilePoint(x, y) {
-  const view = window._arenaView;
-  if (!view) return null;
-  const tile = Number(view.scale);
-  const ox = Number(view.offX);
-  const oy = Number(view.offY);
-  const gs = getGridSize();
+function canvasPointToTilePoint(x, y, layout = getBoardLayout()) {
+  if (!layout) return null;
+  const tile = Number(layout.tile);
+  const gs = Number(layout.gs || getGridSize());
   if (!Number.isFinite(tile) || tile <= 0) return null;
-  const row = Math.floor((y - oy) / tile);
-  const col = Math.floor((x - ox) / tile);
+  const row = Math.floor(y / tile);
+  const col = Math.floor(x / tile);
   if (row < 0 || col < 0 || row >= gs || col >= gs) return null;
   return { row, col };
 }
@@ -163,10 +223,6 @@ function canvasPointToTilePoint(x, y) {
 function getTileFromEvent(ev) {
   const point = getCanvasPointFromEvent(ev);
   if (!point) return null;
-  if (typeof window.screenToTile === "function") {
-    const tile = window.screenToTile(point.x, point.y);
-    if (tile) return tile;
-  }
   return canvasPointToTilePoint(point.x, point.y);
 }
 
@@ -322,29 +378,39 @@ function updateZonePanelControls() {
 
 function syncCanvasSize() {
   ensureArenaRefs();
-  if (!canvas || !zoneCanvas || !drawCanvas) return;
-  const width = canvas.width;
-  const height = canvas.height;
-  const rect = canvas.getBoundingClientRect();
-  const dpr = rect.width > 0 ? canvas.width / rect.width : 1;
-  if (zoneCanvas.width !== width || zoneCanvas.height !== height) {
-    zoneCanvas.width = width;
-    zoneCanvas.height = height;
+  if (!zoneCanvas || !drawCanvas || !arenaWrap) return;
+  const layout = getBoardLayout();
+  if (!layout) return;
+
+  const width = Math.max(1, Math.round(layout.width));
+  const height = Math.max(1, Math.round(layout.height));
+  const pixelWidth = Math.max(1, Math.round(width * layout.dpr));
+  const pixelHeight = Math.max(1, Math.round(height * layout.dpr));
+
+  for (const overlay of [zoneCanvas, drawCanvas]) {
+    if (!overlay) continue;
+    overlay.style.left = `${layout.relLeft}px`;
+    overlay.style.top = `${layout.relTop}px`;
+    overlay.style.right = "auto";
+    overlay.style.bottom = "auto";
+    overlay.style.width = `${width}px`;
+    overlay.style.height = `${height}px`;
+    if (overlay.width !== pixelWidth || overlay.height !== pixelHeight) {
+      overlay.width = pixelWidth;
+      overlay.height = pixelHeight;
+    }
   }
-  if (drawCanvas.width !== width || drawCanvas.height !== height) {
-    drawCanvas.width = width;
-    drawCanvas.height = height;
-  }
-  zoneCtx?.setTransform(dpr, 0, 0, dpr, 0, 0);
-  drawCtx?.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  zoneCtx?.setTransform(layout.dpr, 0, 0, layout.dpr, 0, 0);
+  drawCtx?.setTransform(layout.dpr, 0, 0, layout.dpr, 0, 0);
 }
 
 function drawZoneCellsPreview(ctx, cells, label) {
-  const view = window._arenaView;
-  if (!view) return;
-  const tile = Number(view.scale);
-  const ox = Number(view.offX);
-  const oy = Number(view.offY);
+  const layout = getBoardLayout();
+  if (!layout) return;
+  const tile = Number(layout.tile);
+  const ox = 0;
+  const oy = 0;
   const color = ZONE_COLORS[safeStr(_selectedZoneValue).toLowerCase()] || {
     bg: "rgba(56,189,248,0.2)",
     border: "rgba(56,189,248,0.8)",
@@ -384,9 +450,10 @@ function drawZoneCellsPreview(ctx, cells, label) {
 function renderZones() {
   ensureArenaRefs();
   if (!zoneCtx || !zoneCanvas) return;
-  const rect = canvas?.getBoundingClientRect();
-  const cssWidth = rect?.width || 0;
-  const cssHeight = rect?.height || 0;
+  const layout = getBoardLayout();
+  if (!layout) return;
+  const cssWidth = Math.max(1, Math.round(layout.width));
+  const cssHeight = Math.max(1, Math.round(layout.height));
   const width = zoneCanvas.width;
   const height = zoneCanvas.height;
   zoneCtx.clearRect(0, 0, cssWidth, cssHeight);
@@ -394,16 +461,14 @@ function renderZones() {
   const zones = Array.isArray(window.appState?.zones) ? window.appState.zones : [];
   if (zones.length === 0) return;
 
-  const view = window._arenaView;
-  if (!view) return;
-  const tile = Number(view.scale);
-  const ox = Number(view.offX);
-  const oy = Number(view.offY);
-  const gs = getGridSize();
+  const tile = Number(layout.tile);
+  const ox = 0;
+  const oy = 0;
+  const gs = Number(layout.gs || getGridSize());
   if (!Number.isFinite(tile) || tile <= 0) return;
 
   const { canvas: offscreen, ctx: offCtx } = getOffscreen(width, height);
-  const dpr = cssWidth > 0 ? width / cssWidth : 1;
+  const dpr = width / cssWidth;
   for (const zone of zones) {
     const cells = getZoneCells(zone);
     if (cells.length === 0) continue;
@@ -490,17 +555,14 @@ function buildFreehandCells(points) {
     return tilePoint ? [tilePoint] : [];
   }
 
-  const view = window._arenaView;
-  if (!view) return [];
-  const tile = Number(view.scale);
-  const ox = Number(view.offX);
-  const oy = Number(view.offY);
-  const gs = getGridSize();
+  const layout = getBoardLayout();
+  if (!layout) return [];
+  const tile = Number(layout.tile);
+  const gs = Number(layout.gs || getGridSize());
   if (!Number.isFinite(tile) || tile <= 0) return [];
 
-  const rect = canvas?.getBoundingClientRect();
-  const maskWidth = Math.max(1, Math.round(rect?.width || drawCanvas.width));
-  const maskHeight = Math.max(1, Math.round(rect?.height || drawCanvas.height));
+  const maskWidth = Math.max(1, Math.round(layout.width));
+  const maskHeight = Math.max(1, Math.round(layout.height));
   const { ctx: maskCtx } = getZoneMaskCanvas(maskWidth, maskHeight);
   if (!maskCtx) return [];
 
@@ -536,8 +598,8 @@ function buildFreehandCells(points) {
 
   for (let row = 0; row < gs; row++) {
     for (let col = 0; col < gs; col++) {
-      const baseX = ox + col * tile;
-      const baseY = oy + row * tile;
+      const baseX = col * tile;
+      const baseY = row * tile;
       let inside = false;
       for (const [sx, sy] of samples) {
         const px = Math.max(0, Math.min(maskWidth - 1, Math.round(baseX + tile * sx)));
@@ -560,8 +622,9 @@ function buildFreehandCells(points) {
 function renderDrawPreview() {
   ensureArenaRefs();
   if (!drawCtx || !drawCanvas) return;
-  const rect = canvas?.getBoundingClientRect();
-  drawCtx.clearRect(0, 0, rect?.width || drawCanvas.width, rect?.height || drawCanvas.height);
+  const layout = getBoardLayout();
+  if (!layout) return;
+  drawCtx.clearRect(0, 0, layout.width, layout.height);
   if (!_selectedZoneValue) return;
 
   if (_zonePlacementMode === "square" && _zoneHoverTile) {
@@ -611,35 +674,81 @@ function startZoneRaf() {
   requestAnimationFrame(loop);
 }
 
+function syncZoneModeModalState() {
+  if (!zoneModeSelect || !zoneRadiusRow) return;
+  const mode = safeStr(zoneModeSelect.value).toLowerCase() || "freehand";
+  zoneRadiusRow.style.display = mode === "square" ? "" : "none";
+}
+
+function closeZoneModeModal(result) {
+  if (zoneModeBackdrop) zoneModeBackdrop.style.display = "none";
+  if (_zoneModeResolve) {
+    _zoneModeResolve(result);
+    _zoneModeResolve = null;
+  }
+}
+
 function askPlacementMode(effectLabel) {
-  while (true) {
-    const raw = window.prompt(
-      `${effectLabel}: digite "livre" para traco livre ou "quadrado" para area centralizada.`,
-      _zonePlacementMode === "square" ? "quadrado" : "livre"
-    );
-    if (raw == null) return null;
-    const answer = safeStr(raw).toLowerCase();
-    if (!answer) continue;
-    if (["livre", "free", "freehand", "l"].includes(answer)) {
-      return { mode: "freehand", radius: null };
-    }
-    if (["quadrado", "square", "q"].includes(answer)) {
-      break;
-    }
-    alert('Resposta invalida. Use "livre" ou "quadrado".');
+  if (!zoneModeBackdrop || !zoneModeSelect || !zoneModeConfirm || !zoneModeCancel) {
+    return Promise.resolve({ mode: "freehand", radius: null });
   }
 
-  while (true) {
-    const rawRadius = window.prompt(
-      "Raio em tiles a partir do centro (0 = so o tile central, 5 = ate 5 tiles para cada lado quando houver espaco):",
-      String(Number.isFinite(_squareRadius) ? _squareRadius : 2)
-    );
-    if (rawRadius == null) return null;
-    const radius = Number.parseInt(rawRadius, 10);
-    if (Number.isFinite(radius) && radius >= 0) {
-      return { mode: "square", radius };
-    }
-    alert("Informe um numero inteiro maior ou igual a 0.");
+  const defaultMode = _zonePlacementMode === "square" ? "square" : "freehand";
+  const defaultRadius = Math.max(0, Number.isFinite(_squareRadius) ? _squareRadius : 2);
+  if (zoneModeTitle) zoneModeTitle.textContent = `Definir Area: ${effectLabel}`;
+  if (zoneModeHint) {
+    zoneModeHint.textContent =
+      `Escolha se ${effectLabel} sera aplicado por traco livre ou por um quadrado centrado em um tile.`;
+  }
+  zoneModeSelect.value = defaultMode;
+  if (zoneRadiusInput) zoneRadiusInput.value = String(defaultRadius);
+  syncZoneModeModalState();
+  zoneModeBackdrop.style.display = "";
+
+  return new Promise((resolve) => {
+    _zoneModeResolve = resolve;
+    window.setTimeout(() => {
+      if (zoneModeSelect) zoneModeSelect.focus();
+    }, 0);
+  });
+}
+
+function bindZoneModeModal() {
+  if (zoneModeSelect) {
+    zoneModeSelect.addEventListener("change", syncZoneModeModalState);
+  }
+
+  if (zoneModeConfirm) {
+    zoneModeConfirm.addEventListener("click", () => {
+      const mode = safeStr(zoneModeSelect?.value).toLowerCase() === "square" ? "square" : "freehand";
+      if (mode === "square") {
+        const radius = Number.parseInt(zoneRadiusInput?.value || "", 10);
+        if (!Number.isFinite(radius) || radius < 0) {
+          if (zoneRadiusInput) zoneRadiusInput.focus();
+          return;
+        }
+        closeZoneModeModal({ mode, radius });
+        return;
+      }
+      closeZoneModeModal({ mode: "freehand", radius: null });
+    });
+  }
+
+  if (zoneModeCancel) zoneModeCancel.addEventListener("click", () => closeZoneModeModal(null));
+  if (zoneModeClose) zoneModeClose.addEventListener("click", () => closeZoneModeModal(null));
+  if (zoneModeBackdrop) {
+    zoneModeBackdrop.addEventListener("click", (ev) => {
+      if (ev.target === zoneModeBackdrop) closeZoneModeModal(null);
+    });
+  }
+
+  if (zoneRadiusInput) {
+    zoneRadiusInput.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        zoneModeConfirm?.click();
+      }
+    });
   }
 }
 
@@ -691,7 +800,7 @@ function clearTrapMode() {
 }
 
 async function chooseZonePlacement(type, value) {
-  const placement = askPlacementMode(getZoneLabel(value));
+  const placement = await askPlacementMode(getZoneLabel(value));
   if (!placement) return;
   setZoneSelection(type, value, placement);
 }
@@ -762,6 +871,10 @@ function bindCanvasEvents() {
 
   document.addEventListener("keydown", (ev) => {
     if (ev.key !== "Escape") return;
+    if (zoneModeBackdrop && zoneModeBackdrop.style.display !== "none") {
+      closeZoneModeModal(null);
+      return;
+    }
     if (_trapMode) {
       clearTrapMode();
       return;
@@ -1160,6 +1273,16 @@ function init() {
   trapModalCancel = $("trap_modal_cancel");
   trapModalClose = $("trap_modal_close");
 
+  zoneModeBackdrop = $("zone_mode_backdrop");
+  zoneModeTitle = $("zone_mode_title");
+  zoneModeHint = $("zone_mode_hint");
+  zoneModeSelect = $("zone_mode_select");
+  zoneRadiusRow = $("zone_radius_row");
+  zoneRadiusInput = $("zone_radius_input");
+  zoneModeConfirm = $("zone_mode_confirm");
+  zoneModeCancel = $("zone_mode_cancel");
+  zoneModeClose = $("zone_mode_close");
+
   conflictBackdrop = $("zone_conflict_backdrop");
   conflictText = $("zone_conflict_text");
   conflictKeepNew = $("zone_conflict_keep_new");
@@ -1169,6 +1292,7 @@ function init() {
   bindZonePanel();
   bindCanvasEvents();
   bindTrapModal();
+  bindZoneModeModal();
   bindConflictModal();
   startZoneRaf();
   syncZonePanelUI();
