@@ -105,6 +105,15 @@ const canvas = $("arena");
 const canvasWrap = $("arena_wrap");
 const arenaDom = $("arena_dom");
 const pieceContextMenu = $("piece_context_menu");
+const pieceContextSummary = $("piece_context_summary");
+const arenaLeftShell = $("arena_left_shell");
+const arenaLeftToggle = $("arena_left_toggle");
+const arenaLeftDrawer = $("arena_left_drawer");
+const arenaToolsShell = $("arena_tools_shell");
+const arenaToolsToggle = $("arena_tools_toggle");
+const arenaToolsMenu = $("arena_tools_menu");
+const arenaHoverCard = $("arena_hover_card");
+const arenaHoverCardBody = $("arena_hover_card_body");
 
 // Canvas pode falhar por CSP, webview, permissões, etc.
 let ctx = null;
@@ -414,6 +423,11 @@ const appState = {
   placingPid: null,
   placingTrainer: null, // trainer name when placing trainer avatar
   hover: { row: null, col: null },
+  hoveredPieceId: null,
+  hoverCardPieceId: null,
+  lastInteractedPieceId: null,
+  leftOverlayOpen: false,
+  toolsMenuOpen: false,
   // drag
   drag: {
     active: false,
@@ -1192,9 +1206,76 @@ function setTab(tabName) {
   }
 }
 
-qsa(".tab").forEach((t) => {
-  t.addEventListener("click", () => setTab(t.dataset.tab));
+function supportsHoverTabs() {
+  try {
+    return !!window.matchMedia?.("(hover: hover) and (pointer: fine)")?.matches;
+  } catch {
+    return false;
+  }
+}
+
+function moveNodeIntoContainer(node, container) {
+  if (!node || !container || container.contains(node)) return;
+  container.appendChild(node);
+}
+
+function syncArenaOverlayLayout() {
+  moveNodeIntoContainer(document.querySelector(".sidebar-left .panel"), arenaLeftDrawer);
+  moveNodeIntoContainer($("btn_draw_mode"), arenaToolsMenu);
+  moveNodeIntoContainer($("draw-toolbar"), arenaToolsMenu);
+  moveNodeIntoContainer($("field_conditions"), arenaToolsMenu);
+  moveNodeIntoContainer($("fc_zone_panel"), arenaToolsMenu);
+}
+
+function setArenaLeftOverlayOpen(open) {
+  const next = !!open;
+  appState.leftOverlayOpen = next;
+  arenaLeftShell?.classList.toggle("is-open", next);
+  arenaLeftToggle?.setAttribute("aria-expanded", next ? "true" : "false");
+  arenaLeftDrawer?.setAttribute("aria-hidden", next ? "false" : "true");
+}
+
+function setArenaToolsMenuOpen(open) {
+  const next = !!open;
+  appState.toolsMenuOpen = next;
+  arenaToolsShell?.classList.toggle("is-open", next);
+  arenaToolsToggle?.setAttribute("aria-expanded", next ? "true" : "false");
+  arenaToolsMenu?.setAttribute("aria-hidden", next ? "false" : "true");
+  renderArenaHoverCard();
+}
+
+function setArenaHoverPiece(pieceOrId, { persist = false } = {}) {
+  const id = safeStr(typeof pieceOrId === "string" ? pieceOrId : pieceOrId?.id);
+  appState.hoveredPieceId = id || null;
+  if (persist && id) appState.lastInteractedPieceId = id;
+  renderArenaHoverCard();
+}
+
+function bindTabInteractions() {
+  qsa(".tab").forEach((t) => {
+    t.addEventListener("click", () => setTab(t.dataset.tab));
+    t.addEventListener("mouseenter", () => {
+      if (!supportsHoverTabs()) return;
+      setTab(t.dataset.tab);
+    });
+  });
+}
+
+arenaLeftToggle?.addEventListener("click", (ev) => {
+  ev.preventDefault();
+  ev.stopPropagation();
+  syncArenaOverlayLayout();
+  setArenaLeftOverlayOpen(!appState.leftOverlayOpen);
 });
+
+arenaToolsToggle?.addEventListener("click", (ev) => {
+  ev.preventDefault();
+  ev.stopPropagation();
+  syncArenaOverlayLayout();
+  setArenaToolsMenuOpen(!appState.toolsMenuOpen);
+});
+
+bindTabInteractions();
 
 // -------------------------
 // Firestore actions
@@ -2912,6 +2993,180 @@ async function mountInspectorConditionsPanel(wrap, piece, { isMine }) {
   });
 }
 
+function resolvePieceInspectorTypes(piece, { isMine = isPieceMine(piece) } = {}) {
+  const owner = safeStr(piece?.owner) || "—";
+  const pid = safeStr(piece?.pid) || "—";
+  const slug = _getEffectivePokeApiSlug(owner, pid);
+  const fromSheet = getSheetForPiece(piece)?.pokemon?.types;
+  if (Array.isArray(fromSheet) && fromSheet.length) return fromSheet;
+  if (Array.isArray(piece?.types) && piece.types.length) return piece.types;
+  if (slug) {
+    const cached = _getPokeApiCached(slug);
+    if (cached && Array.isArray(cached.types) && cached.types.length) return cached.types;
+    const pending = _pokeApiCache.get(slug);
+    if (pending !== "pending") fetchPokeApiData(slug);
+  }
+  const displayName = dexNameFromPid(pid) || pid;
+  if (displayName && displayName !== "???" && displayName !== "—") {
+    const nameSlug = displayName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+    if (nameSlug) {
+      const cached = _getPokeApiCached(nameSlug);
+      if (cached && Array.isArray(cached.types) && cached.types.length) return cached.types;
+      const pending = _pokeApiCache.get(nameSlug);
+      if (pending !== "pending") fetchPokeApiData(nameSlug);
+    }
+  }
+  return [];
+}
+
+function resolveActiveArenaHoverPiece() {
+  const candidates = [];
+  if (safeStr(appState.hoveredPieceId)) candidates.push(appState.hoveredPieceId);
+  if (!supportsHoverTabs()) {
+    if (safeStr(appState.selectedPieceId)) candidates.push(appState.selectedPieceId);
+    if (safeStr(appState.lastInteractedPieceId)) candidates.push(appState.lastInteractedPieceId);
+  }
+  for (const id of candidates) {
+    const piece = (appState.pieces || []).find((p) => safeStr(p?.id) === safeStr(id)) || null;
+    if (piece && isPieceVisibleToMe(piece)) return piece;
+  }
+  return null;
+}
+
+function renderArenaHoverCard() {
+  if (!arenaHoverCard || !arenaHoverCardBody) return;
+  if (appState.toolsMenuOpen) {
+    appState.hoverCardPieceId = null;
+    arenaHoverCard.classList.remove("visible");
+    arenaHoverCard.setAttribute("aria-hidden", "true");
+    return;
+  }
+  const piece = resolveActiveArenaHoverPiece();
+  if (!piece) {
+    appState.hoverCardPieceId = null;
+    arenaHoverCard.classList.remove("visible");
+    arenaHoverCard.setAttribute("aria-hidden", "true");
+    return;
+  }
+
+  const owner = safeStr(piece?.owner) || "—";
+  const pid = safeStr(piece?.pid) || "—";
+  const isMine = isPieceMine(piece);
+  const revealed = (piece?.revealed != null) ? !!piece.revealed : true;
+  const ownerLabel = humanizeInternalLabel(owner) || owner || "-";
+  const canSeeIdentity = isMine || revealed;
+  const name = canSeeIdentity ? displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine }) : "???";
+  const types = resolvePieceInspectorTypes(piece, { isMine });
+  const typeChips = types.map((type) => _typePill(type)).join("");
+  const moveBudget = getPieceMovementBudget(piece);
+  const moveSummary = `Velocidade ${moveBudget.speed} • deslocamento ${moveBudget.maxTiles % 1 ? "1/2" : moveBudget.maxTiles} quadrado(s)`;
+  const offenseH = _typeOffenseHtml(types);
+  const matchupH = _typeMatchupHtml(types);
+  const spriteState = _getPartyStateEntry(owner, pid) || {};
+  const spriteUrl = getSpriteUrlForPiece(piece, { type: "art", shiny: !!spriteState.shiny });
+  const spriteFallbackUrl = getSpriteFallbackUrlForPiece(piece);
+  const identityChip = revealed ? "Revelado" : "Oculto";
+
+  arenaHoverCardBody.innerHTML = `
+    <div class="inspector">
+      <div class="arena-hover-head">
+        <div class="arena-hover-media">
+          ${spriteUrl ? `<img src="${escapeAttr(spriteUrl)}" alt="${escapeAttr(name)}" loading="lazy" data-fallback="${escapeAttr(spriteFallbackUrl)}" onerror="if(this.dataset.fallback && this.src!==this.dataset.fallback){this.src=this.dataset.fallback;}else{this.style.display='none'}"/>` : `<span>#</span>`}
+        </div>
+        <div style="min-width:0;flex:1">
+          <div class="arena-hover-title">${escapeHtml(name)}</div>
+          <div class="arena-hover-sub">${escapeHtml(ownerLabel)} • ${escapeHtml(pieceTypeLabel(piece))}</div>
+          <div class="chip-row">
+            <span class="chip">${escapeHtml(identityChip)}</span>
+            <span class="chip">${escapeHtml(isMine ? "Sua peça" : "Em campo")}</span>
+          </div>
+          ${typeChips ? `<div class="chip-row">${typeChips}</div>` : ""}
+        </div>
+      </div>
+      <div class="arena-hover-motion">${escapeHtml(moveSummary)}</div>
+      ${offenseH || `<div class="section-title">Super efetivo</div><div class="arena-hover-empty">Tipos ainda não disponíveis.</div>`}
+      ${matchupH || ""}
+    </div>
+  `;
+
+  appState.hoverCardPieceId = safeStr(piece?.id) || null;
+  arenaHoverCard.classList.add("visible");
+  arenaHoverCard.setAttribute("aria-hidden", "false");
+}
+
+let pieceActionModalRefs = null;
+
+function ensurePieceActionModal() {
+  if (pieceActionModalRefs) return pieceActionModalRefs;
+  const backdrop = document.createElement("div");
+  backdrop.id = "piece_action_modal_backdrop";
+  backdrop.className = "modal-backdrop";
+  backdrop.style.display = "none";
+  backdrop.innerHTML = `
+    <div class="modal-box" style="max-width:780px;width:min(92vw,780px);">
+      <div class="modal-header">
+        <span id="piece_action_modal_title">Detalhes</span>
+        <button class="btn ghost modal-close" id="piece_action_modal_close" title="Fechar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="piece_action_modal_content"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  const title = backdrop.querySelector("#piece_action_modal_title");
+  const content = backdrop.querySelector("#piece_action_modal_content");
+  const close = () => { backdrop.style.display = "none"; };
+  backdrop.querySelector("#piece_action_modal_close")?.addEventListener("click", close);
+  backdrop.addEventListener("click", (ev) => {
+    if (ev.target === backdrop) close();
+  });
+  pieceActionModalRefs = { backdrop, title, content, close };
+  return pieceActionModalRefs;
+}
+
+function closePieceActionModal() {
+  ensurePieceActionModal().close();
+}
+
+async function openPieceConditionsModal(piece) {
+  const refs = ensurePieceActionModal();
+  const isMine = isPieceMine(piece);
+  const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
+  refs.title.textContent = `Condições • ${name}`;
+  refs.content.innerHTML = `<div class="inspector">${renderInspectorConditionsPanelHTML(piece, { isMine })}</div>`;
+  refs.backdrop.style.display = "";
+  await mountInspectorConditionsPanel(refs.content, piece, { isMine });
+}
+
+function getPieceMegaUiState(piece) {
+  const owner = safeStr(piece?.owner);
+  const pid = safeStr(piece?.pid);
+  const entry = isPieceMine(piece) ? _resolveSelfEffectiveSheet(pid, owner) : null;
+  const megaSheets = _getUniqueMegaSheets(entry?.megaSheets);
+  const baseSheet = entry?.baseSheet || entry?.effectiveSheet;
+  return {
+    owner,
+    pid,
+    entry,
+    megaSheets,
+    canMega: isPieceMine(piece) && (!!megaSheets.length || !!baseSheet?.mega_available),
+  };
+}
+
+function openPieceMegaModal(piece) {
+  const megaState = getPieceMegaUiState(piece);
+  if (!megaState.canMega) {
+    setStatus("warn", "essa peça não possui Mega Evolução disponível");
+    return;
+  }
+  const refs = ensurePieceActionModal();
+  refs.title.textContent = `Mega Evolução • ${displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine: true })}`;
+  refs.content.innerHTML = `<div class="inspector">${_renderMegaControlsHtml(megaState.owner, megaState.pid, megaState.entry, { title: "Mega Evolução" })}</div>`;
+  refs.backdrop.style.display = "";
+  _bindMegaControlButtons(refs.content);
+}
+
 function renderInspectorCard() {
   updateMovementTurnState();
   const wrap = document.createElement("div");
@@ -3484,6 +3739,7 @@ function renderSheetsInspectorCard(wrap) {
 function updateSidePanels() {
   const by = safeStr(appState.by);
   const pieces = Array.isArray(appState.pieces) ? appState.pieces : [];
+  syncArenaOverlayLayout();
 
   // Render pokébolas (Time / posicionamento)
   renderPartyWindow();
@@ -3570,6 +3826,7 @@ function updateSidePanels() {
       oppRoot.appendChild(ownerBox);
     }
   }
+  renderArenaHoverCard();
 }
 
 
@@ -4707,6 +4964,7 @@ function getReachableTileMap(piece) {
 function selectPiece(pieceId) {
   const id = safeStr(pieceId);
   appState.selectedPieceId = id || null;
+  appState.lastInteractedPieceId = id || null;
 
   if (selBadge) {
     const piece = (appState.pieces || []).find((item) => safeStr(item?.id) === id) || null;
@@ -4722,6 +4980,7 @@ function selectPiece(pieceId) {
     // Se o layout ainda não tem os painéis, não deve travar o restante
     try { console.warn("[pvp] updateSidePanels falhou:", e); } catch {}
   }
+  renderArenaHoverCard();
 }
 
 function sendMoveSelected(toRow, toCol) {
@@ -5167,6 +5426,44 @@ function openPieceContextMenu(piece, x, y) {
   if (!id) return;
   pieceMenuState.pieceId = id;
   selectPiece(id);
+  setArenaHoverPiece(id, { persist: true });
+
+  const isMine = isPieceMine(piece);
+  const revealed = (piece?.revealed != null) ? !!piece.revealed : true;
+  const ownerLabel = humanizeInternalLabel(safeStr(piece?.owner)) || safeStr(piece?.owner) || "—";
+  const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
+  const budget = getPieceMovementBudget(piece);
+  const movementText = `🧭 Deslocamento • ${budget.speed} SPD • ${budget.maxTiles % 1 ? "1/2" : budget.maxTiles} quad.`;
+  if (pieceContextSummary) {
+    pieceContextSummary.textContent = `${name} • ${ownerLabel}`;
+  }
+
+  const moveBtn = pieceContextMenu.querySelector('[data-menu-act="move"]');
+  const movementBtn = pieceContextMenu.querySelector('[data-menu-act="movement"]');
+  const megaBtn = pieceContextMenu.querySelector('[data-menu-act="mega"]');
+  const conditionsBtn = pieceContextMenu.querySelector('[data-menu-act="conditions"]');
+  const toggleBtn = pieceContextMenu.querySelector('[data-menu-act="toggle"]');
+  const removeBtn = pieceContextMenu.querySelector('[data-menu-act="remove"]');
+  if (moveBtn) moveBtn.disabled = !isMine;
+  if (movementBtn) {
+    movementBtn.disabled = true;
+    movementBtn.textContent = movementText;
+    movementBtn.title = movementText;
+  }
+  const megaState = getPieceMegaUiState(piece);
+  if (megaBtn) {
+    megaBtn.disabled = !megaState.canMega;
+    megaBtn.hidden = !megaState.canMega;
+    megaBtn.textContent = megaState.canMega && safeStr(megaState.entry?.activeMegaSlug)
+      ? "✨ Cancelar Mega Evolução"
+      : "✨ Mega Evoluir";
+  }
+  if (conditionsBtn) conditionsBtn.disabled = !isMine;
+  if (toggleBtn) {
+    toggleBtn.disabled = !isMine;
+    toggleBtn.textContent = revealed ? "👁️ Ocultar" : "👁️ Revelar";
+  }
+  if (removeBtn) removeBtn.disabled = !isMine;
 
   const wrapRect = canvasWrap.getBoundingClientRect();
   const localX = Math.max(0, Math.min(wrapRect.width - 8, x - wrapRect.left));
@@ -5248,6 +5545,37 @@ function hidePiecePickerMenu() {
   if (_pickerEl) _pickerEl.style.display = "none";
 }
 
+const arenaLongPress = {
+  timer: null,
+  startX: 0,
+  startY: 0,
+  suppressUntil: 0,
+};
+
+function clearArenaLongPress() {
+  if (arenaLongPress.timer) clearTimeout(arenaLongPress.timer);
+  arenaLongPress.timer = null;
+}
+
+function armArenaLongPress(piece, clientX, clientY) {
+  if (!piece) return;
+  clearArenaLongPress();
+  arenaLongPress.startX = clientX;
+  arenaLongPress.startY = clientY;
+  arenaLongPress.timer = window.setTimeout(() => {
+    arenaLongPress.timer = null;
+    arenaLongPress.suppressUntil = Date.now() + 280;
+    openPieceContextMenu(piece, clientX, clientY);
+  }, 430);
+}
+
+function cancelArenaLongPressIfMoved(clientX, clientY) {
+  if (!arenaLongPress.timer) return;
+  const dx = Math.abs(Number(clientX) - arenaLongPress.startX);
+  const dy = Math.abs(Number(clientY) - arenaLongPress.startY);
+  if (dx > 10 || dy > 10) clearArenaLongPress();
+}
+
 async function handlePieceMenuAction(action, pieceId) {
   const id = safeStr(pieceId);
   if (!id) return;
@@ -5257,8 +5585,24 @@ async function handlePieceMenuAction(action, pieceId) {
     return;
   }
   const mine = isPieceMine(piece);
-  if (!mine && (action === "toggle" || action === "remove" || action === "hp-down")) {
+  if (!mine && (action === "move" || action === "mega" || action === "conditions" || action === "toggle" || action === "remove")) {
     setStatus("err", "você só pode usar ações do menu em peças suas");
+    return;
+  }
+  if (action === "move") {
+    selectPiece(id);
+    setStatus("ok", "Mover: clique no tile de destino na arena");
+    return;
+  }
+  if (action === "movement") {
+    return;
+  }
+  if (action === "mega") {
+    openPieceMegaModal(piece);
+    return;
+  }
+  if (action === "conditions") {
+    await openPieceConditionsModal(piece);
     return;
   }
   if (action === "toggle") {
@@ -5268,18 +5612,6 @@ async function handlePieceMenuAction(action, pieceId) {
   if (action === "remove") {
     await removePieceFromBoard(id);
     return;
-  }
-  if (action === "hp-down") {
-    const owner = safeStr(piece?.owner);
-    const pid = safeStr(piece?.pid);
-    if (!owner || !pid) {
-      setStatus("warn", "não foi possível reduzir o HP desse pokémon");
-      return;
-    }
-    const ps = ((_partyStates && _partyStates[owner]) ? _partyStates[owner] : {})[pid] || {};
-    const currentHp = Number.isFinite(Number(ps?.hp)) ? Number(ps.hp) : 6;
-    await updatePartyStateHp(owner, pid, Math.max(0, currentHp - 1));
-    setStatus("ok", `${displayNameFromPid(pid, { owner })}: HP reduzido para ${Math.max(0, currentHp - 1)}`);
   }
 }
 
@@ -5305,11 +5637,22 @@ document.addEventListener("click", (ev) => {
   if (ev.target?.closest?.("#piece_context_menu")) return;
   hidePieceContextMenu();
 });
+document.addEventListener("click", (ev) => {
+  if (appState.leftOverlayOpen && !ev.target?.closest?.("#arena_left_shell")) {
+    setArenaLeftOverlayOpen(false);
+  }
+  if (appState.toolsMenuOpen && !ev.target?.closest?.("#arena_tools_shell")) {
+    setArenaToolsMenuOpen(false);
+  }
+});
 document.addEventListener("keydown", (ev) => {
   if (ev.key !== "Escape") return;
   // 1) fecha menus
   hidePieceContextMenu();
   hidePiecePickerMenu();
+  setArenaLeftOverlayOpen(false);
+  setArenaToolsMenuOpen(false);
+  if (pieceActionModalRefs) pieceActionModalRefs.close();
 
   // 2) cancela movimento por clique/arrasto
   if (appState.drag.active || appState.selectedPieceId) {
@@ -5333,6 +5676,20 @@ document.addEventListener("keydown", (ev) => {
 function bindArenaInteractionsCanvas() {
   if (!useCanvas) return;
 
+  canvas.addEventListener("pointerdown", (ev) => {
+    if (supportsHoverTabs() || ev.pointerType !== "touch") return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    const piece = getCanvasPieceHitAtPoint(x, y, { mineOnly: true });
+    armArenaLongPress(piece, ev.clientX, ev.clientY);
+  });
+  canvas.addEventListener("pointermove", (ev) => {
+    cancelArenaLongPressIfMoved(ev.clientX, ev.clientY);
+  });
+  canvas.addEventListener("pointerup", clearArenaLongPress);
+  canvas.addEventListener("pointercancel", clearArenaLongPress);
+
   canvas.addEventListener("mousemove", (ev) => {
     const rect = canvas.getBoundingClientRect();
     const x = ev.clientX - rect.left;
@@ -5345,6 +5702,7 @@ function bindArenaInteractionsCanvas() {
       appState.hover = { row: null, col: null };
       hoverBadge.textContent = `tile: —`;
     }
+    setArenaHoverPiece(tile ? getCanvasPieceHitAtPoint(x, y) : null);
     if (appState.drag.active) {
       appState.drag.x = x;
       appState.drag.y = y;
@@ -5354,6 +5712,7 @@ function bindArenaInteractionsCanvas() {
   canvas.addEventListener("mouseleave", () => {
     appState.hover = { row: null, col: null };
     hoverBadge.textContent = `tile: —`;
+    setArenaHoverPiece(null);
   });
 
   canvas.addEventListener("mousedown", (ev) => {
@@ -5392,6 +5751,10 @@ function bindArenaInteractionsCanvas() {
   });
 
   canvas.addEventListener("click", (ev) => {
+    if (Date.now() < arenaLongPress.suppressUntil) {
+      arenaLongPress.suppressUntil = 0;
+      return;
+    }
     hidePieceContextMenu();
     hidePiecePickerMenu();
     // Se acabou de soltar um drag, ignore o click que vem logo depois
@@ -5458,6 +5821,16 @@ function bindArenaInteractionsCanvas() {
 function bindArenaInteractionsDom() {
   if (!arenaDom) return;
 
+  arenaDom.addEventListener("pointerdown", (ev) => {
+    if (supportsHoverTabs() || ev.pointerType !== "touch") return;
+    armArenaLongPress(getDomClickedPiece(ev, { mineOnly: true }), ev.clientX, ev.clientY);
+  });
+  arenaDom.addEventListener("pointermove", (ev) => {
+    cancelArenaLongPressIfMoved(ev.clientX, ev.clientY);
+  });
+  arenaDom.addEventListener("pointerup", clearArenaLongPress);
+  arenaDom.addEventListener("pointercancel", clearArenaLongPress);
+
   // Delegação de eventos nas células
   arenaDom.addEventListener("mousemove", (ev) => {
     const cell = ev.target?.closest?.(".cell");
@@ -5467,15 +5840,21 @@ function bindArenaInteractionsDom() {
     appState.hover = { row, col };
     hoverBadge.textContent = `tile: (${row}, ${col})`;
     updateArenaDomHover();
+    setArenaHoverPiece(getDomClickedPiece(ev));
   });
 
   arenaDom.addEventListener("mouseleave", () => {
     appState.hover = { row: null, col: null };
     hoverBadge.textContent = `tile: —`;
     updateArenaDomHover();
+    setArenaHoverPiece(null);
   });
 
   arenaDom.addEventListener("click", (ev) => {
+    if (Date.now() < arenaLongPress.suppressUntil) {
+      arenaLongPress.suppressUntil = 0;
+      return;
+    }
     hidePieceContextMenu();
     hidePiecePickerMenu();
     const cell = ev.target?.closest?.(".cell");
@@ -8028,6 +8407,7 @@ function _sheetMoveNotesHtml(mv) {
 })();
 
 // Initial UI
+syncArenaOverlayLayout();
 setTab("arena");
 updateArenaMeta();
 updateFieldConditionsUI();

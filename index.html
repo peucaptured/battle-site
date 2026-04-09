@@ -222,9 +222,12 @@
        ═══════════════════════════════════════════════════════ */
     .hero-header{
       position:fixed; top:0; left:0; right:0;
-      height:64px;
-      display:flex; align-items:center; justify-content:space-between;
-      padding: 0 20px;
+      min-height:72px;
+      display:grid;
+      grid-template-columns:auto minmax(0,1fr) auto;
+      align-items:center;
+      gap:16px;
+      padding: 10px 20px;
       background: linear-gradient(180deg, rgba(9,14,29,.92), rgba(9,14,29,.68));
       border-bottom: 1px solid rgba(120,210,255,.12);
       backdrop-filter: blur(20px);
@@ -233,6 +236,12 @@
     }
     .hero-left{
       display:flex; align-items:center; gap:12px;
+    }
+    .hero-center{
+      min-width:0;
+      display:flex;
+      justify-content:center;
+      align-items:center;
     }
     .hero-icon{
       font-size:24px;
@@ -250,6 +259,14 @@
     }
     .hero-right{
       display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end;
+    }
+    .hero-tabs{
+      width:min(100%, 560px);
+      justify-content:center;
+      margin:0;
+      padding:5px;
+      border-radius:999px;
+      background:rgba(7,12,26,.65);
     }
     .hero-right .pill{ font-size:11px; padding:5px 9px; }
     .hero-right .btn{ padding:7px 11px; border-radius:999px; font-size:12px; }
@@ -270,6 +287,10 @@
     @keyframes heroRollGlow{
       0%,100%{ box-shadow: 0 0 12px rgba(56,189,248,.15), 0 8px 20px rgba(0,0,0,.3); }
       50%{ box-shadow: 0 0 22px rgba(56,189,248,.3), 0 8px 20px rgba(0,0,0,.3); }
+    }
+    .hero-spacer{
+      height:76px;
+      flex:0 0 auto;
     }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -330,10 +351,6 @@
     /* ═══════════════════════════════════════════════════════
        TABS (pill-style)
        ═══════════════════════════════════════════════════════ */
-    .hud-tabs{
-      margin-top: 72px; /* below fixed hero */
-      padding: 8px 20px;
-    }
     .tabs{
       display:flex;
       gap: 6px;
@@ -377,58 +394,23 @@
        HUD BODY — 3-column grid
        ═══════════════════════════════════════════════════════ */
     .hud-body{
-      /* Grid columns (default) — use clamp for responsive without overflow */
-      --hud-left-col: clamp(200px, 18vw, 280px);
-      --hud-right-col: clamp(220px, 22vw, 320px);
-      --hud-right-col-wide: clamp(340px, 35vw, 680px);
-
-      display:grid;
-      grid-template-columns: var(--hud-left-col) minmax(0, 1fr) var(--hud-right-col);
-      gap: 12px;
-      padding: 8px 20px 16px;
-      max-width: 100vw;
+      display:block;
+      padding: 12px 20px 20px;
+      width:100%;
+      max-width:1680px;
       margin: 0 auto;
-      height: var(--hud-viewport-height); /* measured by main.js */
-      max-height: var(--hud-viewport-height);
-      min-height: 0;
-      overflow: hidden;
     }
 
-    /* When a ficha estiver aberta no Inspector, a coluna direita expande */
-    body.sheet-inspector-mode .hud-body{
-      grid-template-columns: var(--hud-left-col) minmax(0, 1fr) var(--hud-right-col-wide);
-    }
-
-    /* Left sidebar: Fichas */
-    .sidebar-left{
-      display:flex; flex-direction:column; gap:0;
-      min-height:0; min-width:0; max-height:100%; overflow:hidden;
-    }
-    .sidebar-left .panel{
-      flex:1; min-height:0; min-width:0; display:flex; flex-direction:column;
-    }
-    .sidebar-left .panel-inner{
-      flex:1; overflow-y:auto; overflow-x:hidden;
-    }
-
-    /* Center: main content */
     .hud-center{
-      min-width:0; min-height:0;
-      display:flex; flex-direction:column;
-      max-height:100%;
-      overflow:hidden;
+      min-width:0;
+      min-height:0;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
     }
-
-    /* Right sidebar: Inspector */
+    .sidebar-left,
     .sidebar-right{
-      display:flex; flex-direction:column; gap:12px;
-      min-height:0; min-width:0; max-height:100%; overflow:hidden;
-    }
-    .sidebar-right .panel{
-      flex:1; min-height:0; min-width:0; display:flex; flex-direction:column;
-    }
-    .sidebar-right .panel-inner{
-      flex:1; overflow-y:auto; overflow-x:hidden;
+      display:none !important;
     }
 
     /* Prevent truncation in long ficha/combat texts in Inspector */
@@ -448,36 +430,139 @@
       border:none;
       box-shadow:none;
       min-height:0;
-      overflow:hidden;
+      overflow:visible;
       display:flex;
       flex-direction:column;
       flex:1;
     }
     .arena-head{
-      padding:10px 12px;
+      padding:12px 14px;
       border-radius:var(--radius);
       background: var(--glass2);
       border: 1px solid rgba(120,210,255,.14);
       box-shadow: var(--inner);
       margin-bottom:10px;
-      display:flex;align-items:center;justify-content:space-between;gap:10px;
+      display:flex;align-items:center;justify-content:flex-start;gap:10px;
     }
     .arena-head .left{display:flex;align-items:center;gap:10px;min-width:0}
     .arena-head .left .name{font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .arena-head .left .meta{font-size:12px;color:var(--muted)}
-    .stage-controls{ display:flex; align-items:center; gap:8px; justify-content:flex-end; }
-    .stage-controls .btn{ height:34px; }
-    .stage-zoom{ display:flex; gap:6px; padding-left:4px; padding-right:4px; }
+    .stage-controls{display:none !important;}
+    .arena-wrap{
+      position:relative;
+      min-height:640px;
+      height:min(76vh, 960px);
+      border-radius:24px;
+      overflow:hidden;
+      border:1px solid rgba(120,210,255,.14);
+      background:
+        radial-gradient(1200px 460px at 15% 100%, rgba(6,182,212,.12), transparent 58%),
+        linear-gradient(180deg, rgba(8,15,32,.92), rgba(4,12,24,.94));
+      box-shadow: var(--shadow), var(--inner);
+    }
+    .arena-left-shell,
+    .arena-tools-shell{
+      position:absolute;
+      z-index:20;
+    }
+    .arena-left-shell{
+      top:18px;
+      left:18px;
+    }
+    .arena-tools-shell{
+      top:18px;
+      right:18px;
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      gap:10px;
+    }
+    .arena-edge-toggle,
+    .arena-tools-trigger{
+      min-height:40px;
+      padding:8px 14px;
+      border-radius:999px;
+      border:1px solid rgba(120,210,255,.22);
+      background:rgba(5,12,28,.78);
+      color:var(--text);
+      font-size:12px;
+      font-weight:900;
+      letter-spacing:.03em;
+      cursor:pointer;
+      box-shadow:0 14px 32px rgba(2,6,23,.32);
+      backdrop-filter:blur(14px);
+      -webkit-backdrop-filter:blur(14px);
+    }
+    .arena-edge-toggle{
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .arena-edge-toggle .icon,
+    .arena-tools-trigger .icon{
+      font-size:13px;
+    }
+    .arena-left-drawer{
+      position:absolute;
+      top:58px;
+      left:0;
+      width:min(320px, calc(100vw - 48px));
+      max-height:min(78vh, 820px);
+      transform:translateX(-18px);
+      opacity:0;
+      pointer-events:none;
+      transition:transform .22s ease, opacity .22s ease;
+    }
+    .arena-left-shell.is-open .arena-left-drawer{
+      transform:translateX(0);
+      opacity:1;
+      pointer-events:auto;
+    }
+    .arena-left-drawer .panel-inner{
+      max-height:min(78vh, 820px);
+      overflow:auto;
+    }
+    .arena-tools-menu{
+      width:min(420px, calc(100vw - 52px));
+      padding:14px;
+      border-radius:20px;
+      background:rgba(7,12,26,.88);
+      border:1px solid rgba(120,210,255,.16);
+      box-shadow:0 18px 42px rgba(2,6,23,.46);
+      backdrop-filter:blur(18px);
+      -webkit-backdrop-filter:blur(18px);
+      display:none;
+    }
+    .arena-tools-shell.is-open .arena-tools-menu{
+      display:block;
+    }
+    .arena-tools-label{
+      font-size:11px;
+      font-weight:900;
+      letter-spacing:.12em;
+      text-transform:uppercase;
+      color:rgba(148,163,184,.72);
+      margin-bottom:10px;
+    }
+    .arena-tools-menu #draw-toolbar,
+    .arena-tools-menu .field-conditions,
+    .arena-tools-menu .fc-zone-panel{
+      margin:0;
+      width:100%;
+    }
+    .arena-tools-menu #draw-toolbar + .field-conditions,
+    .arena-tools-menu .field-conditions + .fc-zone-panel{
+      margin-top:10px;
+    }
 
     /* Field Conditions bar */
     .field-conditions{
       display:flex; align-items:center; gap:8px; flex-wrap:wrap;
-      padding:6px 10px;
-      margin-bottom:8px;
-      background: var(--glass2);
+      padding:10px 12px;
+      background: rgba(255,255,255,.03);
       border: 1px solid rgba(120,210,255,.14);
-      border-radius: var(--radius);
-      box-shadow: var(--inner);
+      border-radius: 16px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
     }
     .field-conditions.fc-hidden{ display:none; }
     .fc-group{ display:flex; align-items:center; gap:4px; }
@@ -514,12 +599,11 @@
     /* Zone panel */
     .fc-zone-panel{
       display:flex; align-items:center; flex-wrap:wrap; gap:8px;
-      padding:6px 10px;
-      margin-bottom:8px;
-      background: var(--glass2);
+      padding:10px 12px;
+      background: rgba(255,255,255,.03);
       border:1px solid rgba(120,210,255,.18);
-      border-radius: var(--radius);
-      box-shadow: var(--inner);
+      border-radius: 16px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
       animation: fadeIn .15s ease;
     }
     .fzp-left{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -546,6 +630,106 @@
       background:none; border:none; color:#93c5fd; cursor:pointer; font-size:12px; padding:0 0 0 2px; line-height:1;
     }
     .fzp-zone-chip button:hover{ color:#f87171; }
+    .arena-hover-card{
+      position:absolute;
+      top:18px;
+      right:18px;
+      width:min(320px, calc(100vw - 52px));
+      max-height:min(78vh, 820px);
+      padding:16px;
+      border-radius:22px;
+      border:1px solid rgba(120,210,255,.18);
+      background:rgba(8,15,32,.78);
+      box-shadow:0 18px 42px rgba(2,6,23,.46);
+      backdrop-filter:blur(18px);
+      -webkit-backdrop-filter:blur(18px);
+      opacity:0;
+      transform:translateY(-8px);
+      pointer-events:none;
+      transition:opacity .16s ease, transform .16s ease;
+      overflow:auto;
+      z-index:18;
+    }
+    .arena-hover-card.visible{
+      opacity:1;
+      transform:translateY(0);
+      pointer-events:none;
+    }
+    .arena-hover-head{
+      display:flex;
+      align-items:flex-start;
+      gap:12px;
+      margin-bottom:12px;
+    }
+    .arena-hover-media{
+      width:72px;
+      height:72px;
+      flex:0 0 72px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      border-radius:18px;
+      background:radial-gradient(240px 140px at 50% 0%, rgba(56,189,248,.18), transparent 70%), rgba(255,255,255,.03);
+      border:1px solid rgba(255,255,255,.06);
+    }
+    .arena-hover-media img{
+      width:58px;
+      height:58px;
+      object-fit:contain;
+      filter:drop-shadow(0 10px 18px rgba(0,0,0,.36));
+    }
+    .arena-hover-title{
+      font-size:1rem;
+      font-weight:950;
+      line-height:1.1;
+    }
+    .arena-hover-sub{
+      font-size:.77rem;
+      color:rgba(148,163,184,.86);
+      margin-top:3px;
+    }
+    .arena-hover-empty{
+      font-size:.82rem;
+      color:rgba(148,163,184,.9);
+      line-height:1.45;
+    }
+    .arena-hover-card .chip-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:5px;
+      margin-top:8px;
+    }
+    .arena-hover-card .section-title{
+      font-size:.72rem;
+      font-weight:900;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:rgba(148,163,184,.76);
+      margin:12px 0 6px;
+    }
+    .arena-hover-card .type-pill,
+    .arena-hover-card .chip{
+      padding:3px 9px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.04);
+      font-size:.7rem;
+      font-weight:800;
+    }
+    .arena-hover-motion{
+      margin-top:10px;
+      padding:10px 12px;
+      border-radius:14px;
+      background:rgba(255,255,255,.03);
+      border:1px solid rgba(255,255,255,.06);
+      font-size:.8rem;
+      color:rgba(226,232,240,.92);
+    }
+    .arena-hover-card .sheet-divider{
+      height:1px;
+      background:rgba(255,255,255,.08);
+      margin:12px 0;
+    }
     /* Drawing cursor */
     .arena-drawing-mode #arena,
     .arena-drawing-mode #arena_dom,
@@ -626,13 +810,6 @@
     .trap-modal-item .tmi-pos{ font-size:11px; color:var(--muted); margin-left:auto; }
     .modal-footer{ display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
 
-    .arena-wrap{
-      position:relative;flex:1;min-height:400px;
-      background:rgba(2,6,23,.35);
-      border-radius: var(--radius);
-      border: 1px solid rgba(120,210,255,.18);
-      box-shadow: var(--shadow), inset 0 0 0 1px rgba(255,255,255,.04);
-    }
 canvas#arena{position:absolute;inset:0;width:100%;height:100%;display:block;border-radius:var(--radius)}
 canvas#zone_canvas,
 canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display:block;border-radius:var(--radius)}
@@ -777,21 +954,22 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
     }
     .floating-status{
       position:absolute;right:10px;top:10px;
-      display:flex;flex-direction:column;gap:8px;
+      display:none;
+      flex-direction:column;gap:8px;
       align-items:flex-end;
     }
     .piece-context-menu{
       position:absolute;
-      z-index:15;
-      min-width:170px;
+      z-index:24;
+      min-width:220px;
       display:none;
       flex-direction:column;
       gap:6px;
-      padding:8px;
-      border-radius:12px;
-      border:1px solid rgba(148,163,184,.45);
-      background:rgba(2,6,23,.94);
-      box-shadow:0 14px 35px rgba(2,6,23,.45);
+      padding:10px;
+      border-radius:16px;
+      border:1px solid rgba(148,163,184,.35);
+      background:rgba(2,6,23,.96);
+      box-shadow:0 18px 42px rgba(2,6,23,.55);
     }
     .piece-context-menu button{
       width:100%;
@@ -805,6 +983,37 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
       cursor:pointer;
     }
     .piece-context-menu button:hover{background:rgba(56,189,248,.15);border-color:rgba(56,189,248,.45)}
+    .piece-context-menu button[disabled]{
+      opacity:.62;
+      cursor:default;
+      background:rgba(255,255,255,.025);
+      border-color:rgba(148,163,184,.14);
+    }
+    .piece-context-menu .menu-caption{
+      font-size:11px;
+      font-weight:900;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:rgba(148,163,184,.7);
+      margin:0 2px 4px;
+    }
+    .piece-context-menu .menu-summary{
+      padding:8px 10px;
+      border-radius:12px;
+      background:rgba(255,255,255,.03);
+      border:1px solid rgba(255,255,255,.06);
+      font-size:12px;
+      color:rgba(226,232,240,.86);
+      line-height:1.4;
+    }
+    .piece-context-menu .menu-divider{
+      height:1px;
+      background:rgba(255,255,255,.08);
+      margin:2px 0;
+    }
+    .inspector-root-compat{
+      display:none !important;
+    }
 
     /* ═══════════════════════════════════════════════════════
        INSPECTOR (right sidebar)
@@ -1583,19 +1792,20 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
        ═══════════════════════════════════════════════════════ */
     @media (max-width: 1200px) {
       .hud-body{
-        --hud-left-col: clamp(180px, 18vw, 240px);
-        --hud-right-col: clamp(200px, 20vw, 280px);
-        --hud-right-col-wide: clamp(320px, 32vw, 560px);
         padding: 8px 12px 14px;
+      }
+      .hero-header{
+        grid-template-columns:auto minmax(0,1fr);
+      }
+      .hero-center{
+        order:3;
+        grid-column:1 / -1;
+      }
+      .hero-tabs{
+        width:100%;
       }
     }
     @media (max-width: 1024px) {
-      .hud-body{
-        grid-template-columns: 1fr;
-        grid-template-rows: auto;
-        height: auto;
-        overflow-y: auto;
-      }
       body{ overflow: auto; }
       .sidebar-left,
       .sidebar-right{
@@ -1607,6 +1817,7 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
       }
       .arena-wrap{
         min-height: 500px;
+        height:min(70vh, 820px);
       }
       .hero-right{
         gap:6px;
@@ -1614,15 +1825,16 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
       .hero-right .pill:not(:first-child){
         display:none;
       }
+      .arena-hover-card{
+        width:min(290px, calc(100vw - 48px));
+      }
     }
     @media (max-width: 700px) {
       :root { --hud-viewport-height: auto; }
       body { overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
       .hero-header{
-        height: auto;
         min-height: 52px;
         padding: 8px 12px;
-        flex-wrap: wrap;
         gap: 6px;
         position: sticky;
         top: 0;
@@ -1644,55 +1856,40 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
       /* Compact turn badge */
       .turn-pill { max-width: 180px; font-size: 10px; }
 
-      .hud-tabs{
-        margin-top: 0;
-        padding: 5px 8px;
-        position: sticky;
-        top: 0;
-        z-index: 90;
-        background: linear-gradient(180deg, rgba(9,14,29,.97), rgba(9,14,29,.85));
-        backdrop-filter: blur(16px);
-        border-bottom: 1px solid rgba(120,210,255,.10);
-      }
       .tabs{ gap:3px; padding:3px 4px; overflow-x: auto; flex-wrap: nowrap; }
       .tab{ padding:6px 9px; font-size:10px; white-space: nowrap; }
 
       .hud-body{
-        grid-template-columns: 1fr;
-        height: auto;
-        max-height: none;
-        overflow: visible;
         padding: 6px 8px 80px;
-        gap: 8px;
-      }
-
-      /* On mobile, collapse sidebars into toggleable sections */
-      .sidebar-left, .sidebar-right {
-        max-height: none;
-        overflow: visible;
-      }
-      .sidebar-left .panel,
-      .sidebar-right .panel {
-        max-height: 300px;
-      }
-      .sidebar-left .panel-inner,
-      .sidebar-right .panel-inner {
-        max-height: 280px;
-        overflow-y: auto;
       }
 
       /* Arena: use full width, touch-friendly height */
       .arena-card { min-height: 0; }
       .arena-wrap {
-        min-height: 55vw;
-        height: 55vw;
-        max-height: 420px;
+        min-height: 62vw;
+        height: 62vw;
+        max-height: 540px;
         touch-action: none;
       }
-      /* Arena controls: smaller and scrollable */
+      .arena-left-shell{
+        top:12px;
+        left:12px;
+      }
+      .arena-tools-shell{
+        top:12px;
+        right:12px;
+      }
+      .arena-left-drawer,
+      .arena-hover-card,
+      .arena-tools-menu{
+        width:min(100%, calc(100vw - 24px));
+      }
+      .arena-hover-card{
+        top:auto;
+        bottom:12px;
+        max-height:42vh;
+      }
       .arena-head { padding: 6px 8px; flex-wrap: wrap; gap: 6px; }
-      .stage-controls { gap: 4px; flex-wrap: wrap; }
-      .stage-controls .btn { padding: 5px 8px; font-size: 11px; }
       .field-conditions { overflow-x: auto; gap: 4px; padding: 4px 6px; }
       .fc-group { gap: 3px; }
       .fc-btn { font-size: 16px; padding: 3px 5px; min-width: 30px; }
@@ -1712,6 +1909,11 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
       .hero-right .btn:not(#top_roll_btn):not(#pass_turn_btn) { display: none; }
       .turn-pill { max-width: 130px; }
       .tab { padding: 5px 7px; font-size: 9px; }
+      .arena-edge-toggle,
+      .arena-tools-trigger{
+        padding:7px 10px;
+        font-size:11px;
+      }
     }
 
     /* ── Compat: legacy .app hidden, .side-panel hidden ── */
@@ -1764,6 +1966,15 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
         <div class="hero-sub">Arena sincronizada em tempo real</div>
       </div>
     </div>
+    <div class="hero-center">
+      <div class="tabs hero-tabs" role="tablist" aria-label="Abas">
+        <div class="tab active" data-tab="arena" role="tab" aria-selected="true">Arena</div>
+        <div class="tab" data-tab="sheets" role="tab" aria-selected="false">Fichas</div>
+        <div class="tab" data-tab="combat" role="tab" aria-selected="false">Combate</div>
+        <div class="tab" data-tab="initiative" role="tab" aria-selected="false">Iniciativa</div>
+        <div class="tab" data-tab="log" role="tab" aria-selected="false">Log</div>
+      </div>
+    </div>
     <div class="hero-right">
       <div class="pill">🧩 Sala <span id="rid_badge" style="font-weight:950">—</span></div>
       <div class="pill">📡 <span id="sync_badge" style="font-weight:950">—</span></div>
@@ -1774,6 +1985,7 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
       <button class="btn ghost" id="disconnect" title="Sair / Desconectar">⎋ Sair</button>
     </div>
   </header>
+  <div class="hero-spacer" aria-hidden="true"></div>
 
   <!-- Hidden compat badges (used by main.js) -->
   <span id="phase_badge" style="display:none">—</span>
@@ -1789,15 +2001,6 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
   <!-- ═══════════════════════════════════════════════════════
        TABS (pill navigation)
        ═══════════════════════════════════════════════════════ -->
-  <div class="hud-tabs">
-    <div class="tabs" role="tablist" aria-label="Abas">
-      <div class="tab active" data-tab="arena" role="tab" aria-selected="true">Arena</div>
-      <div class="tab" data-tab="combat" role="tab" aria-selected="false">Combate</div>
-      <div class="tab" data-tab="initiative" role="tab" aria-selected="false">Iniciativa</div>
-      <div class="tab" data-tab="sheets" role="tab" aria-selected="false">Fichas</div>
-      <div class="tab" data-tab="log" role="tab" aria-selected="false">Log</div>
-    </div>
-  </div>
 
 
 
@@ -1933,12 +2136,31 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
         </div>
 
         <div class="arena-wrap" id="arena_wrap">
+          <div class="arena-left-shell" id="arena_left_shell">
+            <button type="button" class="arena-edge-toggle" id="arena_left_toggle" aria-expanded="false" aria-controls="arena_left_drawer">
+              <span class="icon">EQ</span>
+              <span>Equipe</span>
+            </button>
+            <div class="arena-left-drawer" id="arena_left_drawer" aria-hidden="true"></div>
+          </div>
+          <div class="arena-tools-shell" id="arena_tools_shell">
+            <button type="button" class="arena-tools-trigger" id="arena_tools_toggle" aria-expanded="false" aria-controls="arena_tools_menu">
+              <span class="icon">FX</span>
+              <span>Ferramentas</span>
+            </button>
+            <div class="arena-tools-menu" id="arena_tools_menu" aria-hidden="true">
+              <div class="arena-tools-label">Clima, desenho e zonas</div>
+            </div>
+          </div>
           <canvas id="arena" width="1200" height="800"></canvas>
           <!-- Zone overlay canvas: efeitos zonais animados, pointer-events:none -->
           <canvas id="zone_canvas" width="1200" height="800" style="position:absolute;top:0;left:0;pointer-events:none;z-index:2"></canvas>
           <!-- Drawing overlay canvas: preview de retângulo ao arrastar -->
           <canvas id="zone_draw_canvas" width="1200" height="800" style="position:absolute;top:0;left:0;pointer-events:none;z-index:3"></canvas>
           <div id="arena_dom" class="arena-dom" style="display:none"></div>
+          <aside class="arena-hover-card" id="arena_hover_card" aria-hidden="true">
+            <div id="arena_hover_card_body" class="arena-hover-empty">Passe o mouse sobre um pokÃ©mon visÃ­vel para ver tipos, vantagens e deslocamento.</div>
+          </aside>
           <div class="floating-status">
             <div class="pill mono" id="sel_badge">seleção: —</div>
             <div class="pill mono" id="hover_badge">tile: —</div>
@@ -1949,9 +2171,15 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
             <div class="hint">As acoes da arena sao sincronizadas automaticamente com todos na sala.</div>
           </div>
           <div id="piece_context_menu" class="piece-context-menu" role="menu" aria-label="Ações do pokémon">
+            <div class="menu-caption">Peça selecionada</div>
+            <div class="menu-summary" id="piece_context_summary">Ações da peça.</div>
+            <div class="menu-divider"></div>
+            <button type="button" data-menu-act="move">🚶 Mover</button>
+            <button type="button" data-menu-act="movement" disabled>🧭 Deslocamento</button>
+            <button type="button" data-menu-act="mega">✨ Mega Evoluir</button>
+            <button type="button" data-menu-act="conditions">🧷 Condições</button>
             <button type="button" data-menu-act="toggle">👁️ Ocultar / revelar</button>
             <button type="button" data-menu-act="remove">❌ Retirar da arena</button>
-            <button type="button" data-menu-act="hp-down">💔 Reduzir 1 HP</button>
           </div>
         </div>
       </section>
