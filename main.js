@@ -9607,8 +9607,8 @@ function _injectSheetsStyleOnce() {
     }
     #tab_sheets .fichas-layout{
       display:grid;
-      grid-template-columns:minmax(0,1fr) clamp(460px, 34vw, 560px);
-      gap:16px;
+      grid-template-columns:minmax(0,1fr) clamp(560px, 46vw, 820px);
+      gap:18px;
       align-items:stretch;
       min-height:0;
     }
@@ -9645,7 +9645,7 @@ function _injectSheetsStyleOnce() {
     #tab_sheets .sheets-column-detail{
       position:sticky;
       top:16px;
-      max-height:min(calc(var(--hud-viewport-height, 780px) - 24px), 760px);
+      max-height:calc(100vh - 120px);
       overflow:hidden;
     }
     #tab_sheets .sheets-column-detail .sheets-column-head{
@@ -9665,7 +9665,7 @@ function _injectSheetsStyleOnce() {
     #tab_sheets .cards-grid{
       grid-template-columns:repeat(auto-fill,minmax(170px,1fr));
       align-content:start;
-      max-height:min(calc(var(--hud-viewport-height, 780px) - 24px), 760px);
+      max-height:calc(100vh - 120px);
       overflow:auto;
       padding-right:6px;
     }
@@ -9694,7 +9694,7 @@ function _injectSheetsStyleOnce() {
       background:#223355;
       border:1px solid rgba(255,255,255,.14);
       border-radius:24px;
-      padding:18px;
+      padding:22px 24px;
       box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
     }
     #tab_sheets #sheetDetail .inspector-head{
@@ -9709,78 +9709,79 @@ function _injectSheetsStyleOnce() {
       opacity:.78;
     }
     #tab_sheets #sheetDetail .ficha-v2 .sheet-art{
-      width:112px;
-      height:112px;
+      width:140px;
+      height:140px;
       padding:4px;
     }
     #tab_sheets #sheetDetail .ficha-v2 .sheet-name{
-      font-size:34px;
+      font-size:42px;
       line-height:1;
     }
     #tab_sheets #sheetDetail .ficha-v2 .sheet-sub{
-      font-size:22px;
+      font-size:26px;
     }
     #tab_sheets #sheetDetail .ficha-v2 .type-pill,
     #tab_sheets #sheetDetail .ficha-v2 .chip{
-      font-size:14px;
-      padding:4px 10px;
+      font-size:15px;
+      padding:5px 12px;
       border-width:1px;
     }
     #tab_sheets #sheetDetail .ficha-v2 .hp-row{
-      font-size:18px;
-      margin:8px 0 5px;
+      font-size:22px;
+      margin:10px 0 6px;
     }
     #tab_sheets #sheetDetail .ficha-v2 .hp-track{
-      height:10px;
+      height:12px;
     }
     #tab_sheets #sheetDetail .ficha-v2 .stat-grid{
-      gap:8px;
-      margin:12px 0;
+      gap:10px;
+      margin:14px 0;
     }
     #tab_sheets #sheetDetail .ficha-v2 .stat-box{
-      padding:8px 6px;
-      border-radius:12px;
+      padding:12px 6px;
+      border-radius:14px;
     }
     #tab_sheets #sheetDetail .ficha-v2 .stat-label{
-      font-size:12px;
+      font-size:13px;
     }
     #tab_sheets #sheetDetail .ficha-v2 .stat-val{
-      font-size:24px;
+      font-size:30px;
     }
     #tab_sheets #sheetDetail .ficha-v2 .section-title{
-      font-size:18px;
-      margin:12px 0 8px;
+      font-size:20px;
+      margin:14px 0 10px;
     }
     #tab_sheets #sheetDetail .ficha-v2 .move-expander{
-      margin-bottom:8px;
-      border-radius:12px;
+      margin-bottom:10px;
+      border-radius:14px;
     }
     #tab_sheets #sheetDetail .ficha-v2 .move-header{
-      padding:10px 12px;
-      gap:6px;
+      padding:12px 14px;
+      gap:8px;
     }
     #tab_sheets #sheetDetail .ficha-v2 .move-h-name{
-      font-size:20px;
+      font-size:22px;
     }
     #tab_sheets #sheetDetail .ficha-v2 .mv-pill,
     #tab_sheets #sheetDetail .ficha-v2 .mv-type-pill{
-      font-size:12px;
-      padding:2px 8px;
+      font-size:13px;
+      padding:3px 10px;
       border-width:1px;
     }
     #tab_sheets #sheetDetail .ficha-v2 .move-notes-box{
-      font-size:.8rem;
+      font-size:.86rem;
     }
     #tab_sheets #sheetDetail .stat-boost-grid{
       grid-template-columns:repeat(4,1fr);
+      gap:6px;
     }
     #tab_sheets #sheetDetail .stat-boost-row{
-      padding:3px 5px;
+      padding:5px 8px;
     }
     #tab_sheets #sheetDetail .stat-boost-name,
     #tab_sheets #sheetDetail .stat-boost-title,
     #tab_sheets #sheetDetail .stat-boost-val{
-      font-size:11px;
+      font-size:12px;
     }
     .ins-conds{
       display:flex;
