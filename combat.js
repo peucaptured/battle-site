@@ -1585,10 +1585,12 @@ export class CombatUI {
         const stabBonus = isStab ? 2 : 0;
         const damage = rank + statVal + typeBonus + stabBonus;
         const acc = safeInt(mv.accuracy);
+        const moveModeInfo = (typeof window.getMoveModeInfo === "function") ? (window.getMoveModeInfo(mv) || null) : null;
+        const modeLabel = safeStr(moveModeInfo?.label || `Acerto ${acc}`) || `Acerto ${acc}`;
         const bonusTxt = typeBonus !== 0 ? ` [${typeBonus > 0 ? '+' : ''}${typeBonus} tipo]` : '';
         const stabTxt = isStab ? " ★" : "";
         const aceiroTxt = aceiroBonus !== 0 ? ` Ac:${aceiroBonus > 0 ? '+' : ''}${aceiroBonus}` : '';
-        opts += `<option value="${i}">${escHtml(name)}${stabTxt}. A:${acc}${aceiroTxt} D:${damage}${bonusTxt}</option>`;
+        opts += `<option value="${i}">${escHtml(name)}${stabTxt}. ${escHtml(modeLabel)}${aceiroTxt} D:${damage}${bonusTxt}</option>`;
       });
       moveSel.innerHTML = opts;
       updateAccuracy();
@@ -1606,9 +1608,18 @@ export class CombatUI {
       const mv = moves[parseInt(idx)];
       const acc = safeInt(mv.accuracy);
       accInput.value = acc;
+      const moveModeInfo = (typeof window.getMoveModeInfo === "function") ? (window.getMoveModeInfo(mv) || null) : null;
       const effectiveStats = this._getEffectiveStats(by, pid);
       const aceiroBonus = safeInt(effectiveStats.acerto || 0);
       const totalAcc = acc + aceiroBonus;
+      if (moveModeInfo?.kind === "self") {
+        accHint.textContent = "Golpe afeta o usuário; não usa rolagem de acerto.";
+        return;
+      }
+      if (moveModeInfo?.kind === "area") {
+        accHint.textContent = `${safeStr(moveModeInfo.label || "Área")}; resolva a defesa em Dodge/CD.`;
+        return;
+      }
       accHint.textContent = aceiroBonus !== 0
         ? `Acerto sugerido: ${acc} + boost Acerto ${aceiroBonus > 0 ? '+' : ''}${aceiroBonus} = ${totalAcc}`
         : `Acerto sugerido pelo golpe: ${acc}`;

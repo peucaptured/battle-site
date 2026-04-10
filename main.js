@@ -2620,6 +2620,60 @@ function _getUserDataForTrainer(trainerName) {
   return null;
 }
 
+function _moveNameValue(mv) {
+  return safeStr(mv?.name || mv?.Nome || mv?.nome || "Golpe");
+}
+
+function _moveNameKey(name) {
+  return safeStr(name)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function _getFavoriteMoveNamesForTrainerPid(trainerName, pidLike) {
+  const userData = _getUserDataForTrainer(trainerName);
+  const favoriteMoves = userData?.favorite_moves;
+  if (!favoriteMoves || typeof favoriteMoves !== "object") return [];
+
+  const targetKeys = _partyEntryLookupKeys(pidLike);
+  if (!targetKeys.length) return [];
+
+  for (const [rawKey, names] of Object.entries(favoriteMoves)) {
+    if (!targetKeys.includes(pidKey(rawKey))) continue;
+    if (!Array.isArray(names)) return [];
+    return names.map((name) => safeStr(name)).filter(Boolean).slice(0, 4);
+  }
+  return [];
+}
+
+function _getPreferredMovesForTrainerPid(trainerName, pidLike, moves, limit = 4) {
+  const moveList = (Array.isArray(moves) ? moves : []).filter((mv) => mv && typeof mv === "object");
+  const maxItems = Math.max(0, parseInt(limit, 10) || 0);
+  if (!moveList.length || !maxItems) return [];
+
+  const favoriteNames = _getFavoriteMoveNamesForTrainerPid(trainerName, pidLike);
+  if (!favoriteNames.length) return moveList.slice(0, maxItems);
+
+  const remaining = moveList.slice();
+  const out = [];
+  for (const favoriteName of favoriteNames) {
+    const favoriteKey = _moveNameKey(favoriteName);
+    if (!favoriteKey) continue;
+    const idx = remaining.findIndex((mv) => _moveNameKey(_moveNameValue(mv)) === favoriteKey);
+    if (idx < 0) continue;
+    out.push(remaining[idx]);
+    remaining.splice(idx, 1);
+    if (out.length >= maxItems) return out;
+  }
+
+  for (const mv of remaining) {
+    out.push(mv);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
 function _getHeldItemFromHubMeta(hubMeta, pidLike) {
   if (!hubMeta || typeof hubMeta !== "object") return null;
   const targetKeys = _partyEntryLookupKeys(pidLike);
@@ -3173,21 +3227,21 @@ function renderArenaSheetPreview() {
   if (dodge <= 0 && cap > 0 && thg > 0) dodge = Math.max(0, cap - thg);
   const heldItem = getHeldItemForTrainerPid(owner, pid || name);
   const movesRaw = Array.isArray(sheet?.moves) ? sheet.moves : (sheet?.moves ? Object.values(sheet.moves) : []);
-  const moves = movesRaw.filter((move) => move && typeof move === "object").slice(0, 4);
+  const moves = _getPreferredMovesForTrainerPid(owner, pid || name, movesRaw, 4);
   const movesHtml = moves.length
     ? moves.map((mv) => {
-        const moveName = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
-        const { rk, acc, area } = _mvSum(mv, st);
+        const moveName = _moveNameValue(mv);
+        const { rk, area } = _mvSum(mv, st);
         const mvType = getMoveType(moveName) || safeStr(mv?.meta?.type) || safeStr(mv?.type) || "";
         const mvColor = mvType ? getTypeColor(mvType) : "";
         const typeTag = mvType ? `<span class="mv-pill" style="background:${mvColor}22;border:1px solid ${mvColor}66;color:${mvColor}">${escapeHtml(mvType)}</span>` : "";
+        const modePill = _renderMoveModePill(mv, { compact: true });
         return `
           <div class="move-row">
             <div class="move-head">
               <span class="move-name">${escapeHtml(moveName)}</span>
               ${typeTag}
-              <span class="mv-pill">A+${acc}</span>
-              <span class="mv-pill">R${rk}</span>
+              <span class="mv-pill rk">R${rk}</span>
               <span class="mv-pill">${area ? "Área" : "Alvo"}</span>
             </div>
           </div>
@@ -3243,6 +3297,13 @@ function renderArenaSheetPreview() {
       ${movesHtml}
     </div>
   `;
+  root.querySelectorAll(".move-row").forEach((row, idx) => {
+    const mv = moves[idx];
+    if (!mv) return;
+    const pills = Array.from(row.querySelectorAll(".mv-pill"));
+    const statusPill = pills[pills.length - 1];
+    if (statusPill) statusPill.outerHTML = _renderMoveModePill(mv, { compact: true });
+  });
 }
 
 
@@ -4288,7 +4349,6 @@ function renderSheetsInspectorCard(wrap) {
             <span class="arrow">▶</span>
             <span class="move-h-name" style="${mvColor ? `color:${mvColor}` : ""}">${escapeHtml(n)}</span>
             ${typeTag}
-            <span class="mv-pill acc">A+${acc}</span>
             <span class="mv-pill rk">R${rk}</span>
             <span class="mv-pill area">${area ? "Área" : "Alvo"}</span>
           </div>
@@ -4394,6 +4454,13 @@ function renderSheetsInspectorCard(wrap) {
       <div class="section-title">Golpes</div>${mvH}
     </div>
   `;
+  wrap.querySelectorAll(".move-expander .move-header").forEach((header, idx) => {
+    const mv = moves[idx];
+    if (!mv) return;
+    const pills = Array.from(header.querySelectorAll(".mv-pill"));
+    const statusPill = pills[pills.length - 1];
+    if (statusPill) statusPill.outerHTML = _renderMoveModePill(mv);
+  });
 
   wrap.querySelectorAll(".move-header").forEach((h) => {
     h.addEventListener("click", (ev) => {
@@ -10684,15 +10751,84 @@ function _mvStat(meta, stats) {
   else if (cat.includes("special") || cat.includes("especial")) { label = "Int"; val = parseInt(stats["int"] || 0) || 0; }
   return { label, val };
 }
+function _moveRawAccuracy(mv) {
+  return parseInt(mv?.accuracy || mv?.Accuracy || mv?.acerto || 0) || 0;
+}
+function _moveAreaInfo(mv) {
+  const meta = (mv && typeof mv === "object" && mv.meta && typeof mv.meta === "object") ? mv.meta : {};
+  const buildText = safeStr(mv?.build).toLowerCase();
+  const areaTypeRaw = safeStr(meta.area_type || meta.areaType || "");
+  const areaType = areaTypeRaw && areaTypeRaw !== "—" ? areaTypeRaw : "";
+  const areaExtended = !!(meta.area_extended || meta.areaExtended);
+  const perceptionArea = !!meta.perception_area;
+  const isArea = !!(
+    perceptionArea
+    || areaType
+    || meta.is_area
+    || meta.area
+    || buildText.includes("[area:")
+    || buildText.includes("perception area")
+    || buildText.includes("área")
+    || buildText.includes("area")
+    || buildText.includes("aoe")
+  );
+  return { isArea, areaType, areaExtended, perceptionArea };
+}
+function _formatMoveAreaLabel(areaInfo, { compact = false } = {}) {
+  const info = areaInfo || {};
+  if (!info.isArea) return compact ? "Acerto" : "Acerto";
+  const baseLabel = info.areaType
+    ? `Área: ${info.areaType}`
+    : (info.perceptionArea ? (compact ? "Percepção" : "Área de Percepção") : "Área");
+  const extras = [];
+  if (info.areaExtended) extras.push("+1r");
+  if (!compact && info.perceptionArea && info.areaType) extras.push("Percepção");
+  return extras.length ? `${baseLabel} ${extras.join(" • ")}` : baseLabel;
+}
+function _getMoveModeInfo(mv) {
+  const meta = (mv && typeof mv === "object" && mv.meta && typeof mv.meta === "object") ? mv.meta : {};
+  const acc = _moveRawAccuracy(mv);
+  if (meta.affects_user) {
+    return {
+      kind: "self",
+      label: "Afeta o Usuário",
+      compactLabel: "Usuário",
+      pillClass: "self",
+      style: "background:rgba(192,132,252,.14);border:1px solid rgba(192,132,252,.38);color:#c084fc;",
+      value: "Afeta o Usuário",
+    };
+  }
+  const areaInfo = _moveAreaInfo(mv);
+  if (areaInfo.isArea) {
+    return {
+      kind: "area",
+      label: _formatMoveAreaLabel(areaInfo),
+      compactLabel: _formatMoveAreaLabel(areaInfo, { compact: true }),
+      pillClass: "area",
+      style: "",
+      value: _formatMoveAreaLabel(areaInfo),
+    };
+  }
+  return {
+    kind: "accuracy",
+    label: `Acerto ${acc}`,
+    compactLabel: `Ac ${acc}`,
+    pillClass: "acc",
+    style: "",
+    value: String(acc),
+  };
+}
+function _renderMoveModePill(mv, options = {}) {
+  const info = _getMoveModeInfo(mv);
+  const label = options.compact ? (info.compactLabel || info.label) : info.label;
+  return `<span class="mv-pill ${escapeAttr(info.pillClass || "")}"${info.style ? ` style="${escapeAttr(info.style)}"` : ""} title="${escapeAttr(info.label)}">${escapeHtml(label)}</span>`;
+}
 function _mvIsArea(mv) {
-  const m = (mv && mv.meta) ? mv.meta : {};
-  if (m.perception_area || m.is_area || m.area) return true;
-  const b = safeStr(mv && mv.build);
-  return b.toLowerCase().includes("área") || b.toLowerCase().includes("area") || b.toLowerCase().includes("aoe");
+  return _moveAreaInfo(mv).isArea;
 }
 function _mvSum(mv, stats) {
   const br = parseInt(mv?.rank || mv?.Rank || 0) || 0;
-  const acc = parseInt(mv?.accuracy || mv?.Accuracy || mv?.acerto || 0) || 0;
+  const acc = _moveRawAccuracy(mv);
   const { label, val } = _mvStat(mv?.meta || {}, stats);
   return { rk: br + val, acc, label, val, area: _mvIsArea(mv), br };
 }
@@ -11106,7 +11242,6 @@ function renderSheetsTab() {
       mvH += `
         <div class="card-move-row${isStab ? " move-stab-card" : ""}"${isStab ? ` style="--stab-color:${mvColor}"` : ""}>
           <span class="card-move-name" style="${mvColor ? `color:${mvColor}` : ""}">${escapeHtml(n)}${isStab ? " ★" : ""}</span>
-          <span class="mv-pill acc">A+${acc}</span>
           <span class="mv-pill rk">R${rk}</span>
           <span class="mv-pill area">${area ? "Área" : "Alvo"}</span>
         </div>
@@ -11148,6 +11283,13 @@ function renderSheetsTab() {
       ${mvH}
       <div class="card-open">Abrir ficha →</div>
     `;
+    card.querySelectorAll(".card-move-row").forEach((row, idx) => {
+      const mv = preview[idx];
+      if (!mv) return;
+      const pills = Array.from(row.querySelectorAll(".mv-pill"));
+      const statusPill = pills[pills.length - 1];
+      if (statusPill) statusPill.outerHTML = _renderMoveModePill(mv, { compact: true });
+    });
     cardsGrid.appendChild(card);
   }
 
@@ -11200,6 +11342,9 @@ window.getHeldItemForTrainerPid = getHeldItemForTrainerPid;
 window.renderHeldItemBadgeHtml = renderHeldItemBadgeHtml;
 window.renderHeldItemSummaryHtml = renderHeldItemSummaryHtml;
 window.getSheetMoveTempModifiers = getSheetMoveTempModifiers;
+window.getFavoriteMoveNamesForTrainerPid = _getFavoriteMoveNamesForTrainerPid;
+window.getPreferredMovesForTrainerPid = _getPreferredMovesForTrainerPid;
+window.getMoveModeInfo = _getMoveModeInfo;
 window.selectPiece        = selectPiece;
 window.togglePieceRevealed = togglePieceRevealed;
 window.removePieceFromBoard = removePieceFromBoard;

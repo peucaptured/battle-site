@@ -1109,7 +1109,13 @@ export class ArenaCombatUI {
     };
   }
 
-  _getFavorites(trainerName) {
+  _getFavorites(trainerName, pidLike = "") {
+    try {
+      if (typeof window.getFavoriteMoveNamesForTrainerPid === "function") {
+        const remote = window.getFavoriteMoveNamesForTrainerPid(trainerName, pidLike);
+        if (Array.isArray(remote) && remote.length) return remote;
+      }
+    } catch {}
     try {
       const raw = localStorage.getItem(FAV_KEY_PREFIX + trainerName);
       if (!raw) return [];
@@ -1510,7 +1516,7 @@ export class ArenaCombatUI {
       const sheet = this._getSheet(by, atkPid);
       const moves = sheet?.moves || [];
       const stats = this._getEffectiveStats(by, atkPid);
-      const favorites = this._getFavorites(by);
+      const favorites = this._getFavorites(by, atkPid);
 
       const movesArea = body.querySelector("#ac-moves-area");
 
@@ -1571,13 +1577,15 @@ export class ArenaCombatUI {
       });
       const aceiroBonus = safeInt(stats.acerto || 0);
       const acc = ctx.atkMod + aceiroBonus;
+      const modeInfo = (typeof window.getMoveModeInfo === "function") ? (window.getMoveModeInfo(mv) || null) : null;
+      const modeText = safeStr(modeInfo?.label || `Acerto ${acc}`) || `Acerto ${acc}`;
       const extraTxt = (ctx.typeBonus !== 0 || ctx.stabBonus > 0) ? ` (+)` : ``;
       const dmgClass = (ctx.typeBonus > 0 || ctx.stabBonus > 0) ? "bonus-high" : "";
 
       html += `<div class="ac-move-item" data-idx="${i}">
         <span style="font-size:14px">${icon}</span>
         <span class="ac-move-name">${escHtml(name)}</span>
-        <span class="ac-move-meta">Ac ${acc} • R${ctx.rank}</span>
+        <span class="ac-move-meta">${escHtml(modeText)} • R${ctx.rank}</span>
         <span class="ac-move-dmg ${dmgClass}">${ctx.totalDmg}${extraTxt}</span>
       </div>`;
     });
@@ -1889,14 +1897,15 @@ export class ArenaCombatUI {
         const cat = safeStr(mv.meta?.category || mv.category || "").toLowerCase();
         const icon = cat.includes("status") ? "🟣" : cat.includes("special") || cat.includes("especial") ? "🔵" : "🔴";
 
+        const slotAcc = ctx.atkMod + safeInt(stats.acerto || 0);
+        const slotModeInfo = (typeof window.getMoveModeInfo === "function") ? (window.getMoveModeInfo(mv) || null) : null;
+        const slotModeLabel = safeStr(slotModeInfo?.compactLabel || slotModeInfo?.label || `Ac ${slotAcc}`) || `Ac ${slotAcc}`;
         slot.innerHTML = `
           <span class="ac-slot-icon">${icon}</span>
           <span class="ac-slot-name">${escHtml(safeStr(mv.name).slice(0, 10))}</span>
-          <span class="ac-slot-sub">R${ctx.rank} • D${ctx.totalDmg}</span>
+          <span class="ac-slot-sub">${escHtml(slotModeLabel)} • R${ctx.rank}</span>
         `;
-        slot.title = `${safeStr(mv.name)} — Rank ${ctx.rank}, Dano ${ctx.totalDmg}, Acc ${safeInt(mv.accuracy) + safeInt(stats.acerto||0)}`;
-        const slotAcc = ctx.atkMod + safeInt(stats.acerto || 0);
-        slot.title = `${safeStr(mv.name)} - Rank ${ctx.rank}, Dano ${ctx.totalDmg}, Acc ${slotAcc}`;
+        slot.title = `${safeStr(mv.name)} - ${safeStr(slotModeInfo?.label || `Acerto ${slotAcc}`)}, Rank ${ctx.rank}, Dano ${ctx.totalDmg}`;
         slot.addEventListener("click", () => {
           this._closeRadial();
           this._closeOverlay();
@@ -2162,8 +2171,9 @@ export class ArenaCombatUI {
   _sheetMoveMeta(move) {
     const rk = safeInt(move?.rank ?? move?.damage ?? move?.power ?? move?.lvl ?? 0, 0);
     const acc = safeInt(move?.accuracy ?? move?.acc ?? move?.acerto ?? 0, 0);
-    const area = !!(move?.is_area || move?.area || safeStr(move?.target).toLowerCase().includes("area"));
-    return { rk, acc, area };
+    const modeInfo = (typeof window.getMoveModeInfo === "function") ? (window.getMoveModeInfo(move) || null) : null;
+    const area = modeInfo ? modeInfo.kind === "area" : !!(move?.is_area || move?.area || safeStr(move?.target).toLowerCase().includes("area"));
+    return { rk, acc, area, modeInfo };
   }
 
   _renderSidebarSheet(piece, sheet) {
@@ -2194,12 +2204,16 @@ export class ArenaCombatUI {
     const hpCol = hpPct > 50 ? "rgba(34,197,94,1)" : hpPct > 25 ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
 
     const movesRaw = Array.isArray(sheet.moves) ? sheet.moves : (sheet.moves ? Object.values(sheet.moves) : []);
-    const moves = movesRaw.filter((m) => m && typeof m === "object").slice(0, 4);
+    const moves = (typeof window.getPreferredMovesForTrainerPid === "function")
+      ? window.getPreferredMovesForTrainerPid(owner, pid, movesRaw, 4)
+      : movesRaw.filter((m) => m && typeof m === "object").slice(0, 4);
     const movesHtml = moves.length
       ? moves.map((mv) => {
           const mName = safeStr(mv.name || mv.nome || mv.Nome || "Golpe");
-          const { rk, acc, area } = this._sheetMoveMeta(mv);
-          return `<div class="move-row"><div class="move-head"><span class="move-name">${escHtml(mName)}</span><span class="mv-pill">A+${acc}</span><span class="mv-pill">R${rk}</span><span class="mv-pill">${area ? "Área" : "Alvo"}</span></div></div>`;
+          const { rk, acc, area, modeInfo } = this._sheetMoveMeta(mv);
+          const modeLabel = safeStr(modeInfo?.compactLabel || modeInfo?.label || (area ? "Área" : `Ac ${acc}`)) || `Ac ${acc}`;
+          const modeStyle = safeStr(modeInfo?.style || (area ? "background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.32);color:#a855f7;" : "background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.32);color:#38bdf8;"));
+          return `<div class="move-row"><div class="move-head"><span class="move-name">${escHtml(mName)}</span><span class="mv-pill" style="background:rgba(234,179,8,.12);border:1px solid rgba(234,179,8,.32);color:#eab308;">R${rk}</span><span class="mv-pill" style="${escHtml(modeStyle)}" title="${escHtml(safeStr(modeInfo?.label || modeLabel))}">${escHtml(modeLabel)}</span></div></div>`;
         }).join("")
       : `<div class="muted">Sem golpes nesta ficha.</div>`;
 
@@ -2762,4 +2776,3 @@ export class ArenaCombatUI {
     }
   }
 }
-
