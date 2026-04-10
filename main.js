@@ -1249,6 +1249,11 @@ function ensureHudTabLayoutStyleOnce() {
     body:not(.tab-arena-active) .sidebar-left{
       display:none !important;
     }
+    body[data-active-tab="sheets"] .hud-body{
+      max-width:none;
+      padding-left:10px;
+      padding-right:10px;
+    }
   `;
   document.head.appendChild(st);
 }
@@ -1336,9 +1341,8 @@ function setArenaHoverPiece(pieceOrId, { persist = false } = {}) {
 
 function bindTabInteractions() {
   qsa(".tab").forEach((t) => {
-    t.addEventListener("click", () => setTab(t.dataset.tab));
-    t.addEventListener("mouseenter", () => {
-      if (!supportsHoverTabs()) return;
+    t.addEventListener("click", (ev) => {
+      ev.preventDefault();
       setTab(t.dataset.tab);
     });
   });
@@ -4011,11 +4015,12 @@ function renderSheetsInspectorCard(wrap) {
       // Recupera modificadores persistidos entre trocas de aba
       const savedMod = getSheetMoveTempModifiers(pid, mvIdx, sh);
       const modKey = savedMod.key || `${pid || safeStr(sh?.sheet_id || sh?.id || pname)}::${mvIdx}`;
+      const isMoveOpen = _sheetsOpenMoveKeys.has(modKey);
       const autoTotal = rk + stabBonus + typeBonus + savedMod.dmg;
       const aceiroTotal = acc + (statBoosts.acerto||0) + savedMod.acc;
 
       mvH += `
-        <div class="move-expander${stabClass}"${isStab ? ` style="--stab-color:${mvColor}"` : ""}
+        <div class="move-expander${stabClass}${isMoveOpen ? " open" : ""}"${isStab ? ` style="--stab-color:${mvColor}"` : ""}
           data-mod-key="${escapeAttr(modKey)}">
           <div class="move-header">
             <span class="arrow">▶</span>
@@ -4127,9 +4132,21 @@ function renderSheetsInspectorCard(wrap) {
   `;
 
   wrap.querySelectorAll(".move-header").forEach((h) => {
-    h.addEventListener("click", () => {
+    h.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
       const parent = h.parentElement;
-      if (parent) parent.classList.toggle("open");
+      if (!parent) return;
+      const now = Date.now();
+      const lastToggleAt = Number(parent.dataset.lastToggleAt || 0);
+      if (now - lastToggleAt < 220) return;
+      parent.dataset.lastToggleAt = String(now);
+      const nextOpen = !parent.classList.contains("open");
+      parent.classList.toggle("open", nextOpen);
+      const modKey = safeStr(parent.dataset.modKey);
+      if (!modKey) return;
+      if (nextOpen) _sheetsOpenMoveKeys.add(modKey);
+      else _sheetsOpenMoveKeys.delete(modKey);
     });
   });
   _bindMegaControlButtons(wrap);
@@ -9125,6 +9142,7 @@ let _partyStatesBootstrapped = false;
 let _sheetsSelectedPid = null;
 let _sheetsRenderedDetailPid = null;
 let _sheetsLastError = "";
+const _sheetsOpenMoveKeys = new Set();
 // Persiste modificadores temporários de dano/acerto por golpe entre trocas de aba
 // chave: `${pid}::${moveIndex}`, valor: { acc: 0, dmg: 0 }
 const _sheetsMods = {};
