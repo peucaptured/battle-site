@@ -4590,6 +4590,8 @@ function requestArenaRefresh(force = false) {
   syncSpriteOverlayVisibility();
   if (arenaRenderMode === "dom") {
     syncArenaDomIfNeeded(force);
+  } else if (arenaRenderMode === "canvas") {
+    requestArenaCanvasFrame();
   }
 }
 
