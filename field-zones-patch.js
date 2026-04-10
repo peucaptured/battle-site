@@ -491,13 +491,10 @@ function renderZones() {
 
     const drawWeather = window.drawWeatherOverlay;
     if (typeof drawWeather === "function") {
-      const originalBattle = window.appState.battle;
       const scopedBattle = { weather: null, terrain: null };
       if (safeStr(zone.type) === "weather") scopedBattle.weather = zone.value;
       if (safeStr(zone.type) === "terrain") scopedBattle.terrain = zone.value;
-      window.appState.battle = scopedBattle;
-      drawWeather(offCtx, ox, oy, gs, tile, cssWidth, cssHeight);
-      window.appState.battle = originalBattle;
+      drawWeather(offCtx, ox, oy, gs, tile, cssWidth, cssHeight, scopedBattle);
     } else {
       const color = ZONE_COLORS[safeStr(zone.value).toLowerCase()] || { bg: "rgba(56,189,248,0.2)" };
       offCtx.fillStyle = color.bg;

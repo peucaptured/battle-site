@@ -7747,10 +7747,13 @@ function ensureWeatherParticles(weather) {
 // Chame dentro de draw(), DEPOIS do mapa e ANTES das peças
 // Parâmetros: ctx, ox, oy, gs (grid size), tile (tile size em px), w, h (canvas)
 // =============================================================================
-function drawWeatherOverlay(ctx, ox, oy, gs, tile, w, h) {
-  // Lê o clima e terreno do Firestore (public_state/battle)
-  const weather = safeStr(appState.battle?.weather  || appState.board?.weather  || '').toLowerCase();
-  const terrain = safeStr(appState.battle?.terrain  || appState.board?.terrain  || '').toLowerCase();
+function drawWeatherOverlay(ctx, ox, oy, gs, tile, w, h, sourceState = null) {
+  const battleState = sourceState && typeof sourceState === "object"
+    ? sourceState
+    : appState.battle;
+  // Lê o clima e terreno do Firestore (public_state/battle) ou de um override explícito.
+  const weather = safeStr(battleState?.weather  || appState.board?.weather  || '').toLowerCase();
+  const terrain = safeStr(battleState?.terrain  || appState.board?.terrain  || '').toLowerCase();
 
   const t = Date.now() / 1000; // segundos
   const gridW = gs * tile;
