@@ -17,6 +17,55 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 import { getAuth, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
 
+const DEFAULT_CAPTURE_BALL_API_NAME = "poke-ball";
+const DEFAULT_CAPTURE_BALL_ICON_URL = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/${DEFAULT_CAPTURE_BALL_API_NAME}.png`;
+
+function createCaptureBallTheme(config = {}) {
+  return Object.freeze({
+    topA: String(config.topA || "#ef4444"),
+    topB: String(config.topB || config.topA || "#991b1b"),
+    bottomA: String(config.bottomA || "#f8fafc"),
+    bottomB: String(config.bottomB || config.bottomA || "#cbd5e1"),
+    band: String(config.band || "#0f172a"),
+    core: String(config.core || "#f8fafc"),
+    coreRing: String(config.coreRing || "#0f172a"),
+    glow: String(config.glow || "rgba(248,113,113,.42)"),
+    accent: String(config.accent || "rgba(255,255,255,.72)"),
+    outline: String(config.outline || config.band || "#0f172a"),
+  });
+}
+
+const CAPTURE_BALL_THEME_PRESETS = Object.freeze({
+  "poke-ball": createCaptureBallTheme({ topA: "#ef4444", topB: "#991b1b", bottomA: "#f8fafc", bottomB: "#cbd5e1", band: "#0f172a", core: "#f8fafc", coreRing: "#0f172a", glow: "rgba(248,113,113,.42)", accent: "rgba(255,255,255,.78)" }),
+  "great-ball": createCaptureBallTheme({ topA: "#2563eb", topB: "#1e3a8a", bottomA: "#f8fafc", bottomB: "#dbeafe", band: "#0f172a", core: "#f8fafc", coreRing: "#dc2626", glow: "rgba(59,130,246,.46)", accent: "rgba(248,113,113,.36)" }),
+  "ultra-ball": createCaptureBallTheme({ topA: "#111827", topB: "#000000", bottomA: "#fefce8", bottomB: "#e5e7eb", band: "#111827", core: "#fde68a", coreRing: "#111827", glow: "rgba(250,204,21,.45)", accent: "rgba(255,255,255,.68)" }),
+  "master-ball": createCaptureBallTheme({ topA: "#a855f7", topB: "#6d28d9", bottomA: "#fdf2f8", bottomB: "#e9d5ff", band: "#4c1d95", core: "#f8fafc", coreRing: "#ec4899", glow: "rgba(192,132,252,.48)", accent: "rgba(244,114,182,.42)" }),
+  "premier-ball": createCaptureBallTheme({ topA: "#f8fafc", topB: "#e2e8f0", bottomA: "#ffffff", bottomB: "#e5e7eb", band: "#cbd5e1", core: "#ffffff", coreRing: "#dc2626", glow: "rgba(248,113,113,.34)", accent: "rgba(255,255,255,.82)", outline: "#e2e8f0" }),
+  "luxury-ball": createCaptureBallTheme({ topA: "#111827", topB: "#000000", bottomA: "#fef3c7", bottomB: "#d4af37", band: "#7c2d12", core: "#fde68a", coreRing: "#b45309", glow: "rgba(251,191,36,.44)", accent: "rgba(248,113,113,.34)" }),
+  "quick-ball": createCaptureBallTheme({ topA: "#2563eb", topB: "#0f172a", bottomA: "#fefce8", bottomB: "#dbeafe", band: "#ca8a04", core: "#fef08a", coreRing: "#1d4ed8", glow: "rgba(56,189,248,.46)", accent: "rgba(250,204,21,.44)" }),
+  "timer-ball": createCaptureBallTheme({ topA: "#ef4444", topB: "#7f1d1d", bottomA: "#ffffff", bottomB: "#e5e7eb", band: "#1f2937", core: "#f8fafc", coreRing: "#111827", glow: "rgba(248,113,113,.42)", accent: "rgba(255,255,255,.7)" }),
+  "repeat-ball": createCaptureBallTheme({ topA: "#f97316", topB: "#ea580c", bottomA: "#fef3c7", bottomB: "#fde68a", band: "#7c2d12", core: "#fde68a", coreRing: "#b91c1c", glow: "rgba(249,115,22,.46)", accent: "rgba(248,113,113,.34)" }),
+  "nest-ball": createCaptureBallTheme({ topA: "#84cc16", topB: "#3f6212", bottomA: "#fef3c7", bottomB: "#ecfccb", band: "#365314", core: "#fef08a", coreRing: "#166534", glow: "rgba(132,204,22,.44)", accent: "rgba(250,204,21,.34)" }),
+  "net-ball": createCaptureBallTheme({ topA: "#0f766e", topB: "#155e75", bottomA: "#e0f2fe", bottomB: "#bfdbfe", band: "#082f49", core: "#f8fafc", coreRing: "#0f766e", glow: "rgba(45,212,191,.42)", accent: "rgba(96,165,250,.36)" }),
+  "dive-ball": createCaptureBallTheme({ topA: "#38bdf8", topB: "#0369a1", bottomA: "#f8fafc", bottomB: "#bae6fd", band: "#0f172a", core: "#f8fafc", coreRing: "#dc2626", glow: "rgba(56,189,248,.46)", accent: "rgba(255,255,255,.72)" }),
+  "dusk-ball": createCaptureBallTheme({ topA: "#84cc16", topB: "#14532d", bottomA: "#d1fae5", bottomB: "#a3e635", band: "#052e16", core: "#fef3c7", coreRing: "#166534", glow: "rgba(163,230,53,.44)", accent: "rgba(74,222,128,.34)" }),
+  "heal-ball": createCaptureBallTheme({ topA: "#f9a8d4", topB: "#ec4899", bottomA: "#fdf2f8", bottomB: "#fbcfe8", band: "#be185d", core: "#ffffff", coreRing: "#f472b6", glow: "rgba(244,114,182,.44)", accent: "rgba(255,255,255,.74)" }),
+  "cherish-ball": createCaptureBallTheme({ topA: "#dc2626", topB: "#7f1d1d", bottomA: "#fef2f2", bottomB: "#fee2e2", band: "#111827", core: "#f8fafc", coreRing: "#111827", glow: "rgba(239,68,68,.46)", accent: "rgba(255,255,255,.72)" }),
+  "safari-ball": createCaptureBallTheme({ topA: "#65a30d", topB: "#4d7c0f", bottomA: "#fef3c7", bottomB: "#fde68a", band: "#3f6212", core: "#fef08a", coreRing: "#365314", glow: "rgba(132,204,22,.4)", accent: "rgba(250,204,21,.34)" }),
+  "sport-ball": createCaptureBallTheme({ topA: "#fb923c", topB: "#9a3412", bottomA: "#fff7ed", bottomB: "#fed7aa", band: "#7c2d12", core: "#fef3c7", coreRing: "#ea580c", glow: "rgba(251,146,60,.44)", accent: "rgba(255,255,255,.68)" }),
+  "friend-ball": createCaptureBallTheme({ topA: "#22c55e", topB: "#166534", bottomA: "#f8fafc", bottomB: "#dcfce7", band: "#14532d", core: "#f8fafc", coreRing: "#dc2626", glow: "rgba(74,222,128,.42)", accent: "rgba(248,113,113,.3)" }),
+  "love-ball": createCaptureBallTheme({ topA: "#fb7185", topB: "#e11d48", bottomA: "#fff1f2", bottomB: "#ffe4e6", band: "#be185d", core: "#ffffff", coreRing: "#f472b6", glow: "rgba(251,113,133,.44)", accent: "rgba(255,255,255,.74)" }),
+  "level-ball": createCaptureBallTheme({ topA: "#f59e0b", topB: "#b45309", bottomA: "#fef3c7", bottomB: "#ffedd5", band: "#7c2d12", core: "#f8fafc", coreRing: "#dc2626", glow: "rgba(245,158,11,.42)", accent: "rgba(248,113,113,.32)" }),
+  "lure-ball": createCaptureBallTheme({ topA: "#38bdf8", topB: "#1d4ed8", bottomA: "#eff6ff", bottomB: "#dbeafe", band: "#0f172a", core: "#ffffff", coreRing: "#dc2626", glow: "rgba(56,189,248,.44)", accent: "rgba(255,255,255,.72)" }),
+  "moon-ball": createCaptureBallTheme({ topA: "#312e81", topB: "#1e1b4b", bottomA: "#e0e7ff", bottomB: "#c7d2fe", band: "#0f172a", core: "#f8fafc", coreRing: "#4338ca", glow: "rgba(129,140,248,.46)", accent: "rgba(191,219,254,.42)" }),
+  "fast-ball": createCaptureBallTheme({ topA: "#facc15", topB: "#ea580c", bottomA: "#fff7ed", bottomB: "#fef3c7", band: "#7c2d12", core: "#ffffff", coreRing: "#1d4ed8", glow: "rgba(250,204,21,.44)", accent: "rgba(56,189,248,.32)" }),
+  "heavy-ball": createCaptureBallTheme({ topA: "#334155", topB: "#0f172a", bottomA: "#e2e8f0", bottomB: "#cbd5e1", band: "#0f172a", core: "#f8fafc", coreRing: "#475569", glow: "rgba(148,163,184,.38)", accent: "rgba(255,255,255,.62)" }),
+  "dream-ball": createCaptureBallTheme({ topA: "#f9a8d4", topB: "#c084fc", bottomA: "#fdf2f8", bottomB: "#e9d5ff", band: "#7e22ce", core: "#ffffff", coreRing: "#ec4899", glow: "rgba(244,114,182,.46)", accent: "rgba(192,132,252,.38)" }),
+  "beast-ball": createCaptureBallTheme({ topA: "#111827", topB: "#030712", bottomA: "#dbeafe", bottomB: "#93c5fd", band: "#0f172a", core: "#f8fafc", coreRing: "#ec4899", glow: "rgba(56,189,248,.44)", accent: "rgba(244,114,182,.4)" }),
+  "park-ball": createCaptureBallTheme({ topA: "#16a34a", topB: "#14532d", bottomA: "#fef3c7", bottomB: "#fdba74", band: "#365314", core: "#fef08a", coreRing: "#ea580c", glow: "rgba(74,222,128,.4)", accent: "rgba(251,146,60,.34)" }),
+  "strange-ball": createCaptureBallTheme({ topA: "#64748b", topB: "#1e293b", bottomA: "#f1f5f9", bottomB: "#d8f99d", band: "#0f172a", core: "#ffffff", coreRing: "#4ade80", glow: "rgba(148,163,184,.42)", accent: "rgba(74,222,128,.32)" }),
+});
+
 /**
  * PvP Arena (HTML/JS) — Realtime Firestore
  *
@@ -302,8 +351,10 @@ async function buildPartySnapshotFromFirestore(db, trainerName, userData, limitS
   return partyEntries.map((entry) => {
     const pid = entry.pid;
     const heldItem = entry?.held_item || entry?.heldItem || _getHeldItemFromHubMeta(hubMeta, entry);
+    const captureBall = entry?.capture_ball || entry?.captureBall || _getCaptureBallFromHubMeta(hubMeta, entry);
     const base = Object.assign({}, entry);
     if (heldItem && !base.held_item && !base.heldItem) base.held_item = heldItem;
+    if (captureBall && !base.capture_ball && !base.captureBall) base.capture_ball = captureBall;
     const extra = byPid.get(pid);
     return extra ? Object.assign(base, extra) : base;
   });
@@ -2384,6 +2435,122 @@ function _getHeldItemFromHubMeta(hubMeta, pidLike) {
   return null;
 }
 
+function _slugifyCaptureBallName(value) {
+  return safeStr(value)
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function _captureBallApiName(rawBall) {
+  return _slugifyCaptureBallName(rawBall?.api_name || rawBall?.name || rawBall?.backpack_name || rawBall || "");
+}
+
+function _getCaptureBallIconUrl(rawBall) {
+  const direct = safeStr(rawBall?.icon_url || rawBall?.iconUrl || rawBall?.image_url || rawBall?.sprite_url || "");
+  if (direct) return direct;
+  const apiName = _captureBallApiName(rawBall) || DEFAULT_CAPTURE_BALL_API_NAME;
+  return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/${apiName}.png`;
+}
+
+function _getCaptureBallFromHubMeta(hubMeta, pidLike) {
+  if (!hubMeta || typeof hubMeta !== "object") return null;
+  const targetKeys = _partyEntryLookupKeys(pidLike);
+  if (!targetKeys.length) return null;
+  for (const [rawKey, meta] of Object.entries(hubMeta)) {
+    if (!targetKeys.includes(pidKey(rawKey))) continue;
+    const captureBall = meta?.capture_ball || meta?.captureBall || null;
+    if (captureBall) return captureBall;
+  }
+  return null;
+}
+
+function normalizeCaptureBall(rawBall, { fallbackToDefault = true } = {}) {
+  const source = rawBall && typeof rawBall === "object"
+    ? rawBall
+    : (safeStr(rawBall) ? { name: safeStr(rawBall) } : null);
+  if (!source && !fallbackToDefault) return null;
+
+  const apiName = _captureBallApiName(source) || (fallbackToDefault ? DEFAULT_CAPTURE_BALL_API_NAME : "");
+  if (!apiName) return null;
+
+  const themeKey = CAPTURE_BALL_THEME_PRESETS[apiName] ? apiName : DEFAULT_CAPTURE_BALL_API_NAME;
+  const fallbackTheme = CAPTURE_BALL_THEME_PRESETS[themeKey] || CAPTURE_BALL_THEME_PRESETS[DEFAULT_CAPTURE_BALL_API_NAME];
+  return {
+    name: safeStr(source?.name || source?.backpack_name || "Poké Ball") || "Poké Ball",
+    api_name: apiName,
+    icon_url: _getCaptureBallIconUrl(source || { api_name: apiName }) || DEFAULT_CAPTURE_BALL_ICON_URL,
+    backpack_name: safeStr(source?.backpack_name || source?.name || "Poké Ball") || "Poké Ball",
+    category: safeStr(source?.category || "pokeballs") || "pokeballs",
+    themeKey,
+    theme: fallbackTheme,
+  };
+}
+
+function getCaptureBallTheme(rawBall) {
+  const ball = normalizeCaptureBall(rawBall);
+  const theme = ball?.theme || CAPTURE_BALL_THEME_PRESETS[DEFAULT_CAPTURE_BALL_API_NAME];
+  return {
+    ball,
+    topA: theme.topA,
+    topB: theme.topB,
+    bottomA: theme.bottomA,
+    bottomB: theme.bottomB,
+    band: theme.band,
+    core: theme.core,
+    coreRing: theme.coreRing,
+    glow: theme.glow,
+    accent: theme.accent,
+    outline: theme.outline,
+  };
+}
+
+function getCaptureBallCssVarMap(rawBall) {
+  const theme = getCaptureBallTheme(rawBall);
+  return {
+    "--ball-top-a": theme.topA,
+    "--ball-top-b": theme.topB,
+    "--ball-bottom-a": theme.bottomA,
+    "--ball-bottom-b": theme.bottomB,
+    "--ball-band": theme.band,
+    "--ball-core": theme.core,
+    "--ball-core-ring": theme.coreRing,
+    "--ball-glow": theme.glow,
+    "--ball-accent": theme.accent,
+    "--ball-outline": theme.outline,
+  };
+}
+
+function _cssVarStyleAttr(rawVars) {
+  return Object.entries(rawVars || {})
+    .filter(([, value]) => value != null && String(value) !== "")
+    .map(([key, value]) => `${key}:${String(value)}`)
+    .join(";");
+}
+
+function applyCaptureBallThemeToElement(el, rawBall) {
+  if (!el) return normalizeCaptureBall(rawBall);
+  const vars = getCaptureBallCssVarMap(rawBall);
+  for (const [key, value] of Object.entries(vars)) {
+    el.style.setProperty(key, value);
+  }
+  return normalizeCaptureBall(rawBall);
+}
+
+function renderCaptureBallBackdropHtml(rawBall) {
+  const ball = normalizeCaptureBall(rawBall);
+  const iconUrl = _getCaptureBallIconUrl(ball);
+  if (!iconUrl) return "";
+  return `
+    <span class="slot-ball-mark" aria-hidden="true">
+      <img src="${escapeAttr(iconUrl)}" alt="" loading="lazy" onerror="this.parentElement && (this.parentElement.style.display='none')"/>
+    </span>
+  `;
+}
+
 function _slugifyHeldItemName(value) {
   return safeStr(value)
     .trim()
@@ -2476,6 +2643,19 @@ function getHeldItemForTrainerPid(trainerName, pidLike) {
 
   const userData = _getUserDataForTrainer(trainerName);
   return normalizeHeldItem(_getHeldItemFromHubMeta(userData?.hub_pokemon_meta, pidLike));
+}
+
+function getCaptureBallForTrainerPid(trainerName, pidLike) {
+  const snapshotEntry = getPartySnapshotEntryForTrainerPid(trainerName, pidLike);
+  const snapshotBall = snapshotEntry?.capture_ball || snapshotEntry?.captureBall || null;
+  if (snapshotBall) return normalizeCaptureBall(snapshotBall);
+
+  const partyEntry = _getPartyEntryForTrainerPid(trainerName, pidLike);
+  const partyBall = partyEntry?.capture_ball || partyEntry?.captureBall || null;
+  if (partyBall) return normalizeCaptureBall(partyBall);
+
+  const userData = _getUserDataForTrainer(trainerName);
+  return normalizeCaptureBall(_getCaptureBallFromHubMeta(userData?.hub_pokemon_meta, pidLike));
 }
 
 function getHeldItemEffectText(rawItem) {
@@ -2801,14 +2981,18 @@ function renderPartyWindow() {
     const _psSlot = ((_partyStates && _partyStates[by]) ? _partyStates[by] : {})[pid] || {};
     const sprite = getEffectiveSpriteUrlForTrainerPid(by, pid, { type: "art", shiny: !!_psSlot.shiny }) || getSpriteUrlFromPid(pid);
     const heldItem = getHeldItemForTrainerPid(by, entry || pid);
+    const captureBall = getCaptureBallForTrainerPid(by, entry || pid);
+    const captureBallStyle = _cssVarStyleAttr(getCaptureBallCssVarMap(captureBall));
+    const captureBallLabel = safeStr(captureBall?.name || "Poké Ball") || "Poké Ball";
     const hp = getPartyHp(by, pid);
     const ko = hp <= 0;
     const onBoard = isPokemonAlreadyOnBoard(by, pid);
     const placing = placingPid && placingPid === pid;
     const disabled = ko && !onBoard;
-    return `<button type="button" class="party-slot ${ko ? 'ko' : ''} ${placing ? 'placing' : ''}" data-slot="${idx}" data-pid="${escapeAttr(pid)}" ${disabled ? 'disabled' : ''}>
+    return `<button type="button" class="party-slot ${ko ? 'ko' : ''} ${placing ? 'placing' : ''}" data-slot="${idx}" data-pid="${escapeAttr(pid)}" data-capture-ball="${escapeAttr(captureBall?.api_name || DEFAULT_CAPTURE_BALL_API_NAME)}" title="${escapeAttr(captureBallLabel)}" style="${escapeAttr(captureBallStyle)}" ${disabled ? 'disabled' : ''}>
+      ${renderCaptureBallBackdropHtml(captureBall)}
       ${renderHeldItemBadgeHtml(heldItem, { className: "held-item-anchor-slot", size: "sm" })}
-      ${sprite ? `<img src="${escapeAttr(sprite)}" alt="${escapeAttr(pid)}" loading="lazy" onerror="this.style.display='none'"/>` : ''}
+      ${sprite ? `<img class="party-slot-sprite" src="${escapeAttr(sprite)}" alt="${escapeAttr(pid)}" loading="lazy" onerror="this.style.display='none'"/>` : ''}
     </button>`;
   }).join('');
 
@@ -4644,6 +4828,7 @@ function spawnPieceExitGhost(piece, bounds) {
   ghost.style.height = `${bounds.height}px`;
   ghost.style.zIndex = String(bounds.hitZIndex || 1);
   ghost.setAttribute("aria-hidden", "true");
+  applyCaptureBallThemeToElement(ghost, getCaptureBallForTrainerPid(safeStr(piece?.owner), piece));
   _pieceFxOverlay.appendChild(ghost);
 
   const cleanupGhost = () => ghost.remove();
@@ -6532,6 +6717,7 @@ function renderArenaDom() {
     const token = document.createElement("div");
     token.className = "token";
     token.dataset.pieceId = safeStr(p?.id);
+    applyCaptureBallThemeToElement(token, getCaptureBallForTrainerPid(safeStr(p?.owner), p));
     syncPieceEnteringClass(token, safeStr(p?.id), frameNow);
     if (getMegaEvolutionFxState(p?.owner, p?.pid)) token.classList.add("mega-evolving");
     const sizeCategory = p?.sizeCategory || "medium";
@@ -8681,6 +8867,7 @@ drawTraps(ctx, ox, oy, tile);
       st.width  = spriteW + "px";
       st.height = spriteH + "px";
       st.zIndex = String(hitZIndex);
+      applyCaptureBallThemeToElement(entry.el, getCaptureBallForTrainerPid(owner, p));
       syncPieceEnteringClass(entry.el, id, frameNow);
       entry.el.classList.toggle("mega-evolving", !!megaFx);
     } else {
