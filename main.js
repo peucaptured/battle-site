@@ -1397,6 +1397,166 @@ addLogBtn?.addEventListener("click", async () => {
   logTextInput.value = "";
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Auto-log de eventos da arena
+// Dispara ADD_LOG automaticamente quando o jogador local coloca/move/recolhe
+// uma peça sua, ou quando o HP de um pokémon seu muda. Só o cliente dono da
+// peça emite para evitar duplicação entre clientes.
+// ─────────────────────────────────────────────────────────────────────────────
+let _arenaLogPiecesBootstrapped = false;
+let _arenaLogLastPieces = new Map(); // id -> { row, col, owner, pid, name }
+let _arenaLogHpBootstrapped = false;
+let _arenaLogLastHp = new Map(); // `${owner}|${pid}` -> hp
+const _arenaLogRecentKeys = new Map(); // key -> timestamp (dedupe window)
+
+function _arenaLogPieceLabel(piece) {
+  try {
+    const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine: true });
+    const raw = safeStr(name) || safeStr(piece?.pid) || "Pokémon";
+    return raw;
+  } catch {
+    return safeStr(piece?.pid) || "Pokémon";
+  }
+}
+
+function _arenaLogShouldEmit(key, windowMs = 2500) {
+  const now = Date.now();
+  const prev = _arenaLogRecentKeys.get(key) || 0;
+  if (now - prev < windowMs) return false;
+  _arenaLogRecentKeys.set(key, now);
+  // GC ocasional
+  if (_arenaLogRecentKeys.size > 120) {
+    for (const [k, t] of _arenaLogRecentKeys) {
+      if (now - t > 30000) _arenaLogRecentKeys.delete(k);
+    }
+  }
+  return true;
+}
+
+function autoLogArenaEvent(text, { dedupeKey = "" } = {}) {
+  const msg = safeStr(text);
+  if (!msg) return;
+  if (!currentDb || !currentRid || !appState.connected) return;
+  const by = safeStr(appState.by || byInput?.value || "") || "";
+  if (!by) return;
+  const key = dedupeKey || msg;
+  if (!_arenaLogShouldEmit(key)) return;
+  // fire-and-forget
+  sendAction("ADD_LOG", by, { text: msg, auto: true }).catch(() => {});
+}
+
+function autoLogPiecesDiff(nextPieces) {
+  const nextMap = new Map();
+  const byName = safeStr(appState.by).toLowerCase();
+  for (const p of Array.isArray(nextPieces) ? nextPieces : []) {
+    const id = safeStr(p?.id);
+    if (!id) continue;
+    nextMap.set(id, {
+      row: Number(p?.row),
+      col: Number(p?.col),
+      owner: safeStr(p?.owner),
+      pid: safeStr(p?.pid),
+      revealed: !!p?.revealed,
+      _raw: p,
+    });
+  }
+
+  if (!_arenaLogPiecesBootstrapped) {
+    _arenaLogLastPieces = nextMap;
+    _arenaLogPiecesBootstrapped = true;
+    return;
+  }
+
+  // Entradas (novas peças)
+  for (const [id, cur] of nextMap) {
+    if (_arenaLogLastPieces.has(id)) continue;
+    if (cur.owner.toLowerCase() !== byName) continue; // só a peça minha
+    const label = _arenaLogPieceLabel(cur._raw);
+    autoLogArenaEvent(`➕ ${label} entrou no campo em (${cur.row + 1},${cur.col + 1})`, {
+      dedupeKey: `enter|${id}`,
+    });
+  }
+
+  // Saídas (peças removidas)
+  for (const [id, prev] of _arenaLogLastPieces) {
+    if (nextMap.has(id)) continue;
+    if (prev.owner.toLowerCase() !== byName) continue;
+    const label = _arenaLogPieceLabel(prev._raw);
+    autoLogArenaEvent(`↩️ ${label} foi recolhido do campo`, {
+      dedupeKey: `exit|${id}`,
+    });
+  }
+
+  // Movimentos (mesma peça mudou row/col)
+  for (const [id, cur] of nextMap) {
+    const prev = _arenaLogLastPieces.get(id);
+    if (!prev) continue;
+    if (cur.owner.toLowerCase() !== byName) continue;
+    if (prev.row === cur.row && prev.col === cur.col) continue;
+    const label = _arenaLogPieceLabel(cur._raw);
+    autoLogArenaEvent(
+      `🚶 ${label} moveu-se de (${prev.row + 1},${prev.col + 1}) para (${cur.row + 1},${cur.col + 1})`,
+      { dedupeKey: `move|${id}|${cur.row}:${cur.col}` }
+    );
+  }
+
+  _arenaLogLastPieces = nextMap;
+}
+
+function autoLogPartyStatesDiff(nextPartyStates) {
+  const byName = safeStr(appState.by).toLowerCase();
+  if (!byName) {
+    _arenaLogHpBootstrapped = true;
+    return;
+  }
+  const nextHp = new Map();
+  const ownerBucket = (nextPartyStates && nextPartyStates[safeStr(appState.by)]) || {};
+  for (const [pid, ps] of Object.entries(ownerBucket || {})) {
+    if (!ps || typeof ps !== "object") continue;
+    const hp = Number(ps.hp);
+    if (Number.isFinite(hp)) nextHp.set(safeStr(pid), hp);
+  }
+  if (!_arenaLogHpBootstrapped) {
+    _arenaLogLastHp = nextHp;
+    _arenaLogHpBootstrapped = true;
+    return;
+  }
+  for (const [pid, hp] of nextHp) {
+    const prev = _arenaLogLastHp.get(pid);
+    if (prev == null || prev === hp) continue;
+    // Só loga mudanças significativas (inteiros distintos)
+    const delta = hp - prev;
+    // Usa o pid como label básico (nome amigável pode ser resolvido via sheets)
+    let name = pid;
+    try {
+      const piece = (appState.pieces || []).find(
+        (p) => safeStr(p?.owner) === safeStr(appState.by) && safeStr(p?.pid) === pid
+      );
+      if (piece) name = _arenaLogPieceLabel(piece);
+    } catch {}
+    if (hp <= 0 && prev > 0) {
+      autoLogArenaEvent(`💥 ${name} foi nocauteado (HP 0)`, { dedupeKey: `ko|${pid}` });
+    } else if (delta < 0) {
+      autoLogArenaEvent(`💢 ${name} perdeu ${Math.abs(delta)} HP (${prev}→${hp})`, {
+        dedupeKey: `dmg|${pid}|${hp}`,
+      });
+    } else if (delta > 0) {
+      autoLogArenaEvent(`💚 ${name} recuperou ${delta} HP (${prev}→${hp})`, {
+        dedupeKey: `heal|${pid}|${hp}`,
+      });
+    }
+  }
+  _arenaLogLastHp = nextHp;
+}
+
+function resetAutoArenaLogState() {
+  _arenaLogPiecesBootstrapped = false;
+  _arenaLogLastPieces = new Map();
+  _arenaLogHpBootstrapped = false;
+  _arenaLogLastHp = new Map();
+  _arenaLogRecentKeys.clear();
+}
+
 // Sub-aba de Log: batalha / movimento / dados
 document.getElementById("log_subtabs")?.addEventListener("click", (ev) => {
   const btn = ev.target.closest?.("[data-log-kind]");
@@ -1574,6 +1734,7 @@ function cleanup() {
   appState.placing = null;
   appState.placingPid = null;
   resetPieceFieldFx();
+  resetAutoArenaLogState();
 
   if (playersPre) playersPre.textContent = "—";
   if (statePre) statePre.textContent = "—";
@@ -1735,6 +1896,7 @@ connectBtn?.addEventListener("click", async () => {
         appState.gridSize = Number(data?.gridSize) || 10;
         appState.theme = safeStr(data?.theme) || "biome_grass";
         appState.pieces = Array.isArray(data?.pieces) ? data.pieces : [];
+        try { autoLogPiecesDiff(appState.pieces); } catch {}
         appState.traps  = Array.isArray(data?.traps)  ? data.traps  : [];
         appState.zones  = Array.isArray(data?.zones)  ? data.zones  : [];
         if (statePre) statePre.textContent = pretty(data);
@@ -3011,7 +3173,7 @@ function renderArenaSheetPreview() {
   if (dodge <= 0 && cap > 0 && thg > 0) dodge = Math.max(0, cap - thg);
   const heldItem = getHeldItemForTrainerPid(owner, pid || name);
   const movesRaw = Array.isArray(sheet?.moves) ? sheet.moves : (sheet?.moves ? Object.values(sheet.moves) : []);
-  const moves = movesRaw.filter((move) => move && typeof move === "object");
+  const moves = movesRaw.filter((move) => move && typeof move === "object").slice(0, 4);
   const movesHtml = moves.length
     ? moves.map((mv) => {
         const moveName = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
@@ -10351,6 +10513,7 @@ function ensureSheetsRealtime() {
         _partyStatesBootstrapped = true;
       }
       _partyStates = nextPartyStates;
+      try { autoLogPartyStatesDiff(nextPartyStates); } catch {}
       _trimMegaEvolutionFx();
       renderSheetsTab();
       try { updateSidePanels(); } catch {}

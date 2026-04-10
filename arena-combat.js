@@ -809,6 +809,16 @@ const CSS_TEXT = `
 /* ── Sidebar ficha preview (Arena context menu) ── */
 #arena_sheet_preview {
   margin: 10px 0 12px;
+  /* Evita que a ficha domine toda a altura da sidebar quando tem muitos
+     golpes/campos; o próprio preview rola se passar desse limite. */
+  max-height: clamp(360px, 52vh, 640px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+#arena_sheet_preview::-webkit-scrollbar { width: 5px; }
+#arena_sheet_preview::-webkit-scrollbar-thumb {
+  background: rgba(148,163,184,.22);
+  border-radius: 999px;
 }
 .arena-sheet-card {
   border-radius: 12px;
@@ -817,6 +827,8 @@ const CSS_TEXT = `
   padding: 10px;
   color: #e8f6ff;
   box-shadow: 0 8px 20px rgba(2,6,23,.25);
+  height: auto;
+  min-height: 0;
 }
 .arena-sheet-card .sheet-name { font-weight: 900; font-size: 14px; line-height: 1.1; }
 .arena-sheet-card .sheet-sub { font-size: 11px; opacity: .82; margin-top: 2px; }
@@ -2182,7 +2194,7 @@ export class ArenaCombatUI {
     const hpCol = hpPct > 50 ? "rgba(34,197,94,1)" : hpPct > 25 ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
 
     const movesRaw = Array.isArray(sheet.moves) ? sheet.moves : (sheet.moves ? Object.values(sheet.moves) : []);
-    const moves = movesRaw.filter((m) => m && typeof m === "object").slice(0, 3);
+    const moves = movesRaw.filter((m) => m && typeof m === "object").slice(0, 4);
     const movesHtml = moves.length
       ? moves.map((mv) => {
           const mName = safeStr(mv.name || mv.nome || mv.Nome || "Golpe");
