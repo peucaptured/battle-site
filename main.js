@@ -495,6 +495,7 @@ const appState = {
   },
   // logs
   renderedLogKeys: new Set(),
+  activeLogSubtab: "battle",
   movement: {
     dashByPieceId: {},
     freeByPieceId: {},
@@ -1394,6 +1395,13 @@ addLogBtn?.addEventListener("click", async () => {
   const text = safeStr(logTextInput?.value || "") || "teste";
   await sendAction("ADD_LOG", by, { text });
   logTextInput.value = "";
+});
+
+// Sub-aba de Log: batalha / movimento / dados
+document.getElementById("log_subtabs")?.addEventListener("click", (ev) => {
+  const btn = ev.target.closest?.("[data-log-kind]");
+  if (!btn) return;
+  _setActiveLogSubtab(btn.dataset.logKind);
 });
 
 // Expor no console (compatibilidade com debug antigo)
@@ -2941,20 +2949,27 @@ function renderArenaSheetPreview() {
   const intel = safeInt(st.int, 0);
   let thg = safeInt(st.thg, 0);
   let dodge = safeInt(st.dodge, 0);
+  const parry = safeInt(st.parry, 0);
+  const fort = safeInt(st.fortitude ?? st.fort, 0);
+  const will = safeInt(st.will, 0);
   const cap = np * 2;
   if (thg <= 0 && cap > 0) thg = Math.round(cap / 2);
   if (dodge <= 0 && cap > 0 && thg > 0) dodge = Math.max(0, cap - thg);
   const heldItem = getHeldItemForTrainerPid(owner, pid || name);
   const movesRaw = Array.isArray(sheet?.moves) ? sheet.moves : (sheet?.moves ? Object.values(sheet.moves) : []);
-  const moves = movesRaw.filter((move) => move && typeof move === "object").slice(0, 3);
+  const moves = movesRaw.filter((move) => move && typeof move === "object");
   const movesHtml = moves.length
     ? moves.map((mv) => {
         const moveName = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
         const { rk, acc, area } = _mvSum(mv, st);
+        const mvType = getMoveType(moveName) || safeStr(mv?.meta?.type) || safeStr(mv?.type) || "";
+        const mvColor = mvType ? getTypeColor(mvType) : "";
+        const typeTag = mvType ? `<span class="mv-pill" style="background:${mvColor}22;border:1px solid ${mvColor}66;color:${mvColor}">${escapeHtml(mvType)}</span>` : "";
         return `
           <div class="move-row">
             <div class="move-head">
               <span class="move-name">${escapeHtml(moveName)}</span>
+              ${typeTag}
               <span class="mv-pill">A+${acc}</span>
               <span class="mv-pill">R${rk}</span>
               <span class="mv-pill">${area ? "Área" : "Alvo"}</span>
@@ -2963,6 +2978,20 @@ function renderArenaSheetPreview() {
         `;
       }).join("")
     : `<div class="muted">Sem golpes nesta ficha.</div>`;
+
+  const skills = Array.isArray(sheet?.skills) ? sheet.skills : [];
+  const skillChips = skills
+    .filter((x) => x && typeof x === "object" && safeStr(x.name) && parseInt(x.ranks || 0))
+    .map((x) => `<span class="chip">${escapeHtml(x.name)} R${parseInt(x.ranks || 0)}</span>`);
+  const skillsHtml = skillChips.length
+    ? `<div class="chip-row">${skillChips.join("")}</div>`
+    : `<span class="muted">Sem skills.</span>`;
+
+  const advantages = Array.isArray(sheet?.advantages) ? sheet.advantages : [];
+  const advChips = advantages.filter((a) => safeStr(a)).map((a) => `<span class="chip">${escapeHtml(a)}</span>`);
+  const advsHtml = advChips.length
+    ? `<div class="chip-row">${advChips.join("")}</div>`
+    : `<span class="muted">Sem advantages.</span>`;
 
   root.innerHTML = `
     <div class="arena-sheet-card">
@@ -2974,7 +3003,7 @@ function renderArenaSheetPreview() {
           <div class="chip-row">${typeHtml || `<span class="muted">Sem tipo</span>`}</div>
         </div>
       </div>
-      ${abilities.length ? `<div class="chip-row">${abilities.slice(0, 3).map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>` : ""}
+      ${abilities.length ? `<div class="chip-row">${abilities.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>` : ""}
       ${renderHeldItemSummaryHtml(heldItem, { label: "Item", size: "sm" })}
       <div class="hp-row"><span>HP</span><span>${hpUi.value}/6</span></div>
       <div class="hp-track"><div class="hp-fill" style="width:${hpUi.pct}%;background:${hpUi.color};"></div></div>
@@ -2985,7 +3014,15 @@ function renderArenaSheetPreview() {
         <div class="stat-box"><div class="stat-label">Int</div><div class="stat-val">${intel}</div></div>
         <div class="stat-box"><div class="stat-label">Thg</div><div class="stat-val">${thg}</div></div>
         <div class="stat-box"><div class="stat-label">Dodge</div><div class="stat-val">${dodge}</div></div>
+        <div class="stat-box"><div class="stat-label">Parry</div><div class="stat-val">${parry}</div></div>
+        <div class="stat-box"><div class="stat-label">Fort</div><div class="stat-val">${fort}</div></div>
+        <div class="stat-box"><div class="stat-label">Will</div><div class="stat-val">${will}</div></div>
+        <div class="stat-box cap"><div class="stat-label">Cap</div><div class="stat-val">${cap}</div></div>
       </div>
+      <div class="section-title">Skills</div>
+      ${skillsHtml}
+      <div class="section-title">Advantages</div>
+      ${advsHtml}
       <div class="section-title">Golpes</div>
       ${movesHtml}
     </div>
@@ -3947,7 +3984,16 @@ function renderSheetsInspectorCard(wrap) {
   const megaFxActive = !!getMegaEvolutionFxState(by, pid);
   // Boosts temporários de stat
   const statBoosts = ps.stat_boosts || {};
-  const isOnBoard = !!findBoardPieceForSheet(by, sh, sh?._party_pid_raw);
+  const sheetBoardPiece = findBoardPieceForSheet(by, sh, sh?._party_pid_raw);
+  const isOnBoard = !!sheetBoardPiece;
+  // Resumo de movimento (velocidade/deslocamento) — usa peça em campo se existir,
+  // senão calcula a partir da ficha para que a info fique disponível mesmo fora do mapa.
+  const _mvBudgetSheet = sheetBoardPiece
+    ? getPieceMovementBudget(sheetBoardPiece)
+    : getPieceMovementBudget({ owner: by, pid, sheet: sh });
+  const moveSummarySheet = (_mvBudgetSheet && Number.isFinite(Number(_mvBudgetSheet.speed)))
+    ? `Velocidade ${_mvBudgetSheet.speed} • deslocamento ${_mvBudgetSheet.maxTiles % 1 ? "1/2" : _mvBudgetSheet.maxTiles} quadrado(s)`
+    : "";
 
   const tp = (types || []).map((t) => _typePill(t)).join("");
   const abH = abilities.length ? `<div class="chip-row">${abilities.map((a) => `<span class="chip">${escapeHtml(a)}</span>`).join("")}</div>` : `<span class="muted">Sem abilities.</span>`;
@@ -4091,10 +4137,12 @@ function renderSheetsInspectorCard(wrap) {
           <div class="pill-row" style="margin-top:6px;">${tp}</div>
           ${matchupH}
           <div class="pill-row" style="margin-top:8px;">${abilities.map((a) => `<span class="chip ability-pill">${escapeHtml(a)}</span>`).join("")}</div>${condH}
+          ${renderHeldItemSummaryHtml(heldItem, { label: "Item", size: "md" })}
           <div style="margin-top:10px;">
             <div class="hp-row"><span>HP</span><span>${hp} / ${hpMax}</span></div>
             <div class="hp-track"><div class="hp-fill" style="width:${hpPct}%;background:${hpCol};"></div></div>
           </div>
+          ${moveSummarySheet ? `<div class="muted sheet-move-summary" style="margin-top:8px;font-size:13px">${escapeHtml(moveSummarySheet)}</div>` : ""}
           ${megaControlsHtml}
         </div>
       </div>
@@ -4421,20 +4469,114 @@ function fmtTimestamp(at) {
   return "";
 }
 
-function renderLogsIncremental() {
+// Classifica um log em "dice" (dados/rolagens), "move" (movimento) ou "battle" (padrão).
+function classifyLog(l) {
+  const raw = safeStr(l?.text || l?.payload?.text || "");
+  const t = raw.toLowerCase();
+  const kind = safeStr(l?.kind || l?.type || l?.category || "").toLowerCase();
+  if (kind === "dice" || kind === "roll" || kind === "dado" || kind === "dados") return "dice";
+  if (kind === "move" || kind === "movement" || kind === "movimento") return "move";
+  if (kind === "battle" || kind === "combat" || kind === "batalha") return "battle";
+  // Heurísticas por texto
+  if (/\b(rolou|rolagem|d20|d\d{1,3}\b|🎲|iniciativa)/i.test(t)) return "dice";
+  if (/\b(moveu|movimento|movimentou|deslocou|deslocamento|mover(?:-se)?|anda para|andou|→\s*\(|posi[çc][aã]o|quadrado[s]?\b)/i.test(t)) return "move";
+  return "battle";
+}
+
+// Tenta extrair um pieceId / pid do texto do log — usado para esconder o movimento
+// de Pokémon ocultos (que não foram revelados) para jogadores que não são donos da peça.
+function _logReferencesHiddenPiece(l) {
+  const by = safeStr(appState.by);
+  const author = safeStr(l?.by);
+  // Se o usuário atual é o autor (ou dono da peça), sempre mostra
+  if (author && author === by) return false;
+
+  const text = safeStr(l?.text || l?.payload?.text || "");
+  const payloadPieceId = safeStr(l?.payload?.pieceId || l?.payload?.piece_id || l?.pieceId || "");
+  const pieces = Array.isArray(appState.pieces) ? appState.pieces : [];
+
+  // 1) Se o payload traz pieceId, verifica direto
+  if (payloadPieceId) {
+    const p = pieces.find((pc) => safeStr(pc?.id) === payloadPieceId);
+    if (p) {
+      const revealed = (p?.revealed != null) ? !!p.revealed : true;
+      if (!revealed && !isPieceMine(p)) return true;
+      return false;
+    }
+  }
+  // 2) Busca no texto qualquer pid/id de peça oculta que seja do adversário
+  for (const p of pieces) {
+    if (isPieceMine(p)) continue;
+    const revealed = (p?.revealed != null) ? !!p.revealed : true;
+    if (revealed) continue;
+    const pid = safeStr(p?.pid);
+    const id = safeStr(p?.id);
+    if (pid && text.includes(pid)) return true;
+    if (id && text.includes(id)) return true;
+  }
+  // 3) Por autor: se o autor é um oponente e o log é sobre uma peça oculta dele
+  if (author && author !== by) {
+    const hasHidden = pieces.some((p) => safeStr(p?.owner) === author && !(p?.revealed != null ? !!p.revealed : true));
+    // Heurística: logs de movimento sem identificação explícita ainda podem revelar a
+    // posição de uma peça oculta do oponente → esconda por segurança.
+    if (hasHidden && /\b(moveu|movimento|deslocou|→\s*\()/i.test(text)) return true;
+  }
+  return false;
+}
+
+// Seleciona a sub-aba de log ativa. Persiste em appState.
+function _setActiveLogSubtab(kind) {
+  const valid = ["battle", "move", "dice"];
+  const k = valid.includes(kind) ? kind : "battle";
+  appState.activeLogSubtab = k;
+  const root = document.getElementById("log_subtabs");
+  if (root) {
+    root.querySelectorAll(".log-subtab").forEach((btn) => {
+      const on = btn.dataset.logKind === k;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+  }
+  // Re-renderiza a lista com o filtro novo
+  if (logList) {
+    logList.innerHTML = "";
+    appState.renderedLogKeys = new Set();
+    renderLogsIncremental({ force: true });
+  }
+}
+
+function renderLogsIncremental(opts = {}) {
   const logs = Array.isArray(appState.battle?.logs) ? appState.battle.logs : [];
   if (logCount) logCount.textContent = String(logs.length);
   if (!logList) return;
 
-  // primeira carga: renderiza os mais recentes (até 200)
+  const activeKind = safeStr(appState.activeLogSubtab) || "battle";
+
+  // Pré-classifica para atualizar contadores por categoria
+  const counts = { battle: 0, move: 0, dice: 0, hidden: 0 };
+  for (const l of logs) {
+    if (_logReferencesHiddenPiece(l)) { counts.hidden += 1; continue; }
+    const k = classifyLog(l);
+    counts[k] = (counts[k] || 0) + 1;
+  }
+  document.querySelectorAll("[data-log-count]").forEach((el) => {
+    const k = el.dataset.logCount;
+    if (k && counts[k] != null) el.textContent = String(counts[k]);
+  });
+
+  // primeira carga: renderiza os mais recentes (até 200) do filtro atual
   const max = 200;
   const startIdx = Math.max(0, logs.length - max);
   const fragment = document.createDocumentFragment();
 
   for (let i = startIdx; i < logs.length; i++) {
     const l = logs[i] || {};
-    const key = logKey(l, i);
-    if (appState.renderedLogKeys.has(key)) continue;
+    // Filtra movimentos de peças ocultas (antes de tudo, nunca aparecem)
+    if (_logReferencesHiddenPiece(l)) continue;
+    // Filtra por aba ativa
+    if (classifyLog(l) !== activeKind) continue;
+    const key = `${activeKind}|${logKey(l, i)}`;
+    if (!opts.force && appState.renderedLogKeys.has(key)) continue;
     appState.renderedLogKeys.add(key);
     fragment.appendChild(renderLogItem(l));
   }
@@ -4449,13 +4591,15 @@ function renderLogsIncremental() {
 
 function renderLogItem(l) {
   const box = document.createElement("div");
-  box.className = "log-item";
+  const kind = classifyLog(l);
+  box.className = `log-item log-item-${kind}`;
   const by = safeStr(l?.by) || "manual";
   const at = fmtTimestamp(l?.at);
   const text = safeStr(l?.text || l?.payload?.text || "");
+  const kindLabel = kind === "battle" ? "⚔️" : kind === "move" ? "🚶" : "🎲";
   box.innerHTML = `
     <div class="head">
-      <div class="by">${escapeHtml(by)}</div>
+      <div class="by">${kindLabel} ${escapeHtml(by)}</div>
       <div class="at">${escapeHtml(at)}</div>
     </div>
     <div class="text">${escapeHtml(text)}</div>
@@ -9609,7 +9753,7 @@ function _injectSheetsStyleOnce() {
       display:grid;
       grid-template-columns:minmax(0,1fr) clamp(560px, 46vw, 820px);
       gap:18px;
-      align-items:stretch;
+      align-items:start;
       min-height:0;
     }
     #tab_sheets .sheets-column{
@@ -9645,7 +9789,7 @@ function _injectSheetsStyleOnce() {
     #tab_sheets .sheets-column-detail{
       position:sticky;
       top:16px;
-      max-height:calc(100vh - 120px);
+      max-height:min(calc(100vh - 120px), calc(var(--hud-viewport-height, 820px) - 40px));
       overflow:hidden;
     }
     #tab_sheets .sheets-column-detail .sheets-column-head{
@@ -9665,7 +9809,7 @@ function _injectSheetsStyleOnce() {
     #tab_sheets .cards-grid{
       grid-template-columns:repeat(auto-fill,minmax(170px,1fr));
       align-content:start;
-      max-height:calc(100vh - 120px);
+      max-height:min(calc(100vh - 120px), calc(var(--hud-viewport-height, 820px) - 40px));
       overflow:auto;
       padding-right:6px;
     }
