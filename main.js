@@ -4640,11 +4640,21 @@ function resizeCanvasToContainer() {
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   const w = Math.max(320, Math.floor(rect.width));
   const h = Math.max(320, Math.floor(rect.height));
-  canvas.width = Math.floor(w * dpr);
-  canvas.height = Math.floor(h * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  if (view.autoFit) fitToView();
-  return true;
+  const targetW = Math.floor(w * dpr);
+  const targetH = Math.floor(h * dpr);
+  // IMPORTANTE: atribuir canvas.width/height LIMPA o buffer.
+  // Só fazemos isso se o tamanho realmente mudou — caso contrário, o canvas
+  // ficaria piscando preto em cada ResizeObserver/stabilization pass que chamar
+  // esta função sem precisar (causa raiz do flicker da arena).
+  const sizeChanged = (canvas.width !== targetW) || (canvas.height !== targetH);
+  if (sizeChanged) {
+    canvas.width = targetW;
+    canvas.height = targetH;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (view.autoFit) fitToView();
+    requestArenaCanvasFrame();
+  }
+  return sizeChanged;
 }
 
   if (typeof ResizeObserver !== "undefined") {
