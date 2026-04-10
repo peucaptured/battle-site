@@ -9123,6 +9123,7 @@ let _allSheetsCollections = _buildSheetCollections([]);
 let _partyStates = {};
 let _partyStatesBootstrapped = false;
 let _sheetsSelectedPid = null;
+let _sheetsRenderedDetailPid = null;
 let _sheetsLastError = "";
 // Persiste modificadores temporários de dano/acerto por golpe entre trocas de aba
 // chave: `${pid}::${moveIndex}`, valor: { acc: 0, dmg: 0 }
@@ -9573,13 +9574,14 @@ function _injectSheetsStyleOnce() {
     }
     #tab_sheets .fichas-layout{
       display:grid;
-      grid-template-columns:minmax(320px,420px) minmax(0,1fr);
+      grid-template-columns:minmax(320px,420px) minmax(440px,1fr);
       gap:16px;
-      align-items:start;
+      align-items:stretch;
       min-height:0;
     }
     #tab_sheets .sheets-column{
       min-width:0;
+      min-height:0;
       display:flex;
       flex-direction:column;
       gap:12px;
@@ -9604,6 +9606,29 @@ function _injectSheetsStyleOnce() {
       line-height:1.4;
       color:rgba(148,163,184,.95);
     }
+    #tab_sheets .sheets-column-list{
+      align-self:stretch;
+    }
+    #tab_sheets .sheets-column-detail{
+      position:sticky;
+      top:16px;
+      max-height:min(calc(var(--hud-viewport-height, 780px) - 24px), 760px);
+      overflow:hidden;
+    }
+    #tab_sheets .sheets-column-detail .sheets-column-head{
+      gap:2px;
+      padding-bottom:2px;
+    }
+    #tab_sheets .sheets-column-detail .sheets-column-title{
+      font-size:2.2rem;
+      line-height:.95;
+      letter-spacing:-0.02em;
+    }
+    #tab_sheets .sheets-column-detail .sheets-column-sub{
+      font-size:.82rem;
+      font-family:monospace;
+      letter-spacing:.02em;
+    }
     #tab_sheets .cards-grid{
       grid-template-columns:1fr;
       align-content:start;
@@ -9619,15 +9644,18 @@ function _injectSheetsStyleOnce() {
     }
     #tab_sheets #sheetDetail{
       flex:1 1 auto;
-      position:sticky;
-      top:16px;
+      position:static;
       min-width:0;
-      max-height:min(calc(var(--hud-viewport-height, 780px) - 24px), 760px);
+      min-height:0;
+      max-height:none;
       overflow:auto;
       padding-right:6px;
     }
     #tab_sheets #sheetDetail .inspector{
       min-width:0;
+    }
+    #tab_sheets #sheetDetail .inspector-head{
+      display:none;
     }
     #tab_sheets #sheetDetail .inspector-card.ficha-v2{
       background:#223355;
@@ -9637,11 +9665,7 @@ function _injectSheetsStyleOnce() {
       box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
     }
     #tab_sheets #sheetDetail .inspector-head{
-      display:flex;
-      align-items:flex-end;
-      justify-content:space-between;
-      gap:12px;
-      margin-bottom:12px;
+      display:none;
     }
     #tab_sheets #sheetDetail .inspector-title{
       font-size:1.25rem;
@@ -9940,8 +9964,15 @@ function _injectSheetsStyleOnce() {
       #tab_sheets .cards-grid{
         max-height:none;
       }
-      #tab_sheets #sheetDetail{
+      #tab_sheets .sheets-column-detail{
         position:static;
+        max-height:none;
+      }
+      #tab_sheets .sheets-column-detail .sheets-column-title{
+        font-size:1.45rem;
+        letter-spacing:0;
+      }
+      #tab_sheets #sheetDetail{
         max-height:none;
       }
     }
@@ -9979,7 +10010,13 @@ function ensureSheetsUI() {
   if (!root) return false;
 
   // já existe?
-  if (root.querySelector("#cardsGrid") && root.querySelector("#sheetDetail") && root.querySelector("#sheetsLoading")) {
+  if (
+    root.querySelector("#cardsGrid") &&
+    root.querySelector("#sheetDetail") &&
+    root.querySelector("#sheetsLoading") &&
+    root.querySelector(".sheets-column-list") &&
+    root.querySelector(".sheets-column-detail")
+  ) {
     _injectSheetsStyleOnce();
     return true;
   }
@@ -10007,14 +10044,14 @@ function ensureSheetsUI() {
 
     <div id="sheetsContent" style="display:none;">
       <div class="fichas-layout">
-        <section class="sheets-column" aria-label="Todas as fichas">
+        <section class="sheets-column sheets-column-list" aria-label="Todas as fichas">
           <div class="sheets-column-head">
             <div class="sheets-column-title">Todas as fichas</div>
             <div class="sheets-column-sub">Escolha um pokémon na lista para abrir a ficha completa na coluna ao lado.</div>
           </div>
           <div class="cards-grid" id="cardsGrid"></div>
         </section>
-        <section class="sheets-column" id="sheetDetailWrap" style="display:none;" aria-label="Ficha completa">
+        <section class="sheets-column sheets-column-detail" id="sheetDetailWrap" style="display:none;" aria-label="Ficha completa">
           <div class="sheets-column-head">
             <div class="sheets-column-title">Ficha completa</div>
             <div class="sheets-column-sub" id="sheetDetailHint">Selecione uma ficha da lista.</div>
@@ -10576,6 +10613,7 @@ function renderSheetsTab() {
   }
 
   if (!appState.connected || !currentDb || !currentRid) {
+    _sheetsRenderedDetailPid = null;
     if (countEl) countEl.textContent = "0";
     loadingEl.style.display = "";
     contentEl.style.display = "none";
@@ -10587,6 +10625,7 @@ function renderSheetsTab() {
 
   const by = safeStr(appState.by);
   if (!by) {
+    _sheetsRenderedDetailPid = null;
     if (countEl) countEl.textContent = "0";
     loadingEl.style.display = "";
     contentEl.style.display = "none";
@@ -10617,6 +10656,7 @@ function renderSheetsTab() {
   contentEl.style.display = "";
 
   if (!partyPids.length) {
+    _sheetsRenderedDetailPid = null;
     detailWrap.style.display = "none";
     cardsGrid.innerHTML = `<div class="sheets-empty" style="grid-column:1/-1">Sua party está vazia (ou não foi encontrada ainda).<br/>
     Dica: entre na sala pelo Streamlit 1x (espelha users_raw) ou garanta que <code>party_snapshot</code> está preenchido.</div>`;
@@ -10625,6 +10665,7 @@ function renderSheetsTab() {
   }
 
   if (!sheetEntries.length) {
+    _sheetsRenderedDetailPid = null;
     detailWrap.style.display = "none";
     cardsGrid.innerHTML = `<div class="sheets-empty" style="grid-column:1/-1">📭 Sem fichas encontradas para a sua party.<br/>
     Salve fichas em <b>Criação Guiada</b> e mantenha a party no <b>Trainer Hub</b>.</div>`;
@@ -10716,6 +10757,7 @@ function renderSheetsTab() {
   // ---- render detail
   const activeEntry = sheetEntries.find((entry) => entry._base_pid === _sheetsSelectedPid) || sheetEntries[0];
   if (!activeEntry) {
+    _sheetsRenderedDetailPid = null;
     detailEl.innerHTML = `<div class="sheets-empty">Selecione um card.</div>`;
     return;
   }
@@ -10723,11 +10765,14 @@ function renderSheetsTab() {
   const activeSheet = activeEntry.effectiveSheet || activeEntry.baseSheet || {};
   const activePokemon = activeSheet?.pokemon || {};
   const activePidLabel = _sheetDisplayPid(activeSheet, activeSheet?._party_pid_raw) || "—";
-  const activePokemonName = safeStr(activePokemon.name) || "Pokémon";
-  if (detailHintEl) detailHintEl.textContent = `${activePokemonName} • #${activePidLabel}`;
+  const activeNp = parseInt(activeSheet?.np || activePokemon?.np || 0) || 0;
+  if (detailHintEl) detailHintEl.textContent = `#${activePidLabel} • NP ${activeNp}`;
+  const shouldResetDetailScroll = _sheetsRenderedDetailPid !== activeEntry._base_pid;
+  _sheetsRenderedDetailPid = activeEntry._base_pid || null;
 
   detailEl.innerHTML = "";
   detailEl.appendChild(renderSheetsInspectorCard(document.createElement("div")));
+  if (shouldResetDetailScroll) detailEl.scrollTop = 0;
 
   if (safeStr(appState.activeTab) === "sheets") {
     const inspectorRoot = $("inspector_root");
