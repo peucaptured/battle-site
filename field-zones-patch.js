@@ -46,6 +46,9 @@ let zoneModeBackdrop, zoneModeTitle, zoneModeHint, zoneModeSelect, zoneRadiusRow
 let conflictBackdrop, conflictText, conflictKeepNew, conflictKeepOld;
 let _conflictResolve = null;
 let _zoneModeResolve = null;
+let _zoneRafHandle = 0;
+let _overlayLayoutKey = "";
+let _previewDirty = true;
 
 const ZONE_COLORS = {
   sun:              { bg: "rgba(253,224,71,0.35)",  border: "rgba(253,224,71,0.7)",  label: "☀️ Sol Forte" },
@@ -359,6 +362,7 @@ function getPlacementSummary() {
 function resetFreehandState() {
   _freehandPoints = [];
   _isFreehandDrawing = false;
+  _previewDirty = true;
 }
 
 function refreshZoneSelectionUI() {
@@ -399,6 +403,18 @@ function syncCanvasSize() {
   const height = Math.max(1, Math.round(layout.height));
   const pixelWidth = Math.max(1, Math.round(width * layout.dpr));
   const pixelHeight = Math.max(1, Math.round(height * layout.dpr));
+  const layoutKey = [
+    Math.round(Number(layout.relLeft) || 0),
+    Math.round(Number(layout.relTop) || 0),
+    width,
+    height,
+    pixelWidth,
+    pixelHeight,
+    Math.round((Number(layout.dpr) || 1) * 100),
+  ].join(":");
+
+  if (layoutKey === _overlayLayoutKey) return;
+  _overlayLayoutKey = layoutKey;
 
   for (const overlay of [zoneCanvas, drawCanvas]) {
     if (!overlay) continue;
@@ -416,6 +432,7 @@ function syncCanvasSize() {
 
   zoneCtx?.setTransform(layout.dpr, 0, 0, layout.dpr, 0, 0);
   drawCtx?.setTransform(layout.dpr, 0, 0, layout.dpr, 0, 0);
+  _previewDirty = true;
 }
 
 function drawZoneCellsPreview(ctx, cells, label) {
@@ -535,6 +552,34 @@ function renderZones() {
     zoneCtx.restore();
   }
 }
+
+function hasZoneAnimation() {
+  const zones = Array.isArray(window.appState?.zones) ? window.appState.zones : [];
+  return zones.length > 0;
+}
+
+function hasZonePreview() {
+  if (!_selectedZoneValue || !_zonePlacementMode) return false;
+  if (_zonePlacementMode === "square") return !!_zoneHoverTile;
+  return _isFreehandDrawing || _freehandPoints.length > 0;
+}
+
+function requestZoneFrame() {
+  if (_zoneRafHandle) return;
+  _zoneRafHandle = requestAnimationFrame(renderZoneFrame);
+}
+
+function renderZoneFrame() {
+  _zoneRafHandle = 0;
+  syncCanvasSize();
+  renderZones();
+  if (_previewDirty || hasZonePreview()) {
+    renderDrawPreview();
+  }
+  if (hasZoneAnimation()) {
+    _zoneRafHandle = requestAnimationFrame(renderZoneFrame);
+  }
+}
 function addSampledPathCells(points, keys, tile) {
   if (!Array.isArray(points) || points.length === 0) return;
   const addPoint = (point) => {
@@ -635,6 +680,7 @@ function renderDrawPreview() {
   const layout = getBoardLayout();
   if (!layout) return;
   drawCtx.clearRect(0, 0, layout.width, layout.height);
+  _previewDirty = false;
   if (!_selectedZoneValue) return;
 
   if (_zonePlacementMode === "square" && _zoneHoverTile) {
@@ -672,16 +718,6 @@ function renderDrawPreview() {
     drawCtx.setLineDash([]);
     drawCtx.restore();
   }
-}
-
-function startZoneRaf() {
-  function loop() {
-    syncCanvasSize();
-    renderZones();
-    renderDrawPreview();
-    requestAnimationFrame(loop);
-  }
-  requestAnimationFrame(loop);
 }
 
 function syncZoneModeModalState() {
@@ -778,6 +814,7 @@ function setZoneSelection(type, value, placement) {
   refreshZoneSelectionUI();
   updateZonePanelControls();
   armZonePlacement(placement.mode, placement.radius);
+  requestZoneFrame();
 }
 
 function clearZoneSelection() {
@@ -790,6 +827,7 @@ function clearZoneSelection() {
   if (arenaWrap) arenaWrap.classList.remove("arena-drawing-mode");
   refreshZoneSelectionUI();
   updateZonePanelControls();
+  requestZoneFrame();
 }
 
 function setTrapMode(icon) {
@@ -799,6 +837,7 @@ function setTrapMode(icon) {
     button.classList.toggle("fc-trap-active", button.dataset.fcValue === icon);
   });
   if (arenaWrap) arenaWrap.classList.add("arena-trap-mode");
+  requestZoneFrame();
 }
 
 function clearTrapMode() {
@@ -807,6 +846,7 @@ function clearTrapMode() {
     button.classList.remove("fc-trap-active");
   });
   if (arenaWrap) arenaWrap.classList.remove("arena-trap-mode");
+  requestZoneFrame();
 }
 
 async function chooseZonePlacement(type, value) {
@@ -928,6 +968,8 @@ function onCanvasDown(ev) {
     _isFreehandDrawing = true;
     _freehandPoints = [point];
     _zoneHoverTile = tile;
+    _previewDirty = true;
+    requestZoneFrame();
   }
 }
 
@@ -937,6 +979,8 @@ function onCanvasMove(ev) {
 
   if (_zonePlacementMode === "square") {
     _zoneHoverTile = getTileFromEvent(ev);
+    _previewDirty = true;
+    requestZoneFrame();
     return;
   }
 
@@ -948,6 +992,8 @@ function onCanvasMove(ev) {
     ev.stopImmediatePropagation();
     ev.stopPropagation();
     _freehandPoints.push(point);
+    _previewDirty = true;
+    requestZoneFrame();
   }
 }
 
@@ -958,6 +1004,7 @@ function onCanvasUp(ev) {
   _isFreehandDrawing = false;
   const cells = buildFreehandCells(_freehandPoints);
   resetFreehandState();
+  requestZoneFrame();
   if (cells.length === 0) return;
   commitZoneCells(cells, { shape: "freehand" });
 }
@@ -1101,6 +1148,7 @@ function syncZonePanelUI() {
     chip.appendChild(removeButton);
     fzpZonesList.appendChild(chip);
   }
+  requestZoneFrame();
 }
 async function placeTrap(icon, row, col) {
   const ref = window.getStateDocRef?.();
@@ -1304,7 +1352,6 @@ function init() {
   bindTrapModal();
   bindZoneModeModal();
   bindConflictModal();
-  startZoneRaf();
   syncZonePanelUI();
   setInterval(syncZonePanelUI, 800);
 
