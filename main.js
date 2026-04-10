@@ -9574,7 +9574,7 @@ function _injectSheetsStyleOnce() {
     }
     #tab_sheets .fichas-layout{
       display:grid;
-      grid-template-columns:minmax(320px,420px) minmax(440px,1fr);
+      grid-template-columns:minmax(0,1fr) clamp(460px, 34vw, 560px);
       gap:16px;
       align-items:stretch;
       min-height:0;
@@ -9630,7 +9630,7 @@ function _injectSheetsStyleOnce() {
       letter-spacing:.02em;
     }
     #tab_sheets .cards-grid{
-      grid-template-columns:1fr;
+      grid-template-columns:repeat(auto-fill,minmax(170px,1fr));
       align-content:start;
       max-height:min(calc(var(--hud-viewport-height, 780px) - 24px), 760px);
       overflow:auto;
