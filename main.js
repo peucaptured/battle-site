@@ -10033,20 +10033,33 @@ function _injectSheetsStyleOnce() {
     stOverrides.textContent = `
     #tab_sheets{
       min-width:0;
+      min-height:0;
+      flex:0 0 clamp(460px, calc(var(--hud-viewport-height, 780px) - 12px), 840px) !important;
+      height:clamp(460px, calc(var(--hud-viewport-height, 780px) - 12px), 840px) !important;
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+    }
+    #tab_sheets #sheetsContent{
+      flex:1 1 auto;
+      min-height:0;
     }
     #tab_sheets .fichas-layout{
       display:grid;
       grid-template-columns:minmax(0,1fr) clamp(560px, 46vw, 820px);
       gap:18px;
-      align-items:start;
+      align-items:stretch;
       min-height:0;
+      height:100%;
     }
     #tab_sheets .sheets-column{
       min-width:0;
       min-height:0;
+      height:100%;
       display:flex;
       flex-direction:column;
       gap:12px;
+      overflow:hidden;
       padding:14px;
       border-radius:20px;
       border:1px solid rgba(255,255,255,.1);
@@ -10072,10 +10085,8 @@ function _injectSheetsStyleOnce() {
       align-self:stretch;
     }
     #tab_sheets .sheets-column-detail{
-      position:sticky;
-      top:16px;
-      max-height:min(calc(100vh - 120px), calc(var(--hud-viewport-height, 820px) - 40px));
-      overflow:hidden;
+      position:relative;
+      top:auto;
     }
     #tab_sheets .sheets-column-detail .sheets-column-head{
       gap:2px;
@@ -10094,13 +10105,15 @@ function _injectSheetsStyleOnce() {
     #tab_sheets .cards-grid{
       grid-template-columns:repeat(auto-fill,minmax(170px,1fr));
       align-content:start;
-      max-height:min(calc(100vh - 120px), calc(var(--hud-viewport-height, 820px) - 40px));
+      flex:1 1 auto;
+      min-height:0;
       overflow:auto;
       padding-right:6px;
     }
     #tab_sheets #sheetDetailWrap{
       display:flex;
       flex-direction:column;
+      height:100%;
       min-width:0;
       align-self:stretch;
     }
@@ -10421,22 +10434,31 @@ function _injectSheetsStyleOnce() {
       flex:1 1 150px;
     }
     @media (max-width: 1180px){
+      #tab_sheets #sheetsContent{
+        overflow:auto;
+      }
       #tab_sheets .fichas-layout{
         grid-template-columns:1fr;
+        height:auto;
+      }
+      #tab_sheets .sheets-column{
+        height:auto;
+        overflow:visible;
       }
       #tab_sheets .cards-grid{
-        max-height:none;
+        overflow:visible;
+        padding-right:0;
       }
       #tab_sheets .sheets-column-detail{
         position:static;
-        max-height:none;
       }
       #tab_sheets .sheets-column-detail .sheets-column-title{
         font-size:1.45rem;
         letter-spacing:0;
       }
       #tab_sheets #sheetDetail{
-        max-height:none;
+        overflow:visible;
+        padding-right:0;
       }
     }
     @media (max-width: 900px){
@@ -11119,6 +11141,7 @@ function _setSheetsBadges() {
 function renderSheetsTab() {
   const root = $("tab_sheets");
   if (!root) return;
+  const maxVisibleSheets = 8;
 
   ensureSheetsUI();
   _setSheetsBadges();
@@ -11169,6 +11192,7 @@ function renderSheetsTab() {
   }
 
   const { partyPids, entries: sheetEntries } = _buildSelfSheetEntries(by);
+  const visibleSheetEntries = sheetEntries.slice(0, maxVisibleSheets);
 
   // cria mapa pid->sheet (primeira ocorrência = mais recente)
   const byPid = {};
@@ -11182,7 +11206,7 @@ function renderSheetsTab() {
   }
 
   const sheets = [];
-  if (countEl) countEl.textContent = String(sheetEntries.length);
+  if (countEl) countEl.textContent = String(visibleSheetEntries.length);
 
   // UI states
   loadingEl.style.display = "none";
@@ -11197,7 +11221,7 @@ function renderSheetsTab() {
     return;
   }
 
-  if (!sheetEntries.length) {
+  if (!visibleSheetEntries.length) {
     _sheetsRenderedDetailPid = null;
     detailWrap.style.display = "none";
     cardsGrid.innerHTML = `<div class="sheets-empty" style="grid-column:1/-1">📭 Sem fichas encontradas para a sua party.<br/>
@@ -11209,13 +11233,13 @@ function renderSheetsTab() {
   detailWrap.style.display = "";
 
   // selecionado
-  if (!_sheetsSelectedPid || !sheetEntries.some((entry) => entry._base_pid === _sheetsSelectedPid)) {
-    _sheetsSelectedPid = sheetEntries[0]?._base_pid || null;
+  if (!_sheetsSelectedPid || !visibleSheetEntries.some((entry) => entry._base_pid === _sheetsSelectedPid)) {
+    _sheetsSelectedPid = visibleSheetEntries[0]?._base_pid || null;
   }
 
   // ---- render cards
   cardsGrid.innerHTML = "";
-  for (const entry of sheetEntries) {
+  for (const entry of visibleSheetEntries) {
     const sh = entry.effectiveSheet || entry.baseSheet;
     const baseSheet = entry.baseSheet || sh;
     const pkm = sh?.pokemon || {};
@@ -11294,7 +11318,7 @@ function renderSheetsTab() {
   }
 
   // ---- render detail
-  const activeEntry = sheetEntries.find((entry) => entry._base_pid === _sheetsSelectedPid) || sheetEntries[0];
+  const activeEntry = visibleSheetEntries.find((entry) => entry._base_pid === _sheetsSelectedPid) || visibleSheetEntries[0];
   if (!activeEntry) {
     _sheetsRenderedDetailPid = null;
     detailEl.innerHTML = `<div class="sheets-empty">Selecione um card.</div>`;
