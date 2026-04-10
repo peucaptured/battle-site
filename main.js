@@ -1235,7 +1235,26 @@ function buildTurnOrderFromCurrentBoard() {
   return buildTurnOrderFromPieces(appState.pieces, appState.battle?.initiative || {});
 }
 
+function ensureHudTabLayoutStyleOnce() {
+  if (document.getElementById("hud_tab_layout_style")) return;
+  const st = document.createElement("style");
+  st.id = "hud_tab_layout_style";
+  st.textContent = `
+    body.tab-arena-active .sidebar-left{
+      display:block !important;
+    }
+    body:not(.tab-arena-active) .hud-body{
+      grid-template-columns:minmax(0,1fr);
+    }
+    body:not(.tab-arena-active) .sidebar-left{
+      display:none !important;
+    }
+  `;
+  document.head.appendChild(st);
+}
+
 function setTab(tabName) {
+  ensureHudTabLayoutStyleOnce();
   const map = {
     arena: $("tab_arena"),
     combat: $("tab_combat"),
@@ -1252,6 +1271,10 @@ function setTab(tabName) {
     t.classList.toggle("active", isActive);
     t.setAttribute("aria-selected", isActive ? "true" : "false");
   });
+  if (document.body) {
+    document.body.classList.toggle("tab-arena-active", tabName === "arena");
+    document.body.dataset.activeTab = tabName;
+  }
 
   appState.activeTab = tabName;
   const inspectorRoot = $("inspector_root");
@@ -9545,24 +9568,57 @@ function _injectSheetsStyleOnce() {
     const stOverrides = document.createElement("style");
     stOverrides.id = "sheets_tab_style_overrides_20260409";
     stOverrides.textContent = `
+    #tab_sheets{
+      min-width:0;
+    }
     #tab_sheets .fichas-layout{
       display:grid;
       grid-template-columns:minmax(320px,420px) minmax(0,1fr);
       gap:16px;
       align-items:start;
+      min-height:0;
+    }
+    #tab_sheets .sheets-column{
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      padding:14px;
+      border-radius:20px;
+      border:1px solid rgba(255,255,255,.1);
+      background:linear-gradient(180deg, rgba(10,18,34,.82), rgba(7,14,29,.94));
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+    }
+    #tab_sheets .sheets-column-head{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    #tab_sheets .sheets-column-title{
+      font-size:1rem;
+      font-weight:950;
+      letter-spacing:.01em;
+    }
+    #tab_sheets .sheets-column-sub{
+      font-size:.8rem;
+      line-height:1.4;
+      color:rgba(148,163,184,.95);
     }
     #tab_sheets .cards-grid{
+      grid-template-columns:1fr;
       align-content:start;
       max-height:min(calc(var(--hud-viewport-height, 780px) - 24px), 760px);
       overflow:auto;
       padding-right:6px;
     }
     #tab_sheets #sheetDetailWrap{
-      display:block;
+      display:flex;
+      flex-direction:column;
       min-width:0;
       align-self:stretch;
     }
     #tab_sheets #sheetDetail{
+      flex:1 1 auto;
       position:sticky;
       top:16px;
       min-width:0;
@@ -9881,11 +9937,18 @@ function _injectSheetsStyleOnce() {
       #tab_sheets .fichas-layout{
         grid-template-columns:1fr;
       }
+      #tab_sheets .cards-grid{
+        max-height:none;
+      }
       #tab_sheets #sheetDetail{
         position:static;
+        max-height:none;
       }
     }
     @media (max-width: 900px){
+      #tab_sheets .sheets-column{
+        padding:12px;
+      }
       .ins-conds-shell{
         grid-template-columns:1fr;
       }
@@ -9944,14 +10007,22 @@ function ensureSheetsUI() {
 
     <div id="sheetsContent" style="display:none;">
       <div class="fichas-layout">
-        <div>
+        <section class="sheets-column" aria-label="Todas as fichas">
+          <div class="sheets-column-head">
+            <div class="sheets-column-title">Todas as fichas</div>
+            <div class="sheets-column-sub">Escolha um pokémon na lista para abrir a ficha completa na coluna ao lado.</div>
+          </div>
           <div class="cards-grid" id="cardsGrid"></div>
-        </div>
-        <div id="sheetDetailWrap" style="display:none;">
+        </section>
+        <section class="sheets-column" id="sheetDetailWrap" style="display:none;" aria-label="Ficha completa">
+          <div class="sheets-column-head">
+            <div class="sheets-column-title">Ficha completa</div>
+            <div class="sheets-column-sub" id="sheetDetailHint">Selecione uma ficha da lista.</div>
+          </div>
           <div id="sheetDetail">
             <div class="sheets-empty">Selecione um card.</div>
           </div>
-        </div>
+        </section>
       </div>
     </div>
 
@@ -10487,10 +10558,12 @@ function renderSheetsTab() {
   const cardsGrid = document.getElementById("cardsGrid");
   const detailEl = document.getElementById("sheetDetail");
   const detailWrap = document.getElementById("sheetDetailWrap");
+  const detailHintEl = document.getElementById("sheetDetailHint");
   const countEl = document.getElementById("sheetsCount");
   const errEl = document.getElementById("sheetsError");
 
   if (!cardsGrid || !detailEl || !loadingEl || !contentEl || !detailWrap) return;
+  if (detailHintEl) detailHintEl.textContent = "Selecione uma ficha da lista.";
 
   if (errEl) {
     if (_sheetsLastError) {
@@ -10646,6 +10719,12 @@ function renderSheetsTab() {
     detailEl.innerHTML = `<div class="sheets-empty">Selecione um card.</div>`;
     return;
   }
+
+  const activeSheet = activeEntry.effectiveSheet || activeEntry.baseSheet || {};
+  const activePokemon = activeSheet?.pokemon || {};
+  const activePidLabel = _sheetDisplayPid(activeSheet, activeSheet?._party_pid_raw) || "—";
+  const activePokemonName = safeStr(activePokemon.name) || "Pokémon";
+  if (detailHintEl) detailHintEl.textContent = `${activePokemonName} • #${activePidLabel}`;
 
   detailEl.innerHTML = "";
   detailEl.appendChild(renderSheetsInspectorCard(document.createElement("div")));
