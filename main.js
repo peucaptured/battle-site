@@ -2568,11 +2568,65 @@ function _cssVarStyleAttr(rawVars) {
 
 function applyCaptureBallThemeToElement(el, rawBall) {
   if (!el) return normalizeCaptureBall(rawBall);
+  const ball = normalizeCaptureBall(rawBall);
   const vars = getCaptureBallCssVarMap(rawBall);
   for (const [key, value] of Object.entries(vars)) {
     el.style.setProperty(key, value);
   }
-  return normalizeCaptureBall(rawBall);
+  const apiName = safeStr(ball?.api_name || DEFAULT_CAPTURE_BALL_API_NAME);
+  if (apiName) {
+    try { el.setAttribute("data-capture-ball", apiName); } catch {}
+  }
+  return ball;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Negative-condition visual FX helpers
+// Maps a piece's current conditions to a single "dominant" negative effect
+// used to drive the looping battlefield aura animation.
+// ─────────────────────────────────────────────────────────────────────────────
+const _NEGATIVE_CONDITION_PRIORITY = [
+  "freeze", "sleep", "asleep", "paralyze", "paralyzed", "burn",
+  "poison", "confusion", "fearful", "panicked", "insane",
+  "bound", "restrained", "immobile", "prone", "blind", "deaf",
+  "stunned", "dazed", "hindered", "vulnerable", "defenseless",
+  "impaired", "disabled", "compelled", "controlled", "entranced",
+  "fatigued", "exhausted", "incapacitated", "transformed",
+];
+
+function _pieceDominantNegativeCondition(piece) {
+  if (!piece || typeof piece !== "object") return "";
+  const mm = piece.mm_conditions || {};
+  const all = [];
+  const pushList = (arr) => {
+    if (Array.isArray(arr)) for (const id of arr) {
+      const k = safeStr(id).toLowerCase();
+      if (k) all.push(k);
+    }
+  };
+  pushList(mm.deg3);
+  pushList(mm.deg2);
+  pushList(mm.deg1);
+  pushList(piece.pokemon_conditions);
+  if (!all.length) return "";
+  for (const pref of _NEGATIVE_CONDITION_PRIORITY) {
+    if (all.includes(pref)) return pref;
+  }
+  return all[0] || "generic";
+}
+
+function applyPieceConditionFxToElement(el, piece) {
+  if (!el) return;
+  const key = _pieceDominantNegativeCondition(piece);
+  if (key) {
+    if (el.getAttribute("data-negative-condition") !== key) {
+      el.setAttribute("data-negative-condition", key);
+    }
+    el.classList.add("has-negative-condition");
+  } else {
+    if (el.hasAttribute("data-negative-condition")) el.removeAttribute("data-negative-condition");
+    el.classList.remove("has-negative-condition");
+  }
 }
 
 function renderCaptureBallBackdropHtml(rawBall) {
@@ -6914,6 +6968,7 @@ function renderArenaDom() {
     token.className = "token";
     token.dataset.pieceId = safeStr(p?.id);
     applyCaptureBallThemeToElement(token, getCaptureBallForTrainerPid(safeStr(p?.owner), p));
+    applyPieceConditionFxToElement(token, p);
     syncPieceEnteringClass(token, safeStr(p?.id), frameNow);
     if (getMegaEvolutionFxState(p?.owner, p?.pid)) token.classList.add("mega-evolving");
     const sizeCategory = p?.sizeCategory || "medium";
@@ -9067,6 +9122,7 @@ drawTraps(ctx, ox, oy, tile);
       st.height = spriteH + "px";
       st.zIndex = String(hitZIndex);
       applyCaptureBallThemeToElement(entry.el, getCaptureBallForTrainerPid(owner, p));
+      applyPieceConditionFxToElement(entry.el, p);
       syncPieceEnteringClass(entry.el, id, frameNow);
       entry.el.classList.toggle("mega-evolving", !!megaFx);
     } else {
