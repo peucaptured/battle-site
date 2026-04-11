@@ -1241,6 +1241,15 @@ function ensureHudTabLayoutStyleOnce() {
   const st = document.createElement("style");
   st.id = "hud_tab_layout_style";
   st.textContent = `
+    .hud-center [role="tabpanel"].panel{
+      flex:0 0 clamp(460px, calc(var(--hud-viewport-height, 780px) - 12px), 840px) !important;
+      height:clamp(460px, calc(var(--hud-viewport-height, 780px) - 12px), 840px) !important;
+    }
+    .hud-center [role="tabpanel"].panel .panel-inner{
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+    }
     body.tab-arena-active .sidebar-left{
       display:block !important;
     }
