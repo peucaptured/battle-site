@@ -2201,7 +2201,7 @@ export class ArenaCombatUI {
     const hp = safeInt(pData.hp, 6);
     const hpMax = 6;
     const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
-    const hpCol = hpPct > 50 ? "rgba(34,197,94,1)" : hpPct > 25 ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
+    const hpCol = hp >= 5 ? "rgba(34,197,94,1)" : hp >= 3 ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
 
     const movesRaw = Array.isArray(sheet.moves) ? sheet.moves : (sheet.moves ? Object.values(sheet.moves) : []);
     const moves = (typeof window.getPreferredMovesForTrainerPid === "function")

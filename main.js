@@ -3798,7 +3798,7 @@ function resolvePieceInspectorTypes(piece, { isMine = isPieceMine(piece) } = {})
   }
   const displayName = dexNameFromPid(pid) || pid;
   if (displayName && displayName !== "???" && displayName !== "—") {
-    const nameSlug = displayName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+    const nameSlug = _normalizePokeApiSlug(displayName);
     if (nameSlug) {
       const cached = _getPokeApiCached(nameSlug);
       if (cached && Array.isArray(cached.types) && cached.types.length) return cached.types;
@@ -3957,6 +3957,30 @@ function openPieceMegaModal(piece) {
   _bindMegaControlButtons(refs.content);
 }
 
+async function triggerPieceMegaAction(piece) {
+  const megaState = getPieceMegaUiState(piece);
+  if (!megaState.canMega) {
+    setStatus("warn", "essa peça não possui Mega Evolução disponível");
+    return;
+  }
+
+  const activeSlug = safeStr(megaState.entry?.activeMegaSlug);
+  if (activeSlug) {
+    await setBattleMegaEvolutionForTrainerPid(megaState.owner, megaState.pid, "");
+    return;
+  }
+
+  if (megaState.megaSheets.length === 1) {
+    const slug = safeStr(megaState.megaSheets[0]?.mega_slug);
+    if (slug) {
+      await setBattleMegaEvolutionForTrainerPid(megaState.owner, megaState.pid, slug);
+      return;
+    }
+  }
+
+  openPieceMegaModal(piece);
+}
+
 function renderInspectorCard() {
   updateMovementTurnState();
   const wrap = document.createElement("div");
@@ -4002,8 +4026,9 @@ function renderInspectorCard() {
 
   const hp = Number(getPartyHp(owner, pid) ?? 0);
   const hpMax = 6;
-  const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
-  const hpCol = hpPct > 66 ? "#22c55e" : hpPct > 33 ? "#f59e0b" : hp <= 0 ? "#64748b" : "#ef4444";
+  const hpUi = getHpUiState(hp);
+  const hpPct = hpUi.pct;
+  const hpCol = hpUi.color;
 
   const chips = [
     `<span class="chip">${escapeHtml(ownerLabel)}</span>`,
@@ -4046,7 +4071,7 @@ function renderInspectorCard() {
     // Fallback: tenta pelo nome de exibição (ex: "Charizard" → "charizard")
     const displayName = dexNameFromPid(pid) || pid;
     if (!slug && displayName && displayName !== "???" && displayName !== "—") {
-      const nameSlug = displayName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+      const nameSlug = _normalizePokeApiSlug(displayName);
       if (nameSlug) {
         const cached = _getPokeApiCached(nameSlug);
         if (cached && Array.isArray(cached.types) && cached.types.length) return cached.types;
@@ -4263,8 +4288,9 @@ function renderSheetsInspectorCard(wrap) {
   const hp = (ps.hp ?? 6);
   const cond = Array.isArray(ps.cond) ? ps.cond : [];
   const hpMax = 6;
-  const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
-  const hpCol = (hpPct > 50) ? "rgba(34,197,94,1)" : (hpPct > 25) ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
+  const hpUi = getHpUiState(hp);
+  const hpPct = hpUi.pct;
+  const hpCol = hpUi.color;
   const heldItem = getHeldItemForTrainerPid(by, pid || activeEntry._party_pid_raw || pname);
   const megaControlsHtml = _renderMegaControlsHtml(by, pid, activeEntry);
   const megaFxActive = !!getMegaEvolutionFxState(by, pid);
@@ -5676,8 +5702,20 @@ function _getEffectivePokemonSlug(ownerName, pidLike) {
 }
 
 function _normalizePokeApiSlug(raw) {
-  return safeStr(raw)
+  const input = safeStr(raw);
+  if (!input) return "";
+
+  const sharedSlug = (typeof spriteSlugFromPokemonName === "function")
+    ? safeStr(spriteSlugFromPokemonName(input))
+    : "";
+  const base = sharedSlug || input;
+
+  return base
     .toLowerCase()
+    .replace(/-alolan$/, "-alola")
+    .replace(/-galarian$/, "-galar")
+    .replace(/-hisuian$/, "-hisui")
+    .replace(/-paldean$/, "-paldea")
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9\-]/g, "")
     .replace(/-+/g, "-")
@@ -6562,7 +6600,7 @@ async function handlePieceMenuAction(action, pieceId) {
     return;
   }
   if (action === "mega") {
-    openPieceMegaModal(piece);
+    await triggerPieceMegaAction(piece);
     return;
   }
   if (action === "conditions") {
@@ -6718,7 +6756,7 @@ handlePieceMenuAction = async function(action, pieceId) {
     return;
   }
   if (action === "mega") {
-    openPieceMegaModal(piece);
+    await triggerPieceMegaAction(piece);
     return;
   }
   if (action === "conditions") {

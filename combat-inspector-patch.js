@@ -98,6 +98,18 @@ function _applyPrefixForm(n) {
  *     "Mr. Mime"  → "mr-mime"
  */
 function nameToPokeAPISlug(name) {
+  if (typeof window.spriteSlugFromPokemonName === "function") {
+    const sharedSlug = String(window.spriteSlugFromPokemonName(name) || "").trim();
+    if (sharedSlug) {
+      return sharedSlug
+        .toLowerCase()
+        .replace(/-alolan$/, "-alola")
+        .replace(/-galarian$/, "-galar")
+        .replace(/-hisuian$/, "-hisui")
+        .replace(/-paldean$/, "-paldea");
+    }
+  }
+
   let slug = normalizeName(name)
     .toLowerCase()
     .replace(/♀/g, "f")

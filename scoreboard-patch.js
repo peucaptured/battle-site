@@ -715,7 +715,7 @@ function render() {
       const HP_MAX = 6;
       const hpVal = s.hp != null ? s.hp : HP_MAX;
       const hpPct = Math.max(0, Math.min(100, (hpVal / HP_MAX) * 100));
-      const hpCol = s.ko ? "#64748b" : hpPct > 66 ? "#22c55e" : hpPct > 33 ? "#f59e0b" : "#ef4444";
+      const hpCol = s.ko ? "#64748b" : hpVal >= 5 ? "#22c55e" : hpVal >= 3 ? "#f59e0b" : "#ef4444";
       const heldItemHtml = (isMe || s.revealed) && typeof window.renderHeldItemBadgeHtml === "function"
         ? window.renderHeldItemBadgeHtml(s.heldItem, { className: "sb-held-item", size: "sm" })
         : "";

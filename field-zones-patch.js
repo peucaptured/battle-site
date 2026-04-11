@@ -935,8 +935,13 @@ function bindCanvasEvents() {
   });
 }
 
+function isArenaToolsEventTarget(target) {
+  return !!target?.closest?.("#arena_tools_shell, #field_conditions, #fc_zone_panel, #trap_modal_backdrop, #zone_mode_modal_backdrop, #conflict_modal_backdrop");
+}
+
 function onCanvasDown(ev) {
   if (ev.button !== 0) return;
+  if (isArenaToolsEventTarget(ev.target)) return;
 
   if (_trapMode) {
     const tile = getTileFromEvent(ev);
