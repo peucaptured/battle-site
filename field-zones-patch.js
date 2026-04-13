@@ -850,6 +850,7 @@ function clearTrapMode() {
 }
 
 async function chooseZonePlacement(type, value) {
+  if (window.isMapEditorActive?.()) return;
   const placement = await askPlacementMode(getZoneLabel(value));
   if (!placement) return;
   setZoneSelection(type, value, placement);
@@ -860,6 +861,7 @@ function bindFieldConditions() {
   if (!bar) return;
 
   bar.addEventListener("click", async (ev) => {
+    if (window.isMapEditorActive?.()) return;
     const button = ev.target.closest(".fc-btn[data-fc-type]");
     if (!button) return;
 
@@ -905,6 +907,7 @@ function bindZonePanel() {
 
   if (fzpBtnDraw) {
     fzpBtnDraw.addEventListener("click", async () => {
+      if (window.isMapEditorActive?.()) return;
       if (!_selectedZoneType || !_selectedZoneValue) return;
       await chooseZonePlacement(_selectedZoneType, _selectedZoneValue);
     });
@@ -940,6 +943,7 @@ function isArenaToolsEventTarget(target) {
 }
 
 function onCanvasDown(ev) {
+  if (window.isMapEditorActive?.()) return;
   if (ev.button !== 0) return;
   if (isArenaToolsEventTarget(ev.target)) return;
 
@@ -979,6 +983,7 @@ function onCanvasDown(ev) {
 }
 
 function onCanvasMove(ev) {
+  if (window.isMapEditorActive?.()) return;
   if (_trapMode) return;
   if (!_selectedZoneValue || !_zonePlacementMode) return;
 
@@ -1003,6 +1008,7 @@ function onCanvasMove(ev) {
 }
 
 function onCanvasUp(ev) {
+  if (window.isMapEditorActive?.()) return;
   if (!_selectedZoneValue || _zonePlacementMode !== "freehand" || !_isFreehandDrawing) return;
   ev.stopImmediatePropagation();
   ev.stopPropagation();
@@ -1362,6 +1368,12 @@ function init() {
 
   console.log("[field-zones-patch] ready");
 }
+
+window.clearArenaZoneAndTrapModes = () => {
+  clearTrapMode();
+  clearZoneSelection();
+};
+window.isArenaZoneOrTrapActive = () => !!_trapMode || !!_selectedZoneValue || !!_zonePlacementMode;
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => setTimeout(() => waitForGlobals(init), 700));

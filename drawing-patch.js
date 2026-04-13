@@ -306,6 +306,7 @@ function drawStroke(ctx, stroke) {
 }
 // ── Event handlers ────────────────────────────────────────────────────────
 function onPointerDown(e) {
+  if (window.isMapEditorActive?.()) return;
   if (!_drawMode) return;
   e.preventDefault();
   e.stopPropagation();
@@ -383,6 +384,7 @@ function bindCanvasEvents() {
 
 // ── Mode toggle ───────────────────────────────────────────────────────────
 function setDrawMode(active) {
+  if (active && window.isMapEditorActive?.()) return;
   _drawMode = active;
   ensureCanvas();
 
@@ -499,6 +501,9 @@ function initDrawing(db, rid, by) {
   ensureCanvas();
   startListening();
 }
+
+window.setArenaDrawMode = setDrawMode;
+window.isArenaDrawModeActive = () => !!_drawMode;
 
 // ── Auto-init when appState connects ─────────────────────────────────────
 bindUI();

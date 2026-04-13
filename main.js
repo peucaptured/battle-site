@@ -14,6 +14,7 @@ import {
   limit,
   getDocs,
   runTransaction,
+  writeBatch,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 import { getAuth, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
 
@@ -214,6 +215,237 @@ function storageMediaUrl(path) {
   const bucket = (DEFAULT_FIREBASE_CONFIG && DEFAULT_FIREBASE_CONFIG.storageBucket) || "";
   // gs:// URLs não funcionam no <img>. Use o endpoint HTTP do Storage.
   return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media`;
+}
+
+
+function cloneJson(value) {
+  if (typeof structuredClone === "function") {
+    try { return structuredClone(value); } catch {}
+  }
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function mapEditorIsOwner() {
+  return safeStr(appState.role) === "owner";
+}
+
+function shouldUseMapTerrainPreview() {
+  const boardRevision = Number(appState.board?.mapEditRevision || 0);
+  const draftRevision = Number(mapEditorState.draft?.revision || mapEditorState.published?.revision || 0);
+  return mapEditorIsOwner() && (
+    mapEditorState.enabled ||
+    isMapEditorDirty() ||
+    mapEditorState.saving ||
+    !!safeStr(appState.board?.mapEditPublishPending ? "1" : "") ||
+    boardRevision !== draftRevision
+  );
+}
+
+function isMapEditorActive() {
+  return shouldUseMapTerrainPreview();
+}
+
+window.isMapEditorActive = isMapEditorActive;
+
+function mapEditorPoolLabel(poolName) {
+  const name = safeStr(poolName);
+  if (name.startsWith("biome:")) return `Bioma ${name.slice(6)}`;
+  return name.replaceAll("_", " ");
+}
+
+function getCurrentMapBaseSpec() {
+  const board = appState.board || {};
+  return {
+    grid: Number(appState.gridSize) || 10,
+    themeKey: safeStr(appState.theme) || "biome_grass",
+    seed: Number(board?.seed || 0) || 0,
+    noWater: !!board?.noWater,
+    includeBeachDocks: !!board?.includeBeachDocks,
+  };
+}
+
+function sameMapBaseSpec(a, b) {
+  return (
+    Number(a?.grid || 0) === Number(b?.grid || 0) &&
+    safeStr(a?.themeKey) === safeStr(b?.themeKey) &&
+    Number(a?.seed || 0) === Number(b?.seed || 0) &&
+    !!a?.noWater === !!b?.noWater &&
+    !!a?.includeBeachDocks === !!b?.includeBeachDocks
+  );
+}
+
+function createEmptyMapEdits(baseSpec = getCurrentMapBaseSpec()) {
+  return {
+    baseSignature: safeStr(appState.board?.mapEditBaseSignature),
+    baseSpec: {
+      grid: Number(baseSpec?.grid || 0),
+      themeKey: safeStr(baseSpec?.themeKey),
+      seed: Number(baseSpec?.seed || 0) || 0,
+      noWater: !!baseSpec?.noWater,
+      includeBeachDocks: !!baseSpec?.includeBeachDocks,
+    },
+    removedObjectIds: [],
+    addedObjects: [],
+    revision: 0,
+    updatedBy: "",
+    updatedAt: null,
+  };
+}
+
+function normalizeMapObject(raw = {}) {
+  const footprint = raw?.footprint || {};
+  const support = raw?.support || {};
+  const render = raw?.render || {};
+  const x = Number(raw?.x || 0) || 0;
+  const y = Number(raw?.y || 0) || 0;
+  const fw = Math.max(1, Number(footprint?.w || 1) || 1);
+  const fh = Math.max(1, Number(footprint?.h || 1) || 1);
+  return {
+    id: safeStr(raw?.id) || `manual_${Math.random().toString(36).slice(2, 10)}`,
+    kind: safeStr(raw?.kind) || "manual_asset",
+    x,
+    y,
+    assetId: safeStr(raw?.assetId),
+    assetPool: safeStr(raw?.assetPool),
+    origin: safeStr(raw?.origin) || "manual",
+    sprite: safeStr(raw?.sprite),
+    anchor: {
+      ax: Number(raw?.anchor?.ax ?? 0.5) || 0.5,
+      ay: Number(raw?.anchor?.ay ?? 1.0) || 1.0,
+    },
+    footprint: { w: fw, h: fh },
+    support: {
+      w: Math.max(1, Number(support?.w || fw) || fw),
+      baseY: Number(support?.baseY ?? (y + fh - 1)) || (y + fh - 1),
+    },
+    blocks: raw?.blocks !== false,
+    occludes: !!raw?.occludes,
+    splitSprite: !!raw?.splitSprite,
+    topSprite: safeStr(raw?.topSprite),
+    render: {
+      pxX: Number(render?.pxX || 0) || 0,
+      pxY: Number(render?.pxY || 0) || 0,
+      offsetX: Number(render?.offsetX || 0) || 0,
+      offsetY: Number(render?.offsetY || 0) || 0,
+      w: Number(render?.w || 0) || 0,
+      h: Number(render?.h || 0) || 0,
+    },
+  };
+}
+
+function normalizeMapEdits(raw, baseSpec = getCurrentMapBaseSpec()) {
+  const out = createEmptyMapEdits(baseSpec);
+  if (!raw || typeof raw !== "object") return out;
+  if (raw.baseSpec && !sameMapBaseSpec(raw.baseSpec, baseSpec)) return out;
+  out.baseSignature = safeStr(raw.baseSignature || out.baseSignature);
+  out.removedObjectIds = Array.from(new Set((Array.isArray(raw.removedObjectIds) ? raw.removedObjectIds : []).map((v) => safeStr(v)).filter(Boolean))).sort();
+  out.addedObjects = (Array.isArray(raw.addedObjects) ? raw.addedObjects : []).filter(Boolean).map(normalizeMapObject);
+  out.revision = Math.max(0, Number(raw.revision || 0) || 0);
+  out.updatedBy = safeStr(raw.updatedBy);
+  out.updatedAt = raw.updatedAt || null;
+  if (!hasMapEditChanges(out)) {
+    out.revision = 0;
+  }
+  return out;
+}
+
+function serializeMapEdits(edits) {
+  return JSON.stringify(normalizeMapEdits(edits, getCurrentMapBaseSpec()));
+}
+
+function areMapEditsEqual(a, b) {
+  return serializeMapEdits(a) === serializeMapEdits(b);
+}
+
+function isMapEditorDirty() {
+  if (!mapEditorState.draft) return false;
+  return !areMapEditsEqual(mapEditorState.draft, mapEditorState.published || createEmptyMapEdits());
+}
+
+function hasMapEditChanges(edits) {
+  return !!((edits?.removedObjectIds?.length || 0) || (edits?.addedObjects?.length || 0));
+}
+
+function getMapObjectRect(obj) {
+  const x = Number(obj?.x || 0) || 0;
+  const y = Number(obj?.y || 0) || 0;
+  const fw = Math.max(1, Number(obj?.footprint?.w || 1) || 1);
+  const fh = Math.max(1, Number(obj?.footprint?.h || 1) || 1);
+  return { x0: x, y0: y, x1: x + fw, y1: y + fh };
+}
+
+function applyMapEditsToMapData(mapData, edits) {
+  const result = cloneJson(mapData || {}) || {};
+  const normalizedEdits = normalizeMapEdits(edits, getCurrentMapBaseSpec());
+  let objects = (Array.isArray(result.objects) ? result.objects : []).map(normalizeMapObject);
+  const removedIds = new Set((normalizedEdits.removedObjectIds || []).map((id) => safeStr(id)).filter(Boolean));
+  if (removedIds.size) {
+    objects = objects.filter((obj) => !removedIds.has(safeStr(obj.id)));
+  }
+  for (const obj of normalizedEdits.addedObjects || []) {
+    objects.push(normalizeMapObject(obj));
+  }
+  result.objects = objects;
+  result.meta = { ...(result.meta || {}) };
+  result.meta.mapEdited = hasMapEditChanges(normalizedEdits);
+  result.meta.mapEditRevision = Number(normalizedEdits.revision || 0) || 0;
+  result.meta.mapEditBaseSignature = safeStr(normalizedEdits.baseSignature);
+  return result;
+}
+
+async function computeMapBaseSignature(baseSpec = getCurrentMapBaseSpec()) {
+  const payload = JSON.stringify({
+    grid: Number(baseSpec?.grid || 0) || 0,
+    includeBeachDocks: !!baseSpec?.includeBeachDocks,
+    noWater: !!baseSpec?.noWater,
+    seed: Number(baseSpec?.seed || 0) || 0,
+    themeKey: safeStr(baseSpec?.themeKey),
+  });
+  if (globalThis.crypto?.subtle) {
+    const digest = await globalThis.crypto.subtle.digest("SHA-1", new TextEncoder().encode(payload));
+    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+  }
+  let hash = 0;
+  for (let i = 0; i < payload.length; i++) hash = ((hash << 5) - hash + payload.charCodeAt(i)) | 0;
+  return Math.abs(hash).toString(16).padStart(16, "0").slice(0, 16);
+}
+
+function getEffectiveMapTilePx() {
+  const current = Number(mapDataState.data?.tile_px || 0);
+  if (current > 0) return current;
+  const base = Number(mapDataState.baseData?.tile_px || 0);
+  if (base > 0) return base;
+  return Number(mapEditorState.catalog?.baseTilePx || 32) || 32;
+}
+
+function getActiveMapTerrainUrl() {
+  const b = appState.board || {};
+  const urls = [];
+  pushUniqueString(urls, b.mapTerrainUrl);
+  pushUniqueString(urls, b.map_terrain_url);
+  const storagePath = safeStr(b.mapTerrainStoragePath || b.map_terrain_storage_path);
+  if (storagePath) pushUniqueString(urls, storageMediaUrl(storagePath));
+  return urls[0] || "";
+}
+
+function getActiveMapBaseDataUrl() {
+  const b = appState.board || {};
+  const urls = [];
+  pushUniqueString(urls, b.mapBaseDataUrl);
+  pushUniqueString(urls, b.map_base_data_url);
+  const storagePath = safeStr(b.mapBaseDataStoragePath || b.map_base_data_storage_path);
+  if (storagePath) pushUniqueString(urls, storageMediaUrl(storagePath));
+  return urls[0] || "";
+}
+
+function getActiveMapAssetCatalogUrl() {
+  const b = appState.board || {};
+  const urls = [];
+  pushUniqueString(urls, b.mapAssetCatalogUrl);
+  pushUniqueString(urls, b.map_asset_catalog_url);
+  const storagePath = safeStr(b.mapAssetCatalogStoragePath || b.map_asset_catalog_storage_path);
+  if (storagePath) pushUniqueString(urls, storageMediaUrl(storagePath));
+  return urls[0] || "";
 }
 
 
@@ -502,6 +734,23 @@ const appState = {
     halfStepIntentByPieceId: {},
     turnKey: "",
   },
+};
+
+const mapEditorState = {
+  enabled: false,
+  mode: "remove", // "remove" | "add"
+  rawPublished: null,
+  published: null,
+  draft: null,
+  history: [],
+  saving: false,
+  selectedPool: "",
+  selectedAssetId: "",
+  catalog: null,
+  catalogUrl: "",
+  catalogLoading: false,
+  assetIndex: new Map(),
+  panelReady: false,
 };
 
 
@@ -1323,6 +1572,8 @@ function syncArenaOverlayLayout() {
   moveNodeIntoContainer($("draw-toolbar"), arenaToolsMenu);
   moveNodeIntoContainer($("field_conditions"), arenaToolsMenu);
   moveNodeIntoContainer($("fc_zone_panel"), arenaToolsMenu);
+  ensureMapEditorPanel();
+  renderMapEditorPanel();
 }
 
 function setArenaLeftOverlayOpen(open) {
@@ -1340,6 +1591,500 @@ function setArenaToolsMenuOpen(open) {
   arenaToolsToggle?.setAttribute("aria-expanded", next ? "true" : "false");
   arenaToolsMenu?.setAttribute("aria-hidden", next ? "false" : "true");
   renderArenaHoverCard();
+}
+
+function ensureMapEditorPanel() {
+  if (!arenaToolsMenu) return null;
+  let panel = document.getElementById("map_editor_panel");
+  if (panel) return panel;
+
+  if (!document.getElementById("map_editor_style")) {
+    const st = document.createElement("style");
+    st.id = "map_editor_style";
+    st.textContent = `
+      .map-editor-panel{
+        margin-top:12px;
+        padding-top:12px;
+        border-top:1px solid rgba(148,163,184,.16);
+        display:flex;
+        flex-direction:column;
+        gap:10px;
+      }
+      .map-editor-panel[hidden]{display:none !important;}
+      .map-editor-head{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+      .map-editor-title{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#e2e8f0;}
+      .map-editor-sub{font-size:11px;color:#94a3b8;}
+      .map-editor-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+      .map-editor-btn{
+        border:1px solid rgba(148,163,184,.24);
+        background:rgba(15,23,42,.55);
+        color:#e2e8f0;
+        border-radius:10px;
+        padding:7px 10px;
+        font:inherit;
+        cursor:pointer;
+      }
+      .map-editor-btn[disabled]{opacity:.45;cursor:not-allowed;}
+      .map-editor-btn.is-active{
+        border-color:rgba(56,189,248,.55);
+        background:rgba(14,116,144,.22);
+        box-shadow:0 0 0 1px rgba(56,189,248,.22) inset;
+      }
+      .map-editor-select{
+        width:100%;
+        border-radius:10px;
+        border:1px solid rgba(148,163,184,.18);
+        background:rgba(2,6,23,.72);
+        color:#e2e8f0;
+        padding:8px 10px;
+      }
+      .map-editor-grid{
+        display:grid;
+        grid-template-columns:repeat(auto-fill,minmax(92px,1fr));
+        gap:8px;
+        max-height:320px;
+        overflow:auto;
+        padding-right:4px;
+      }
+      .map-editor-asset{
+        display:flex;
+        flex-direction:column;
+        gap:6px;
+        align-items:center;
+        justify-content:flex-start;
+        min-height:110px;
+        border:1px solid rgba(148,163,184,.18);
+        border-radius:12px;
+        background:rgba(2,6,23,.74);
+        color:#e2e8f0;
+        padding:8px 6px;
+        cursor:pointer;
+      }
+      .map-editor-asset.is-active{
+        border-color:rgba(34,197,94,.55);
+        box-shadow:0 0 0 1px rgba(34,197,94,.22) inset;
+        background:rgba(6,78,59,.2);
+      }
+      .map-editor-asset img{
+        max-width:70px;
+        max-height:70px;
+        image-rendering:pixelated;
+        object-fit:contain;
+      }
+      .map-editor-asset-label{
+        font-size:10px;
+        line-height:1.2;
+        text-align:center;
+        word-break:break-word;
+      }
+      .map-editor-note{
+        font-size:11px;
+        color:#cbd5e1;
+        line-height:1.35;
+      }
+      .map-editor-disabled{
+        opacity:.55;
+        pointer-events:none;
+      }
+    `;
+    document.head.appendChild(st);
+  }
+
+  panel = document.createElement("section");
+  panel.id = "map_editor_panel";
+  panel.className = "map-editor-panel";
+  arenaToolsMenu.appendChild(panel);
+  return panel;
+}
+
+function getMapEditorSelectedAsset() {
+  return mapEditorState.assetIndex.get(`${safeStr(mapEditorState.selectedPool)}::${safeStr(mapEditorState.selectedAssetId)}`) || null;
+}
+
+function getMapEditorPools() {
+  return Array.isArray(mapEditorState.catalog?.pools) ? mapEditorState.catalog.pools : [];
+}
+
+function getMapEditorAssetsForPool(poolName) {
+  return (Array.isArray(mapEditorState.catalog?.assets) ? mapEditorState.catalog.assets : [])
+    .filter((asset) => safeStr(asset.assetPool) === safeStr(poolName));
+}
+
+function getCurrentBiomePoolName() {
+  const biome = safeStr(mapDataState.baseData?.biome || mapDataState.currentData?.biome || "");
+  return biome ? `biome:${biome}` : "";
+}
+
+function ensureMapEditorSelection() {
+  const pools = getMapEditorPools();
+  if (!pools.length) {
+    mapEditorState.selectedPool = "";
+    mapEditorState.selectedAssetId = "";
+    return;
+  }
+  const biomePool = getCurrentBiomePoolName();
+  const hasCurrentPool = pools.some((pool) => safeStr(pool.name) === safeStr(mapEditorState.selectedPool));
+  if (!hasCurrentPool) {
+    mapEditorState.selectedPool = pools.find((pool) => safeStr(pool.name) === biomePool)?.name || pools[0].name;
+  }
+  const assets = getMapEditorAssetsForPool(mapEditorState.selectedPool);
+  if (!assets.some((asset) => safeStr(asset.assetId) === safeStr(mapEditorState.selectedAssetId))) {
+    mapEditorState.selectedAssetId = safeStr(assets[0]?.assetId);
+  }
+}
+
+function closeConflictingArenaModes() {
+  try { clearPokemonPlacingMode(); } catch {}
+  try { selectPiece(null); } catch {}
+  try { hidePieceContextMenu(); } catch {}
+  try { hidePiecePickerMenu(); } catch {}
+  try { window.setArenaDrawMode?.(false); } catch {}
+  try { window.clearArenaZoneAndTrapModes?.(); } catch {}
+}
+
+function setMapEditorEnabled(active) {
+  if (!mapEditorIsOwner()) return;
+  mapEditorState.enabled = !!active;
+  if (mapEditorState.enabled) {
+    closeConflictingArenaModes();
+    maybeLoadMapData();
+  }
+  renderMapEditorPanel();
+  refreshEffectiveMapData();
+}
+
+function setMapEditorMode(mode) {
+  mapEditorState.mode = mode === "add" ? "add" : "remove";
+  if (mapEditorState.mode === "add") ensureMapEditorSelection();
+  renderMapEditorPanel();
+}
+
+function pushMapEditorHistory() {
+  mapEditorState.history.push(cloneJson(mapEditorState.draft || createEmptyMapEdits()));
+  if (mapEditorState.history.length > 30) {
+    mapEditorState.history = mapEditorState.history.slice(-30);
+  }
+}
+
+function updateMapEditorDraft(mutator) {
+  const currentBase = getCurrentMapBaseSpec();
+  if (!mapEditorState.draft || !sameMapBaseSpec(mapEditorState.draft.baseSpec, currentBase)) {
+    mapEditorState.draft = normalizeMapEdits(mapEditorState.published, currentBase);
+  }
+  pushMapEditorHistory();
+  const nextDraft = normalizeMapEdits(cloneJson(mapEditorState.draft), currentBase);
+  mutator(nextDraft);
+  mapEditorState.draft = normalizeMapEdits(nextDraft, currentBase);
+  renderMapEditorPanel();
+  refreshEffectiveMapData();
+}
+
+function undoMapEditorDraft() {
+  if (!mapEditorState.history.length) return;
+  mapEditorState.draft = normalizeMapEdits(mapEditorState.history.pop(), getCurrentMapBaseSpec());
+  renderMapEditorPanel();
+  refreshEffectiveMapData();
+}
+
+function discardMapEditorDraft() {
+  mapEditorState.history = [];
+  mapEditorState.draft = normalizeMapEdits(mapEditorState.published, getCurrentMapBaseSpec());
+  renderMapEditorPanel();
+  refreshEffectiveMapData();
+}
+
+function handlePublishedMapEdits(raw) {
+  mapEditorState.rawPublished = raw || null;
+  const baseSpec = getCurrentMapBaseSpec();
+  const published = normalizeMapEdits(raw, baseSpec);
+  mapEditorState.published = published;
+  const shouldResetDraft =
+    !mapEditorState.draft ||
+    !sameMapBaseSpec(mapEditorState.draft.baseSpec, baseSpec) ||
+    !isMapEditorDirty() ||
+    published.revision >= Number(mapEditorState.draft?.revision || 0);
+  if (shouldResetDraft) {
+    mapEditorState.draft = cloneJson(published);
+    mapEditorState.history = [];
+  }
+  renderMapEditorPanel();
+  refreshEffectiveMapData();
+}
+
+function getMapEditorAnchorMask(assetPool, terrainGrid) {
+  const grid = Array.isArray(terrainGrid) ? terrainGrid : [];
+  if (!grid.length) return [];
+  const pool = safeStr(assetPool);
+  if (pool === "water_flora" || pool === "beach_corals") {
+    return grid.map((row) => row.map((cell) => Number(cell) === 2));
+  }
+  if (["beach_shells", "beach_starfish", "beach_palms", "beach_ai_palms", "desert_ai_dunes"].includes(pool)) {
+    return grid.map((row) => row.map((cell) => Number(cell) === 1));
+  }
+  return grid.map((row) => row.map((cell) => Number(cell) !== 2));
+}
+
+function canPlaceMapEditorAsset(mapData, assetMeta, x, y) {
+  const terrain = Array.isArray(mapData?.terrain_grid) ? mapData.terrain_grid : [];
+  if (!terrain.length) return { ok: false, reason: "Sem terreno carregado." };
+  const height = terrain.length;
+  const width = Array.isArray(terrain[0]) ? terrain[0].length : 0;
+  const fw = Math.max(1, Number(assetMeta?.footprint?.w || 1) || 1);
+  const fh = Math.max(1, Number(assetMeta?.footprint?.h || 1) || 1);
+  if (x < 0 || y < 0 || x + fw > width || y + fh > height) {
+    return { ok: false, reason: "Fora do mapa." };
+  }
+  const anchorMask = getMapEditorAnchorMask(assetMeta?.assetPool, terrain);
+  const baseY = y + fh - 1;
+  if (!anchorMask[baseY]?.slice(x, x + fw).every(Boolean)) {
+    return { ok: false, reason: "Terreno incompatível para esse asset." };
+  }
+  if (safeStr(assetMeta?.sizeClass) !== "micro") {
+    for (let row = y; row < y + fh; row++) {
+      if (!anchorMask[row]?.slice(x, x + fw).every(Boolean)) {
+        return { ok: false, reason: "O footprint do asset não cabe nesse terreno." };
+      }
+    }
+  }
+  const x1 = x + fw;
+  const y1 = y + fh;
+  for (const obj of Array.isArray(mapData?.objects) ? mapData.objects : []) {
+    const rect = getMapObjectRect(obj);
+    if (x < rect.x1 && x1 > rect.x0 && y < rect.y1 && y1 > rect.y0) {
+      return { ok: false, reason: "Já existe um asset ocupando essa área." };
+    }
+  }
+  return { ok: true, reason: "" };
+}
+
+function buildManualMapObject(assetMeta, x, y) {
+  const tilePx = getEffectiveMapTilePx();
+  const baseTilePx = Number(assetMeta?.baseTilePx || 32) || 32;
+  const scale = tilePx / baseTilePx;
+  const spriteW = Math.max(1, Math.round((Number(assetMeta?.image?.w || 1) || 1) * scale));
+  const spriteH = Math.max(1, Math.round((Number(assetMeta?.image?.h || 1) || 1) * scale));
+  const fw = Math.max(1, Number(assetMeta?.footprint?.w || 1) || 1);
+  const fh = Math.max(1, Number(assetMeta?.footprint?.h || 1) || 1);
+  const areaW = fw * tilePx;
+  const areaH = fh * tilePx;
+  const offX = Math.round((areaW - spriteW) / 2);
+  const offY = Math.round(areaH - spriteH);
+  return normalizeMapObject({
+    id: `manual_${Math.random().toString(36).slice(2, 10)}`,
+    kind: safeStr(assetMeta?.assetPool || "manual_asset").replaceAll(":", "_"),
+    x,
+    y,
+    assetId: safeStr(assetMeta?.assetId),
+    assetPool: safeStr(assetMeta?.assetPool),
+    origin: "manual",
+    sprite: safeStr(assetMeta?.spriteUrl || ""),
+    anchor: { ax: 0.5, ay: 1.0 },
+    footprint: { w: fw, h: fh },
+    support: { w: Math.max(1, Number(assetMeta?.support?.w || fw) || fw), baseY: y + fh - 1 },
+    blocks: assetMeta?.blocks !== false,
+    occludes: !!assetMeta?.occludes,
+    splitSprite: false,
+    topSprite: "",
+    render: {
+      pxX: x * tilePx + offX,
+      pxY: y * tilePx + offY,
+      offsetX: offX,
+      offsetY: offY,
+      w: spriteW,
+      h: spriteH,
+    },
+  });
+}
+
+function removeMapObjectAt(row, col) {
+  const objects = getMapObjectsAt(row, col);
+  if (!objects.length) {
+    setStatus("warn", "Nenhum asset nesse tile.");
+    return;
+  }
+  const target = objects[0];
+  updateMapEditorDraft((draft) => {
+    if (safeStr(target.origin) === "manual") {
+      draft.addedObjects = (draft.addedObjects || []).filter((obj) => safeStr(obj.id) !== safeStr(target.id));
+      draft.removedObjectIds = (draft.removedObjectIds || []).filter((id) => safeStr(id) !== safeStr(target.id));
+    } else {
+      const ids = new Set((draft.removedObjectIds || []).map((id) => safeStr(id)).filter(Boolean));
+      ids.add(safeStr(target.id));
+      draft.removedObjectIds = Array.from(ids).sort();
+    }
+  });
+  setStatus("ok", "Asset removido do rascunho.");
+}
+
+function addMapObjectAt(row, col) {
+  const assetMeta = getMapEditorSelectedAsset();
+  if (!assetMeta) {
+    setStatus("warn", "Selecione um asset antes de adicionar.");
+    return;
+  }
+  const effectiveMap = mapDataState.data || mapDataState.baseData;
+  const placement = canPlaceMapEditorAsset(effectiveMap, assetMeta, col, row);
+  if (!placement.ok) {
+    setStatus("warn", placement.reason);
+    return;
+  }
+  updateMapEditorDraft((draft) => {
+    draft.addedObjects = Array.isArray(draft.addedObjects) ? draft.addedObjects : [];
+    draft.addedObjects.push(buildManualMapObject(assetMeta, col, row));
+  });
+  setStatus("ok", "Asset adicionado ao rascunho.");
+}
+
+async function saveMapEditorDraft() {
+  if (!currentDb || !currentRid || !mapEditorIsOwner()) return;
+  const baseSpec = getCurrentMapBaseSpec();
+  let draft = normalizeMapEdits(mapEditorState.draft, baseSpec);
+  const published = normalizeMapEdits(mapEditorState.published, baseSpec);
+  if (areMapEditsEqual(draft, published)) return;
+
+  draft.baseSignature = await computeMapBaseSignature(baseSpec);
+  draft.baseSpec = cloneJson(baseSpec);
+  if (hasMapEditChanges(draft)) {
+    draft.revision = Math.max(Number(published.revision || 0), Number(draft.revision || 0), Number(appState.board?.mapEditRevision || 0)) + 1;
+  } else {
+    draft.revision = 0;
+  }
+  draft.updatedBy = safeStr(appState.by);
+  draft.updatedAt = null;
+
+  const editsRef = doc(currentDb, "rooms", currentRid, "public_state", "map_edits");
+  const stateRef = doc(currentDb, "rooms", currentRid, "public_state", "state");
+
+  mapEditorState.saving = true;
+  renderMapEditorPanel();
+  refreshEffectiveMapData();
+  try {
+    const batch = writeBatch(currentDb);
+    batch.set(editsRef, {
+      baseSignature: draft.baseSignature,
+      baseSpec: draft.baseSpec,
+      removedObjectIds: draft.removedObjectIds || [],
+      addedObjects: draft.addedObjects || [],
+      revision: draft.revision,
+      updatedBy: draft.updatedBy,
+      updatedAt: serverTimestamp(),
+    });
+    batch.set(stateRef, {
+      mapEditPublishPending: true,
+      mapEditRequestedRevision: draft.revision,
+      mapEditRequestedBy: safeStr(appState.by),
+      mapEditRequestedAt: serverTimestamp(),
+      mapEditPublishError: "",
+    }, { merge: true });
+    await batch.commit();
+
+    mapEditorState.draft = normalizeMapEdits(draft, baseSpec);
+    mapEditorState.history = [];
+    setStatus("ok", "Rascunho salvo. Aguardando republicação do mapa pelo app principal.");
+  } catch (err) {
+    console.error("[map-editor] save error:", err);
+    setStatus("err", `Falha ao salvar edição do mapa: ${err?.message || err}`);
+  } finally {
+    mapEditorState.saving = false;
+    renderMapEditorPanel();
+    refreshEffectiveMapData();
+  }
+}
+
+function handleMapEditorTileAction(row, col) {
+  if (!mapEditorIsOwner()) return false;
+  if (!mapEditorState.enabled) return false;
+  if (mapEditorState.mode === "add") {
+    addMapObjectAt(row, col);
+  } else {
+    removeMapObjectAt(row, col);
+  }
+  return true;
+}
+
+function renderMapEditorPanel() {
+  const panel = ensureMapEditorPanel();
+  if (!panel) return;
+  const owner = mapEditorIsOwner();
+  panel.hidden = !owner;
+  if (!owner) return;
+
+  ensureMapEditorSelection();
+  const dirty = isMapEditorDirty();
+  const boardRevision = Number(appState.board?.mapEditRevision || 0);
+  const publishedRevision = Number(mapEditorState.published?.revision || 0);
+  const baseReady = !!mapDataState.baseData && !!getActiveMapTerrainUrl();
+  const catalogReady = !!mapEditorState.catalog;
+  const publishError = safeStr(appState.board?.mapEditPublishError);
+  const statusText = mapEditorState.saving
+    ? "Publicando rascunho..."
+    : publishError
+      ? "Falha ao publicar"
+    : dirty
+      ? "Rascunho pendente"
+      : (boardRevision < publishedRevision || !!appState.board?.mapEditPublishPending)
+        ? "Aguardando republicação"
+        : "Publicado";
+  const pools = getMapEditorPools();
+  const assets = getMapEditorAssetsForPool(mapEditorState.selectedPool);
+  const selectedAssetId = safeStr(mapEditorState.selectedAssetId);
+  const disableAdd = !baseReady || !catalogReady;
+
+  panel.innerHTML = `
+    <div class="map-editor-head">
+      <div>
+        <div class="map-editor-title">Edição de Assets</div>
+        <div class="map-editor-sub">${escapeHtml(statusText)} • rev ${Math.max(boardRevision, publishedRevision)}</div>
+      </div>
+      <button type="button" class="map-editor-btn ${mapEditorState.enabled ? "is-active" : ""}" id="map_editor_toggle_btn">
+        ${mapEditorState.enabled ? "Desativar" : "Modo edição"}
+      </button>
+    </div>
+    <div class="map-editor-row">
+      <button type="button" class="map-editor-btn ${mapEditorState.mode === "remove" ? "is-active" : ""}" id="map_editor_mode_remove" ${mapEditorState.enabled ? "" : "disabled"}>Remover</button>
+      <button type="button" class="map-editor-btn ${mapEditorState.mode === "add" ? "is-active" : ""}" id="map_editor_mode_add" ${mapEditorState.enabled ? "" : "disabled"}>Adicionar</button>
+      <button type="button" class="map-editor-btn" id="map_editor_undo" ${(mapEditorState.history.length && mapEditorState.enabled) ? "" : "disabled"}>Desfazer</button>
+      <button type="button" class="map-editor-btn" id="map_editor_discard" ${dirty ? "" : "disabled"}>Descartar rascunho</button>
+      <button type="button" class="map-editor-btn" id="map_editor_save" ${dirty && !mapEditorState.saving ? "" : "disabled"}>Salvar/Publicar</button>
+    </div>
+    <div class="map-editor-note">
+      ${baseReady ? "Clique no mapa para remover ou adicionar assets decorativos." : "Publique o bundle completo do mapa no app principal para habilitar preview real no battle-site."}
+    </div>
+    ${publishError ? `<div class="map-editor-note" style="color:#fca5a5">${escapeHtml(publishError)}</div>` : ""}
+    <div class="${(!mapEditorState.enabled || disableAdd || mapEditorState.mode !== "add") ? "map-editor-disabled" : ""}">
+      <select class="map-editor-select" id="map_editor_pool_select" ${(!mapEditorState.enabled || disableAdd) ? "disabled" : ""}>
+        ${pools.map((pool) => `<option value="${escapeAttr(pool.name)}" ${safeStr(pool.name) === safeStr(mapEditorState.selectedPool) ? "selected" : ""}>${escapeHtml(pool.label || mapEditorPoolLabel(pool.name))} (${Number(pool.count || 0)})</option>`).join("")}
+      </select>
+      <div class="map-editor-grid" id="map_editor_asset_grid">
+        ${assets.map((asset) => `
+          <button type="button" class="map-editor-asset ${safeStr(asset.assetId) === selectedAssetId ? "is-active" : ""}" data-map-asset-id="${escapeAttr(asset.assetId)}" ${(!mapEditorState.enabled || disableAdd) ? "disabled" : ""}>
+            <img src="${escapeAttr(safeStr(asset.thumbnailUrl || asset.spriteUrl || ""))}" alt="${escapeAttr(asset.label || asset.assetId)}">
+            <span class="map-editor-asset-label">${escapeHtml(asset.label || asset.assetId)}</span>
+          </button>
+        `).join("") || `<div class="map-editor-note">Nenhum asset disponível nesse pool.</div>`}
+      </div>
+    </div>
+  `;
+
+  panel.querySelector("#map_editor_toggle_btn")?.addEventListener("click", () => setMapEditorEnabled(!mapEditorState.enabled));
+  panel.querySelector("#map_editor_mode_remove")?.addEventListener("click", () => setMapEditorMode("remove"));
+  panel.querySelector("#map_editor_mode_add")?.addEventListener("click", () => setMapEditorMode("add"));
+  panel.querySelector("#map_editor_undo")?.addEventListener("click", undoMapEditorDraft);
+  panel.querySelector("#map_editor_discard")?.addEventListener("click", discardMapEditorDraft);
+  panel.querySelector("#map_editor_save")?.addEventListener("click", () => { saveMapEditorDraft(); });
+  panel.querySelector("#map_editor_pool_select")?.addEventListener("change", (ev) => {
+    mapEditorState.selectedPool = safeStr(ev.target?.value);
+    mapEditorState.selectedAssetId = "";
+    ensureMapEditorSelection();
+    renderMapEditorPanel();
+  });
+  panel.querySelectorAll("[data-map-asset-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      mapEditorState.selectedAssetId = safeStr(button.dataset.mapAssetId);
+      mapEditorState.mode = "add";
+      renderMapEditorPanel();
+    });
+  });
 }
 
 function setArenaHoverPiece(pieceOrId, { persist = false } = {}) {
@@ -1837,6 +2582,7 @@ connectBtn?.addEventListener("click", async () => {
     if (playersCount) playersCount.textContent = String(merged.length);
     updateTopBadges();
     updateSidePanels();
+    renderMapEditorPanel?.();
     window.requestScoreboardRefresh?.();
     ensureUserSubscriptions();
   };
@@ -1909,8 +2655,10 @@ connectBtn?.addEventListener("click", async () => {
         appState.traps  = Array.isArray(data?.traps)  ? data.traps  : [];
         appState.zones  = Array.isArray(data?.zones)  ? data.zones  : [];
         if (statePre) statePre.textContent = pretty(data);
+        handlePublishedMapEdits(mapEditorState.rawPublished);
         updateArenaMeta();
         updateSidePanels();
+        renderMapEditorPanel?.();
         // Garante que treinadores que entraram só via peças (sem registro em players) também têm
         // users_raw/users assinados, permitindo carregar party e avatar corretamente.
         ensureUserSubscriptions();
@@ -1922,6 +2670,22 @@ connectBtn?.addEventListener("click", async () => {
       }
     )
   );
+
+  const mapEditsDoc = doc(db, "rooms", rid, "public_state", "map_edits");
+  unsub.push(
+    onSnapshot(
+      mapEditsDoc,
+      (snap) => {
+        const raw = snap.exists() ? snap.data() : null;
+        handlePublishedMapEdits(raw);
+      },
+      (err) => {
+        console.warn("public_state/map_edits error:", err?.message || err);
+        handlePublishedMapEdits(null);
+      }
+    )
+  );
+
   // public_state/players  ✅ (parties prontas por treinador)
 const playersDoc = doc(db, "rooms", rid, "public_state", "players");
 unsub.push(
@@ -6834,6 +7598,7 @@ function bindArenaInteractionsCanvas() {
   if (!useCanvas) return;
 
   canvas.addEventListener("pointerdown", (ev) => {
+    if (isMapEditorActive()) return;
     if (supportsHoverTabs() || ev.pointerType !== "touch") return;
     const rect = canvas.getBoundingClientRect();
     const x = ev.clientX - rect.left;
@@ -6873,6 +7638,7 @@ function bindArenaInteractionsCanvas() {
   });
 
   canvas.addEventListener("mousedown", (ev) => {
+    if (isMapEditorActive()) return;
     if (getPlacingPokemonPid()) return;
     if (appState.placingTrainer) return;
     if (ev.button !== 0) return;
@@ -6896,6 +7662,11 @@ function bindArenaInteractionsCanvas() {
   });
 
   window.addEventListener("mouseup", (ev) => {
+    if (isMapEditorActive()) {
+      appState.drag.active = false;
+      appState.drag.justDropped = false;
+      return;
+    }
     if (!appState.drag.active) return;
     appState.drag.active = false;
     appState.drag.justDropped = true;
@@ -6924,6 +7695,11 @@ function bindArenaInteractionsCanvas() {
     const y = ev.clientY - rect.top;
     const tile = screenToTile(x, y);
     if (!tile) return;
+
+    if (handleMapEditorTileAction(tile.row, tile.col)) {
+      ev.preventDefault?.();
+      return;
+    }
 
     if (appState.placingTrainer) return; // handled by scoreboard-patch.js capture
     const placingPid = getPlacingPokemonPid();
@@ -6957,6 +7733,10 @@ function bindArenaInteractionsCanvas() {
     const y = ev.clientY - rect.top;
     const tile = screenToTile(x, y);
     if (!tile) return;
+    if (isMapEditorActive()) {
+      ev.preventDefault();
+      return;
+    }
     const clickedPiece = getCanvasPieceHitAtPoint(x, y);
     if (clickedPiece) {
       ev.preventDefault();
@@ -6979,6 +7759,7 @@ function bindArenaInteractionsDom() {
   if (!arenaDom) return;
 
   arenaDom.addEventListener("pointerdown", (ev) => {
+    if (isMapEditorActive()) return;
     if (supportsHoverTabs() || ev.pointerType !== "touch") return;
     armArenaLongPress(getDomClickedPiece(ev), ev.clientX, ev.clientY);
   });
@@ -7019,6 +7800,12 @@ function bindArenaInteractionsDom() {
     const row = Number(cell.dataset.row);
     const col = Number(cell.dataset.col);
 
+    if (handleMapEditorTileAction(row, col)) {
+      ev.preventDefault();
+      requestArenaRefresh(true);
+      return;
+    }
+
     if (appState.placingTrainer) return; // handled by scoreboard-patch.js capture
     const placingPid = getPlacingPokemonPid();
     if (placingPid) {
@@ -7051,6 +7838,10 @@ function bindArenaInteractionsDom() {
     if (!cell) return;
     const row = Number(cell.dataset.row);
     const col = Number(cell.dataset.col);
+    if (isMapEditorActive()) {
+      ev.preventDefault();
+      return;
+    }
     const clickedPiece = getDomClickedPiece(ev);
     if (clickedPiece) {
       ev.preventDefault();
@@ -7146,7 +7937,8 @@ function getArenaBoardMetrics() {
 
 function syncSpriteOverlayVisibility() {
   if (!_spriteOverlay) return;
-  _spriteOverlay.style.display = arenaRenderMode === "dom" ? "none" : "";
+  const allowDomMapObjects = arenaRenderMode === "dom" && shouldUseMapTerrainPreview();
+  _spriteOverlay.style.display = (arenaRenderMode === "dom" && !allowDomMapObjects) ? "none" : "";
 }
 
 function syncArenaDomIfNeeded(force = false) {
@@ -7167,7 +7959,7 @@ function renderArenaDom() {
   arenaDom.style.width = `${board.side}px`;
   arenaDom.style.height = `${board.side}px`;
   syncSpriteOverlayVisibility();
-  const bgCandidates = getActiveMapImageCandidates();
+  const bgCandidates = getActiveMapImageCandidates({ preferTerrain: shouldUseMapTerrainPreview() });
   const bgImageCss = bgCandidates
     .map((url) => `url("${String(url).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}")`)
     .join(", ");
@@ -7330,6 +8122,12 @@ function renderArenaDom() {
     }
   }
 
+  if (shouldUseMapTerrainPreview() && mapLayersState.version === 2) {
+    syncMapObjectOverlays(board.left, board.top, board.tile);
+  } else {
+    _cleanObjSpritePool();
+  }
+
   updateArenaDomHover();
   arenaDomRenderKey = getArenaDomRenderKey();
 }
@@ -7366,10 +8164,18 @@ const mapCache = {
 
 // ── Structured map data (BiomeGenerator JSON) ─────────────────────────────
 const mapDataState = {
-  url: "",       // last URL successfully requested
-  data: null,    // parsed JSON: { biome, terrain_grid, water_cells, ... }
+  url: "",          // URL do mapa efetivo hoje renderizado
+  data: null,       // JSON efetivo usado pelo renderer (base + edits locais ou JSON publicado)
   loading: false,
-  borderMap: null, // Map<"row,col", land_mask> for O(1) border-cell lookup
+  borderMap: null,  // Map<"row,col", land_mask> do mapa efetivo
+  currentUrl: "",   // JSON publicado atual (mapDataUrl)
+  currentData: null,
+  currentLoading: false,
+  currentBorderMap: null,
+  baseUrl: "",      // JSON base sem edits (mapBaseDataUrl)
+  baseData: null,
+  baseLoading: false,
+  baseBorderMap: null,
 };
 
 // ── v2 map layers state ─────────────────────────────────────────────────────
@@ -7466,6 +8272,32 @@ function ensureMapBackgroundRecord() {
  * Resolves sprite URLs relative to the JSON URL.
  * Safe to call on v1 JSON — does nothing in that case.
  */
+function buildBorderMapFromData(data) {
+  if (!Array.isArray(data?.water_cells)) return null;
+  return new Map(
+    data.water_cells
+      .filter((cell) => cell?.kind === "border")
+      .map((cell) => [`${cell.grid_y},${cell.grid_x}`, cell.land_mask || 0])
+  );
+}
+
+function getCatalogAssetMeta(assetPool, assetId) {
+  return mapEditorState.assetIndex.get(`${safeStr(assetPool)}::${safeStr(assetId)}`) || null;
+}
+
+function resolveObjectSpriteUrl(obj, jsonUrl) {
+  const spriteValue = safeStr(obj?.sprite);
+  if (spriteValue) {
+    try {
+      return jsonUrl ? new URL(spriteValue, jsonUrl).href : spriteValue;
+    } catch {
+      return spriteValue;
+    }
+  }
+  const assetMeta = getCatalogAssetMeta(obj?.assetPool, obj?.assetId);
+  return safeStr(assetMeta?.spriteUrl || "");
+}
+
 function _initMapLayersFromData(data, jsonUrl) {
   const ver = data?.meta?.version;
   if (ver !== 2 || !Array.isArray(data.objects)) {
@@ -7474,49 +8306,68 @@ function _initMapLayersFromData(data, jsonUrl) {
     return;
   }
   mapLayersState.version = 2;
-  mapLayersState.objects = data.objects;
-
-  // Resolve sprite URLs and pre-load sprites
-  const base = jsonUrl || "";
-  for (const obj of data.objects) {
-    const relSprite = safeStr(obj.sprite || "");
-    if (!relSprite) continue;
-    try {
-      obj._spriteUrl = base
-        ? new URL(relSprite, base).href
-        : relSprite;
-    } catch (_) {
-      obj._spriteUrl = relSprite;
+  mapLayersState.objects = data.objects.map((rawObj) => {
+    const obj = normalizeMapObject(rawObj);
+    const spriteUrl = resolveObjectSpriteUrl(obj, jsonUrl);
+    if (spriteUrl) {
+      obj._spriteUrl = spriteUrl;
+      loadSprite(spriteUrl);
     }
-    // Kick off preload via the existing loadSprite cache
-    if (obj._spriteUrl) loadSprite(obj._spriteUrl);
-  }
+    const assetMeta = getCatalogAssetMeta(obj.assetPool, obj.assetId);
+    if (assetMeta) obj._assetMeta = assetMeta;
+    return obj;
+  });
+
+  mapLayersState._usedObjIds.clear();
 }
 
 /**
  * Draw one map object sprite onto ctx at grid position (ox/oy origin, tile px).
  * Returns false if the sprite isn't loaded yet.
  */
+function getMapObjectDrawRect(obj, ox, oy, tile) {
+  const render = obj?.render || {};
+  const mapTilePx = getEffectiveMapTilePx();
+  const renderW = Number(render?.w || 0);
+  const renderH = Number(render?.h || 0);
+  if (renderW > 0 && renderH > 0 && mapTilePx > 0) {
+    const scale = tile / mapTilePx;
+    return {
+      x: ox + Number(render?.pxX || 0) * scale,
+      y: oy + Number(render?.pxY || 0) * scale,
+      w: renderW * scale,
+      h: renderH * scale,
+    };
+  }
+
+  const assetMeta = obj?._assetMeta || getCatalogAssetMeta(obj?.assetPool, obj?.assetId) || null;
+  const baseTilePx = Number(assetMeta?.baseTilePx || 32) || 32;
+  const imageW = Number(assetMeta?.image?.w || 0) || Math.max(1, Number(obj?.footprint?.w || 1) * baseTilePx);
+  const imageH = Number(assetMeta?.image?.h || 0) || Math.max(1, Number(obj?.footprint?.h || 1) * baseTilePx);
+  const scale = tile / baseTilePx;
+  const drawW = imageW * scale;
+  const drawH = imageH * scale;
+  const fw = Number(obj?.footprint?.w || 1) || 1;
+  const fh = Number(obj?.footprint?.h || 1) || 1;
+  const ax = Number(obj?.anchor?.ax ?? 0.5) || 0.5;
+  const ay = Number(obj?.anchor?.ay ?? 1.0) || 1.0;
+  const footX = ox + (Number(obj?.x || 0) + ax * fw) * tile;
+  const footY = oy + (Number(obj?.y || 0) + ay * fh) * tile;
+  return {
+    x: footX - ax * drawW,
+    y: footY - ay * drawH,
+    w: drawW,
+    h: drawH,
+  };
+}
+
 function _drawMapObject(ctx, obj, ox, oy, tile) {
   const url = obj._spriteUrl;
   if (!url) return false;
   const rec = loadSprite(url);
   if (!rec || !rec.ready || rec.failed) return false;
-
-  const fw = (obj.footprint?.w ?? 1);
-  const fh = (obj.footprint?.h ?? 1);
-  const ax = obj.anchor?.ax ?? 0.5;
-  const ay = obj.anchor?.ay ?? 1.0;
-
-  // Bottom-center anchor positioning (matches biome_generator.py placement)
-  const footX = ox + (obj.x + ax * fw) * tile;
-  const footY = oy + (obj.y + ay * fh) * tile;
-  const imgW  = fw * tile;
-  const imgH  = fh * tile;
-  const drawX = footX - ax * imgW;
-  const drawY = footY - ay * imgH;
-
-  ctx.drawImage(rec.img, drawX, drawY, imgW, imgH);
+  const rect = getMapObjectDrawRect(obj, ox, oy, tile);
+  ctx.drawImage(rec.img, rect.x, rect.y, rect.w, rect.h);
   return true;
 }
 
@@ -7552,6 +8403,27 @@ function _getObjSpriteOverlayEntry(obj, spriteOverlayEl) {
     entry.url               = url;
   }
   return entry;
+}
+
+function renderMapObjectOverlay(obj, spriteOverlayEl, ox, oy, tile) {
+  if (!obj?._spriteUrl) return;
+  const entry = _getObjSpriteOverlayEntry(obj, spriteOverlayEl);
+  if (!entry) return;
+  const rect = getMapObjectDrawRect(obj, ox, oy, tile);
+  const st = entry.el.style;
+  st.left = `${rect.x}px`;
+  st.top = `${rect.y}px`;
+  st.width = `${rect.w}px`;
+  st.height = `${rect.h}px`;
+  st.zIndex = `${Math.round((Number(obj?.y || 0) + (Number(obj?.anchor?.ay ?? 1) || 1) * (Number(obj?.footprint?.h || 1) || 1)) * 10)}`;
+}
+
+function syncMapObjectOverlays(ox, oy, tile) {
+  if (!_spriteOverlay) return;
+  for (const obj of mapLayersState.objects || []) {
+    renderMapObjectOverlay(obj, _spriteOverlay, ox, oy, tile);
+  }
+  _cleanObjSpritePool();
 }
 
 /**
@@ -7761,45 +8633,114 @@ function drawWaterBorderFoam(ctx, ox, oy, gs, tile) {
 }
 
 
-async function maybeLoadMapData() {
-  const url = getActiveMapDataUrl();
-  if (!url || url === mapDataState.url || mapDataState.loading) return;
-  mapDataState.url = url;
-  mapDataState.loading = true;
-  try {
-    const res = await fetch(url);
-    if (res.ok) {
-      const data = await res.json();
-      mapDataState.data = data;
-      // Pre-build border Set for fast per-cell lookup
-      // Python exports "water_cells" as [{grid_x, grid_y, kind, land_mask}].
-      // Build a Map "row,col" → land_mask for direction-aware tile selection.
-      if (Array.isArray(data.water_cells)) {
-        mapDataState.borderMap = new Map(
-          data.water_cells
-            .filter(c => c.kind === 'border')
-            .map(c => [`${c.grid_y},${c.grid_x}`, c.land_mask || 0])
-        );
-      } else {
-        mapDataState.borderMap = null;
-      }
-      // v2: initialise layer state and pre-load object sprites
-      _initMapLayersFromData(data, url);
-    } else {
-      mapDataState.data = null;
-      mapDataState.borderMap = null;
-      mapLayersState.version = 1;
-      mapLayersState.objects = [];
-    }
-  } catch (e) {
-    console.warn("[mapData] fetch failed:", e);
-    mapDataState.data = null;
-    mapDataState.borderSet = null;
+function refreshEffectiveMapData() {
+  let effectiveData = null;
+  let effectiveUrl = "";
+  let effectiveBorderMap = null;
+
+  if (shouldUseMapTerrainPreview() && mapDataState.baseData) {
+    effectiveData = applyMapEditsToMapData(mapDataState.baseData, mapEditorState.draft || mapEditorState.published || createEmptyMapEdits());
+    effectiveUrl = mapDataState.baseUrl || mapDataState.currentUrl || "";
+    effectiveBorderMap = buildBorderMapFromData(effectiveData);
+  } else if (mapDataState.currentData) {
+    effectiveData = cloneJson(mapDataState.currentData);
+    effectiveUrl = mapDataState.currentUrl || "";
+    effectiveBorderMap = mapDataState.currentBorderMap;
+  } else if (mapDataState.baseData) {
+    effectiveData = applyMapEditsToMapData(mapDataState.baseData, mapEditorState.published || createEmptyMapEdits());
+    effectiveUrl = mapDataState.baseUrl || "";
+    effectiveBorderMap = buildBorderMapFromData(effectiveData);
+  }
+
+  mapDataState.data = effectiveData;
+  mapDataState.url = effectiveUrl;
+  mapDataState.borderMap = effectiveBorderMap;
+
+  if (effectiveData) {
+    _initMapLayersFromData(effectiveData, effectiveUrl);
+  } else {
     mapLayersState.version = 1;
     mapLayersState.objects = [];
-  } finally {
-    mapDataState.loading = false;
   }
+
+  renderMapEditorPanel?.();
+  try { requestArenaRefresh(true); } catch {}
+}
+
+async function maybeLoadMapAssetCatalog() {
+  const url = getActiveMapAssetCatalogUrl();
+  if (!url || url === mapEditorState.catalogUrl || mapEditorState.catalogLoading) return;
+  mapEditorState.catalogLoading = true;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`catalog http ${res.status}`);
+    const data = await res.json();
+    mapEditorState.catalogUrl = url;
+    mapEditorState.catalog = data;
+    mapEditorState.assetIndex = new Map(
+      (Array.isArray(data?.assets) ? data.assets : []).map((asset) => [`${safeStr(asset.assetPool)}::${safeStr(asset.assetId)}`, asset])
+    );
+    if (!safeStr(mapEditorState.selectedPool) && Array.isArray(data?.pools) && data.pools.length) {
+      mapEditorState.selectedPool = safeStr(data.pools[0]?.name);
+    }
+    refreshEffectiveMapData();
+  } catch (err) {
+    console.warn("[mapEditorCatalog] fetch failed:", err);
+  } finally {
+    mapEditorState.catalogLoading = false;
+  }
+}
+
+async function maybeLoadCurrentMapData() {
+  const url = getActiveMapDataUrl();
+  if (!url || url === mapDataState.currentUrl || mapDataState.currentLoading) return;
+  mapDataState.currentLoading = true;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`mapData http ${res.status}`);
+    const data = await res.json();
+    mapDataState.currentUrl = url;
+    mapDataState.currentData = data;
+    mapDataState.currentBorderMap = buildBorderMapFromData(data);
+    refreshEffectiveMapData();
+  } catch (err) {
+    console.warn("[mapData/current] fetch failed:", err);
+    mapDataState.currentData = null;
+    mapDataState.currentBorderMap = null;
+    refreshEffectiveMapData();
+  } finally {
+    mapDataState.currentLoading = false;
+  }
+}
+
+async function maybeLoadMapBaseData() {
+  const url = getActiveMapBaseDataUrl();
+  if (!url || url === mapDataState.baseUrl || mapDataState.baseLoading) return;
+  mapDataState.baseLoading = true;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`baseMapData http ${res.status}`);
+    const data = await res.json();
+    mapDataState.baseUrl = url;
+    mapDataState.baseData = data;
+    mapDataState.baseBorderMap = buildBorderMapFromData(data);
+    refreshEffectiveMapData();
+  } catch (err) {
+    console.warn("[mapData/base] fetch failed:", err);
+    mapDataState.baseData = null;
+    mapDataState.baseBorderMap = null;
+    refreshEffectiveMapData();
+  } finally {
+    mapDataState.baseLoading = false;
+  }
+}
+
+async function maybeLoadMapData() {
+  await Promise.allSettled([
+    maybeLoadCurrentMapData(),
+    maybeLoadMapBaseData(),
+    maybeLoadMapAssetCatalog(),
+  ]);
 }
 
 // ── Ocean-autotiles-anim sprite sheet ──────────────────────────────────────
@@ -7867,18 +8808,25 @@ function mulberry32(a) {
   };
 }
 
-function getActiveMapImageCandidates() {
+function getActiveMapImageCandidates(options = {}) {
+  const preferTerrain = !!options.preferTerrain;
   const urls = [];
-  pushUniqueString(urls, mapUrlOverride);
   const b = appState.board || {};
-  pushUniqueString(urls, b.mapUrl);
-  pushUniqueString(urls, b.map_url);
-  pushUniqueString(urls, b.backgroundUrl);
-  pushUniqueString(urls, b.background_url);
-  const storagePath = safeStr(
-    b.mapStoragePath || b.map_storage_path || b.backgroundStoragePath || b.background_storage_path
-  );
-  if (storagePath) pushUniqueString(urls, storageMediaUrl(storagePath));
+  if (!preferTerrain) {
+    pushUniqueString(urls, mapUrlOverride);
+    pushUniqueString(urls, b.mapUrl);
+    pushUniqueString(urls, b.map_url);
+    pushUniqueString(urls, b.backgroundUrl);
+    pushUniqueString(urls, b.background_url);
+    const storagePath = safeStr(
+      b.mapStoragePath || b.map_storage_path || b.backgroundStoragePath || b.background_storage_path
+    );
+    if (storagePath) pushUniqueString(urls, storageMediaUrl(storagePath));
+  }
+  pushUniqueString(urls, getActiveMapTerrainUrl());
+  if (!preferTerrain) {
+    pushUniqueString(urls, getActiveMapTerrainUrl());
+  }
   return urls;
 }
 
@@ -7903,9 +8851,9 @@ function maybeRebuildMapCache() {
   const gs = appState.gridSize || 10;
   const theme = safeStr(appState.theme) || "biome_grass";
   const seed = _u32(appState.board?.seed || 0);
-  const bgUrls = getActiveMapImageCandidates();
+  const bgUrls = getActiveMapImageCandidates({ preferTerrain: shouldUseMapTerrainPreview() });
   const bgKey = bgUrls.join("|");
-  const key = `${gs}|${theme}|${seed}|${bgKey}`;
+  const key = `${gs}|${theme}|${seed}|${bgKey}|${safeStr(getActiveMapDataUrl())}|${safeStr(getActiveMapBaseDataUrl())}|${Number(appState.board?.mapEditRevision || 0)}`;
   if (key === mapCache.key) return;
 
   mapCache.key = key;
@@ -9266,20 +10214,7 @@ drawTraps(ctx, ox, oy, tile);
       _drawMapObject(ctx, obj, ox, oy, tile);
       // HTML overlay for CSS z-index stacking with entity sprites
       if (obj._spriteUrl) {
-        const entry = _getObjSpriteOverlayEntry(obj, _spriteOverlay);
-        if (entry) {
-          const fw   = (obj.footprint?.w ?? 1), fh = (obj.footprint?.h ?? 1);
-          const ax   = obj.anchor?.ax ?? 0.5,   ay = obj.anchor?.ay ?? 1.0;
-          const footX = ox + (obj.x + ax * fw) * tile;
-          const footY = oy + (obj.y + ay * fh) * tile;
-          const imgW  = fw * tile, imgH = fh * tile;
-          const st    = entry.el.style;
-          st.left   = (footX - ax * imgW) + "px";
-          st.top    = (footY - ay * imgH) + "px";
-          st.width  = imgW + "px";
-          st.height = imgH + "px";
-          st.zIndex = String(100 + Math.round(_item.sortY * 100));
-        }
+        renderMapObjectOverlay(obj, _spriteOverlay, ox, oy, tile);
       }
       continue;
     }
