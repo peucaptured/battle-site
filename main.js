@@ -10093,11 +10093,14 @@ function _injectSheetsStyleOnce() {
     }
     #tab_sheets .fichas-layout{
       display:grid;
-      grid-template-columns:minmax(0,1fr) clamp(560px, 46vw, 820px);
+      grid-template-columns:minmax(0,1.34fr) clamp(460px, 34vw, 620px);
       gap:18px;
       align-items:stretch;
       min-height:0;
       height:100%;
+    }
+    #tab_sheets .fichas-layout[data-has-detail="0"]{
+      grid-template-columns:minmax(0,1fr);
     }
     #tab_sheets .sheets-column{
       min-width:0;
@@ -10150,12 +10153,96 @@ function _injectSheetsStyleOnce() {
       letter-spacing:.02em;
     }
     #tab_sheets .cards-grid{
-      grid-template-columns:repeat(auto-fill,minmax(170px,1fr));
+      --cards-columns:4;
+      display:grid;
+      grid-template-columns:repeat(var(--cards-columns), minmax(0, 1fr));
+      grid-auto-flow:row;
       align-content:start;
       flex:1 1 auto;
       min-height:0;
       overflow:auto;
       padding-right:6px;
+      gap:12px;
+    }
+    #tab_sheets .cards-grid[data-count="1"]{
+      --cards-columns:1;
+    }
+    #tab_sheets .cards-grid[data-count="2"]{
+      --cards-columns:2;
+    }
+    #tab_sheets .cards-grid[data-count="3"]{
+      --cards-columns:3;
+    }
+    #tab_sheets .poke-card{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      height:100%;
+      min-height:0;
+      padding:12px 12px 10px;
+    }
+    #tab_sheets .card-head{
+      align-items:flex-start;
+      gap:10px;
+    }
+    #tab_sheets .card-head img{
+      width:56px;
+      height:56px;
+      border-radius:14px;
+      padding:3px;
+    }
+    #tab_sheets .card-info{
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+    }
+    #tab_sheets .card-name{
+      font-size:1rem;
+      line-height:1.05;
+      display:-webkit-box;
+      -webkit-line-clamp:2;
+      -webkit-box-orient:vertical;
+      overflow:hidden;
+    }
+    #tab_sheets .card-sub{
+      font-size:.74rem;
+      line-height:1.25;
+    }
+    #tab_sheets .pill-row{
+      gap:5px;
+      margin-top:6px;
+    }
+    #tab_sheets .type-pill,
+    #tab_sheets .chip{
+      padding:2px 7px;
+      font-size:.65rem;
+    }
+    #tab_sheets .card-divider{
+      margin:6px 0 4px;
+    }
+    #tab_sheets .card-moves-label{
+      margin-bottom:2px;
+      font-size:.68rem;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+    }
+    #tab_sheets .card-move-row{
+      gap:4px;
+      padding:2px 0;
+    }
+    #tab_sheets .card-move-name{
+      font-size:.78rem;
+    }
+    #tab_sheets .card-move-meta{
+      margin-bottom:2px;
+      font-size:.65rem;
+      font-weight:800;
+      line-height:1.3;
+      opacity:.68;
+    }
+    #tab_sheets .card-open{
+      margin-top:auto;
+      padding-top:6px;
     }
     #tab_sheets #sheetDetailWrap{
       display:flex;
@@ -10495,6 +10582,7 @@ function _injectSheetsStyleOnce() {
       #tab_sheets .cards-grid{
         overflow:visible;
         padding-right:0;
+        gap:10px;
       }
       #tab_sheets .sheets-column-detail{
         position:static;
@@ -10509,6 +10597,9 @@ function _injectSheetsStyleOnce() {
       }
     }
     @media (max-width: 900px){
+      #tab_sheets .cards-grid{
+        --cards-columns:2;
+      }
       #tab_sheets .sheets-column{
         padding:12px;
       }
@@ -10530,6 +10621,11 @@ function _injectSheetsStyleOnce() {
       }
       .ins-conds-hero{
         align-items:flex-start;
+      }
+    }
+    @media (max-width: 640px){
+      #tab_sheets .cards-grid{
+        --cards-columns:1;
       }
     }
     `;
@@ -11198,12 +11294,19 @@ function renderSheetsTab() {
   const cardsGrid = document.getElementById("cardsGrid");
   const detailEl = document.getElementById("sheetDetail");
   const detailWrap = document.getElementById("sheetDetailWrap");
+  const layoutEl = root.querySelector(".fichas-layout");
   const detailHintEl = document.getElementById("sheetDetailHint");
   const countEl = document.getElementById("sheetsCount");
   const errEl = document.getElementById("sheetsError");
 
   if (!cardsGrid || !detailEl || !loadingEl || !contentEl || !detailWrap) return;
   if (detailHintEl) detailHintEl.textContent = "Selecione uma ficha da lista.";
+  const setSheetsLayoutState = (count, hasDetail) => {
+    const safeCount = Math.max(0, safeInt(count, 0));
+    cardsGrid.dataset.count = String(safeCount);
+    cardsGrid.style.setProperty("--cards-columns", String(Math.min(4, Math.max(1, safeCount || 1))));
+    if (layoutEl) layoutEl.dataset.hasDetail = hasDetail ? "1" : "0";
+  };
 
   if (errEl) {
     if (_sheetsLastError) {
@@ -11221,6 +11324,7 @@ function renderSheetsTab() {
     loadingEl.style.display = "";
     contentEl.style.display = "none";
     detailWrap.style.display = "none";
+    setSheetsLayoutState(0, false);
     cardsGrid.innerHTML = "";
     detailEl.innerHTML = `<div class="sheets-empty">Conecte numa sala para ver as fichas.</div>`;
     return;
@@ -11233,6 +11337,7 @@ function renderSheetsTab() {
     loadingEl.style.display = "";
     contentEl.style.display = "none";
     detailWrap.style.display = "none";
+    setSheetsLayoutState(0, false);
     cardsGrid.innerHTML = "";
     detailEl.innerHTML = `<div class="sheets-empty">Preencha <b>by</b> e conecte (login) para puxar sua party.</div>`;
     return;
@@ -11262,6 +11367,7 @@ function renderSheetsTab() {
   if (!partyPids.length) {
     _sheetsRenderedDetailPid = null;
     detailWrap.style.display = "none";
+    setSheetsLayoutState(0, false);
     cardsGrid.innerHTML = `<div class="sheets-empty" style="grid-column:1/-1">Sua party está vazia (ou não foi encontrada ainda).<br/>
     Dica: entre na sala pelo Streamlit 1x (espelha users_raw) ou garanta que <code>party_snapshot</code> está preenchido.</div>`;
     detailEl.innerHTML = `<div class="sheets-empty">—</div>`;
@@ -11271,6 +11377,7 @@ function renderSheetsTab() {
   if (!visibleSheetEntries.length) {
     _sheetsRenderedDetailPid = null;
     detailWrap.style.display = "none";
+    setSheetsLayoutState(0, false);
     cardsGrid.innerHTML = `<div class="sheets-empty" style="grid-column:1/-1">📭 Sem fichas encontradas para a sua party.<br/>
     Salve fichas em <b>Criação Guiada</b> e mantenha a party no <b>Trainer Hub</b>.</div>`;
     detailEl.innerHTML = `<div class="sheets-empty">—</div>`;
@@ -11278,6 +11385,7 @@ function renderSheetsTab() {
   }
 
   detailWrap.style.display = "";
+  setSheetsLayoutState(visibleSheetEntries.length, true);
 
   // selecionado
   if (!_sheetsSelectedPid || !visibleSheetEntries.some((entry) => entry._base_pid === _sheetsSelectedPid)) {
@@ -11299,7 +11407,7 @@ function renderSheetsTab() {
 
     const movesRaw = Array.isArray(sh.moves) ? sh.moves : (sh.moves ? Object.values(sh.moves) : []);
     const moves = (movesRaw || []).filter((m) => m && typeof m === "object");
-    const preview = moves.slice(0, 3);
+    const preview = moves.slice(0, 2);
 
     const isSel = pid === _sheetsSelectedPid;
 
@@ -11316,7 +11424,7 @@ function renderSheetsTab() {
           <span class="mv-pill rk">R${rk}</span>
           <span class="mv-pill area">${area ? "Área" : "Alvo"}</span>
         </div>
-        <div style="opacity:.7;font-size:.68rem;font-weight:900;margin-bottom:3px;">${escapeHtml(brk)}</div>
+        <div class="card-move-meta">${escapeHtml(brk)}</div>
       `;
     }
     if (!mvH) mvH = `<div style="opacity:.6;font-size:.78rem;">Sem golpes nesta ficha.</div>`;
