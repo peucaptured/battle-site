@@ -1702,7 +1702,8 @@ function getMapEditorSelectedAsset() {
 }
 
 function getMapEditorPools() {
-  return Array.isArray(mapEditorState.catalog?.pools) ? mapEditorState.catalog.pools : [];
+  return (Array.isArray(mapEditorState.catalog?.pools) ? mapEditorState.catalog.pools : [])
+    .filter((pool) => Number(pool?.count || 0) > 0);
 }
 
 function getMapEditorAssetsForPool(poolName) {
@@ -1723,9 +1724,12 @@ function ensureMapEditorSelection() {
     return;
   }
   const biomePool = getCurrentBiomePoolName();
-  const hasCurrentPool = pools.some((pool) => safeStr(pool.name) === safeStr(mapEditorState.selectedPool));
+  const hasCurrentPool = pools.some((pool) => safeStr(pool.name) === safeStr(mapEditorState.selectedPool) && getMapEditorAssetsForPool(pool.name).length);
   if (!hasCurrentPool) {
-    mapEditorState.selectedPool = pools.find((pool) => safeStr(pool.name) === biomePool)?.name || pools[0].name;
+    mapEditorState.selectedPool =
+      pools.find((pool) => safeStr(pool.name) === biomePool && getMapEditorAssetsForPool(pool.name).length)?.name
+      || pools.find((pool) => getMapEditorAssetsForPool(pool.name).length)?.name
+      || "";
   }
   const assets = getMapEditorAssetsForPool(mapEditorState.selectedPool);
   if (!assets.some((asset) => safeStr(asset.assetId) === safeStr(mapEditorState.selectedAssetId))) {
@@ -8680,8 +8684,9 @@ async function maybeLoadMapAssetCatalog() {
     mapEditorState.assetIndex = new Map(
       (Array.isArray(data?.assets) ? data.assets : []).map((asset) => [`${safeStr(asset.assetPool)}::${safeStr(asset.assetId)}`, asset])
     );
-    if (!safeStr(mapEditorState.selectedPool) && Array.isArray(data?.pools) && data.pools.length) {
-      mapEditorState.selectedPool = safeStr(data.pools[0]?.name);
+    if (!safeStr(mapEditorState.selectedPool)) {
+      const nonEmptyPool = (Array.isArray(data?.pools) ? data.pools : []).find((pool) => Number(pool?.count || 0) > 0);
+      mapEditorState.selectedPool = safeStr(nonEmptyPool?.name);
     }
     refreshEffectiveMapData();
   } catch (err) {
