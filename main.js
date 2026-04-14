@@ -20,6 +20,7 @@ import { getAuth, signInWithCustomToken } from "https://www.gstatic.com/firebase
 
 const DEFAULT_CAPTURE_BALL_API_NAME = "poke-ball";
 const DEFAULT_CAPTURE_BALL_ICON_URL = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/${DEFAULT_CAPTURE_BALL_API_NAME}.png`;
+const LOCAL_MAP_EDITOR_CATALOG_URL = "./assets/map-editor/catalog.json";
 
 function createCaptureBallTheme(config = {}) {
   return Object.freeze({
@@ -230,19 +231,20 @@ function mapEditorIsOwner() {
 }
 
 function shouldUseMapTerrainPreview() {
-  const boardRevision = Number(appState.board?.mapEditRevision || 0);
-  const draftRevision = Number(mapEditorState.draft?.revision || mapEditorState.published?.revision || 0);
-  return mapEditorIsOwner() && (
-    mapEditorState.enabled ||
-    isMapEditorDirty() ||
-    mapEditorState.saving ||
-    !!safeStr(appState.board?.mapEditPublishPending ? "1" : "") ||
-    boardRevision !== draftRevision
-  );
+  if (!mapDataState.baseData) return false;
+  if (mapEditorIsOwner()) {
+    return (
+      mapEditorState.enabled ||
+      isMapEditorDirty() ||
+      mapEditorState.saving ||
+      hasMapEditChanges(mapEditorState.published || createEmptyMapEdits())
+    );
+  }
+  return hasMapEditChanges(mapEditorState.published || createEmptyMapEdits());
 }
 
 function isMapEditorActive() {
-  return shouldUseMapTerrainPreview();
+  return mapEditorIsOwner() && !!mapEditorState.enabled;
 }
 
 window.isMapEditorActive = isMapEditorActive;
@@ -439,13 +441,7 @@ function getActiveMapBaseDataUrl() {
 }
 
 function getActiveMapAssetCatalogUrl() {
-  const b = appState.board || {};
-  const urls = [];
-  pushUniqueString(urls, b.mapAssetCatalogUrl);
-  pushUniqueString(urls, b.map_asset_catalog_url);
-  const storagePath = safeStr(b.mapAssetCatalogStoragePath || b.map_asset_catalog_storage_path);
-  if (storagePath) pushUniqueString(urls, storageMediaUrl(storagePath));
-  return urls[0] || "";
+  return LOCAL_MAP_EDITOR_CATALOG_URL;
 }
 
 
@@ -1881,7 +1877,7 @@ function buildManualMapObject(assetMeta, x, y) {
     assetId: safeStr(assetMeta?.assetId),
     assetPool: safeStr(assetMeta?.assetPool),
     origin: "manual",
-    sprite: safeStr(assetMeta?.spriteUrl || ""),
+    sprite: "",
     anchor: { ax: 0.5, ay: 1.0 },
     footprint: { w: fw, h: fh },
     support: { w: Math.max(1, Number(assetMeta?.support?.w || fw) || fw), baseY: y + fh - 1 },
@@ -1974,8 +1970,11 @@ async function saveMapEditorDraft() {
       updatedAt: serverTimestamp(),
     });
     batch.set(stateRef, {
-      mapEditPublishPending: true,
-      mapEditRequestedRevision: draft.revision,
+      mapEdited: hasMapEditChanges(draft),
+      mapEditRevision: Number(draft.revision || 0) || 0,
+      mapEditBaseSignature: hasMapEditChanges(draft) ? safeStr(draft.baseSignature) : "",
+      mapEditPublishPending: false,
+      mapEditRequestedRevision: Number(draft.revision || 0) || 0,
       mapEditRequestedBy: safeStr(appState.by),
       mapEditRequestedAt: serverTimestamp(),
       mapEditPublishError: "",
@@ -1984,7 +1983,7 @@ async function saveMapEditorDraft() {
 
     mapEditorState.draft = normalizeMapEdits(draft, baseSpec);
     mapEditorState.history = [];
-    setStatus("ok", "Rascunho salvo. Aguardando republicação do mapa pelo app principal.");
+    setStatus("ok", "Edição do mapa salva.");
   } catch (err) {
     console.error("[map-editor] save error:", err);
     setStatus("err", `Falha ao salvar edição do mapa: ${err?.message || err}`);
@@ -2015,20 +2014,16 @@ function renderMapEditorPanel() {
 
   ensureMapEditorSelection();
   const dirty = isMapEditorDirty();
-  const boardRevision = Number(appState.board?.mapEditRevision || 0);
   const publishedRevision = Number(mapEditorState.published?.revision || 0);
   const baseReady = !!mapDataState.baseData && !!getActiveMapTerrainUrl();
   const catalogReady = !!mapEditorState.catalog;
-  const publishError = safeStr(appState.board?.mapEditPublishError);
   const statusText = mapEditorState.saving
-    ? "Publicando rascunho..."
-    : publishError
-      ? "Falha ao publicar"
+    ? "Salvando..."
     : dirty
       ? "Rascunho pendente"
-      : (boardRevision < publishedRevision || !!appState.board?.mapEditPublishPending)
-        ? "Aguardando republicação"
-        : "Publicado";
+      : publishedRevision > 0
+        ? "Publicado"
+        : "Sem edições publicadas";
   const pools = getMapEditorPools();
   const assets = getMapEditorAssetsForPool(mapEditorState.selectedPool);
   const selectedAssetId = safeStr(mapEditorState.selectedAssetId);
@@ -2036,10 +2031,10 @@ function renderMapEditorPanel() {
 
   panel.innerHTML = `
     <div class="map-editor-head">
-      <div>
-        <div class="map-editor-title">Edição de Assets</div>
-        <div class="map-editor-sub">${escapeHtml(statusText)} • rev ${Math.max(boardRevision, publishedRevision)}</div>
-      </div>
+        <div>
+          <div class="map-editor-title">Edição de Assets</div>
+          <div class="map-editor-sub">${escapeHtml(statusText)} • rev ${publishedRevision}</div>
+        </div>
       <button type="button" class="map-editor-btn ${mapEditorState.enabled ? "is-active" : ""}" id="map_editor_toggle_btn">
         ${mapEditorState.enabled ? "Desativar" : "Modo edição"}
       </button>
@@ -2052,9 +2047,8 @@ function renderMapEditorPanel() {
       <button type="button" class="map-editor-btn" id="map_editor_save" ${dirty && !mapEditorState.saving ? "" : "disabled"}>Salvar/Publicar</button>
     </div>
     <div class="map-editor-note">
-      ${baseReady ? "Clique no mapa para remover ou adicionar assets decorativos." : "Publique o bundle completo do mapa no app principal para habilitar preview real no battle-site."}
+      ${baseReady ? "Clique no mapa para remover ou adicionar assets decorativos." : "Esta sala ainda não tem o bundle base do mapa publicado."}
     </div>
-    ${publishError ? `<div class="map-editor-note" style="color:#fca5a5">${escapeHtml(publishError)}</div>` : ""}
     <div class="${(!mapEditorState.enabled || disableAdd || mapEditorState.mode !== "add") ? "map-editor-disabled" : ""}">
       <select class="map-editor-select" id="map_editor_pool_select" ${(!mapEditorState.enabled || disableAdd) ? "disabled" : ""}>
         ${pools.map((pool) => `<option value="${escapeAttr(pool.name)}" ${safeStr(pool.name) === safeStr(mapEditorState.selectedPool) ? "selected" : ""}>${escapeHtml(pool.label || mapEditorPoolLabel(pool.name))} (${Number(pool.count || 0)})</option>`).join("")}
