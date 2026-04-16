@@ -1313,6 +1313,7 @@ export class ArenaCombatUI {
     const role = this.getRole();
     const isPlayer = (role === "owner" || role === "challenger");
     const canStartCombat = !!window.canCurrentPlayerStartCombat?.();
+    const canStartCombatOffTurn = !canStartCombat && !!window.canCurrentPlayerStartCombat?.({ ignoreTurn: true });
     const el = document.createElement("div");
     el.className = "ac-context";
 
@@ -1330,6 +1331,11 @@ export class ArenaCombatUI {
           items.push({ icon: "🔄", label: `Repetir: ${this._lastMove.moveName}`, kbd: "", action: () => { this._closeAll(); this._executeRepeatOnTarget(piece); } });
         }
         items.push({ icon: "🌀", label: "Ataque em Área", action: () => { this._closeAll(); this._openAttackOverlay(piece, x, y, "area"); } });
+        items.push({ type: "sep" });
+      }
+
+      if (isEnemy && isPlayer && canStartCombatOffTurn) {
+        items.push({ icon: "⚠️", label: "Ataque fora do turno", action: () => { this._closeAll(); this._openAttackOverlay(piece, x, y); } });
         items.push({ type: "sep" });
       }
 

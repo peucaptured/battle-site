@@ -1472,9 +1472,10 @@ function canCurrentPlayerPassTurn() {
 }
 
 function canCurrentPlayerStartCombat() {
+  const opts = arguments[0] || {};
   const role = safeStr(appState.role);
   const isPlayer = role === "owner" || role === "challenger" || role === "gm";
-  return isPlayer && isCurrentTurnOwnerMe();
+  return isPlayer && (!!opts.ignoreTurn || isCurrentTurnOwnerMe());
 }
 
 function buildTurnOrderFromCurrentBoard() {
@@ -4922,21 +4923,14 @@ const sheetHasSpeed = isMine ? [
 
   // handlers
   wrap.querySelector('[data-ins-act="move"]')?.addEventListener("click", () => {
-    setStatus("ok", "Mover: clique no tile de destino na arena");
+    setStatus("ok", freeMove
+      ? "deslocamento livre ativo: clique em qualquer lugar da arena para reposicionar o pokémon"
+      : "Mover: clique no tile de destino na arena");
     // nada além disso: o click no tile já move a seleção atual
   });
   wrap.querySelector('[data-ins-act="free"]')?.addEventListener("click", () => {
     if (!isMine) return;
-    const cur = !!appState.movement.freeByPieceId[selId];
-    if (cur) delete appState.movement.freeByPieceId[selId];
-    else appState.movement.freeByPieceId[selId] = true;
-    setStatus(
-      "ok",
-      cur
-        ? "deslocamento livre desativado: voltou a respeitar turno e alcance"
-        : "deslocamento livre ativado: movimento em qualquer quadro, mesmo fora do turno"
-    );
-    updateSidePanels();
+    togglePieceFreeMovement(selId, { select: false });
   });
   wrap.querySelector('[data-ins-act="dash"]')?.addEventListener("click", () => {
     if (!isMine) return;
@@ -6658,6 +6652,41 @@ function getPieceMovementBudget(piece) {
   return { speed, baseTiles, dash, maxTiles };
 }
 
+function isPieceFreeMovementEnabled(pieceId) {
+  const pid = safeStr(pieceId);
+  return !!pid && !!appState.movement?.freeByPieceId?.[pid];
+}
+
+function togglePieceFreeMovement(pieceId, opts = {}) {
+  const pid = safeStr(pieceId);
+  if (!pid) return false;
+  const piece = (appState.pieces || []).find((item) => safeStr(item?.id) === pid) || null;
+  if (!piece) {
+    setStatus("warn", "peça não encontrada");
+    return false;
+  }
+  if (!isPieceMine(piece)) {
+    setStatus("err", "você só pode liberar deslocamento nas suas peças");
+    return false;
+  }
+
+  const cur = isPieceFreeMovementEnabled(pid);
+  if (cur) delete appState.movement.freeByPieceId[pid];
+  else appState.movement.freeByPieceId[pid] = true;
+
+  if (opts.select !== false) selectPiece(pid);
+
+  setStatus(
+    "ok",
+    cur
+      ? "deslocamento livre desativado: voltou a respeitar turno e alcance"
+      : "deslocamento livre ativado: clique em qualquer lugar da arena para reposicionar o pokémon"
+  );
+  updateSidePanels();
+  requestArenaRefresh(true);
+  return !cur;
+}
+
 function updateMovementTurnState() {
   const next = getTurnKey();
   if (appState.movement.turnKey === next) return;
@@ -7197,6 +7226,7 @@ openPieceContextMenu = function(piece, x, y) {
   const ownerLabel = humanizeInternalLabel(safeStr(piece?.owner)) || safeStr(piece?.owner) || "—";
   const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
   const budget = getPieceMovementBudget(piece);
+  const freeMove = isPieceFreeMovementEnabled(id);
   const movementText = `🧭 Deslocamento • ${budget.speed} SPD • ${budget.maxTiles % 1 ? "1/2" : budget.maxTiles} quad.`;
   if (pieceContextSummary) {
     pieceContextSummary.textContent = `${name} • ${ownerLabel}`;
@@ -7210,9 +7240,11 @@ openPieceContextMenu = function(piece, x, y) {
   const removeBtn = pieceContextMenu.querySelector('[data-menu-act="remove"]');
   if (moveBtn) moveBtn.disabled = !isMine;
   if (movementBtn) {
-    movementBtn.disabled = true;
-    movementBtn.textContent = movementText;
-    movementBtn.title = movementText;
+    movementBtn.disabled = !isMine;
+    movementBtn.textContent = `🧭 Deslocamento livre ${freeMove ? "ON" : "OFF"}`;
+    movementBtn.title = isMine
+      ? `${movementText}. Clique para ${freeMove ? "voltar ao alcance normal" : "liberar posicionamento em qualquer lugar da arena"}.`
+      : movementText;
   }
   const megaState = getPieceMegaUiState(piece);
   if (megaBtn) {
@@ -7349,16 +7381,19 @@ async function handlePieceMenuAction(action, pieceId) {
     return;
   }
   const mine = isPieceMine(piece);
-  if (!mine && (action === "move" || action === "mega" || action === "conditions" || action === "toggle" || action === "remove")) {
+  if (!mine && (action === "move" || action === "movement" || action === "mega" || action === "conditions" || action === "toggle" || action === "remove")) {
     setStatus("err", "você só pode usar ações do menu em peças suas");
     return;
   }
   if (action === "move") {
     selectPiece(id);
-    setStatus("ok", "Mover: clique no tile de destino na arena");
+    setStatus("ok", isPieceFreeMovementEnabled(id)
+      ? "deslocamento livre ativo: clique em qualquer lugar da arena para reposicionar o pokémon"
+      : "Mover: clique no tile de destino na arena");
     return;
   }
   if (action === "movement") {
+    togglePieceFreeMovement(id);
     return;
   }
   if (action === "mega") {
@@ -7392,6 +7427,7 @@ function openPieceContextMenu(piece, x, y) {
   const ownerLabel = humanizeInternalLabel(safeStr(piece?.owner)) || safeStr(piece?.owner) || "—";
   const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
   const budget = getPieceMovementBudget(piece);
+  const freeMove = isPieceFreeMovementEnabled(id);
   const hpValue = getPartyHp(safeStr(piece?.owner), safeStr(piece?.pid));
   const movementText = `Deslocamento • ${budget.speed} SPD • ${budget.maxTiles % 1 ? "1/2" : budget.maxTiles} quad.`;
   if (pieceContextSummary) {
@@ -7410,9 +7446,13 @@ function openPieceContextMenu(piece, x, y) {
 
   if (moveBtn) moveBtn.disabled = !isMine;
   if (movementBtn) {
-    movementBtn.disabled = true;
+    movementBtn.disabled = !isMine;
     movementBtn.textContent = `🧭 ${movementText}`;
     movementBtn.title = movementText;
+    movementBtn.textContent = `🧭 Deslocamento livre ${freeMove ? "ON" : "OFF"}`;
+    movementBtn.title = isMine
+      ? `${movementText}. Clique para ${freeMove ? "voltar ao alcance normal" : "liberar posicionamento em qualquer lugar da arena"}.`
+      : movementText;
   }
   if (summaryBtn) summaryBtn.disabled = false;
   if (hpDownBtn) hpDownBtn.disabled = hpValue <= 0;
@@ -7489,17 +7529,22 @@ handlePieceMenuAction = async function(action, pieceId) {
   }
 
   const mine = isPieceMine(piece);
-  if (!mine && ["move", "mega", "conditions", "toggle", "remove"].includes(action)) {
+  if (!mine && ["move", "movement", "mega", "conditions", "toggle", "remove"].includes(action)) {
     setStatus("err", "você só pode usar essas ações em peças suas");
     return;
   }
 
   if (action === "move") {
     selectPiece(id);
-    setStatus("ok", "Mover: clique no tile de destino na arena");
+    setStatus("ok", isPieceFreeMovementEnabled(id)
+      ? "deslocamento livre ativo: clique em qualquer lugar da arena para reposicionar o pokémon"
+      : "Mover: clique no tile de destino na arena");
     return;
   }
-  if (action === "movement") return;
+  if (action === "movement") {
+    togglePieceFreeMovement(id);
+    return;
+  }
   if (action === "summary") {
     selectPiece(id);
     renderArenaSheetPreview();
