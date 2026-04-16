@@ -11886,14 +11886,53 @@ function _fichaTypeBg(types) {
   return `background: linear-gradient(135deg, ${c1}22 0%, ${c1}12 49%, ${c2}12 51%, ${c2}22 100%); border-left: 2px solid ${c1}55; border-right: 2px solid ${c2}55; border-top: 1px solid rgba(255,255,255,.08); border-bottom: 1px solid rgba(255,255,255,.08);`;
 }
 
-function _mvStat(meta, stats) {
-  meta = meta || {};
+function _mvInferBasedFromText(...texts) {
+  const blob = texts.map((txt) => safeStr(txt).toLowerCase()).join(" ").trim();
+  if (!blob) return "";
+  if (blob.includes("status")) return "—";
+  const intTokens = [
+    "intelect based", "intellect based", "int based",
+    "special-based", "special based", "especial", "special",
+    "intelect", "intellect"
+  ];
+  const stgrTokens = [
+    "stgr based", "strength based", "strength-based",
+    "physical-based", "physical based", "fisico", "physical",
+    "stgr", "strength"
+  ];
+  if (intTokens.some((token) => blob.includes(token))) return "Int";
+  if (stgrTokens.some((token) => blob.includes(token))) return "Stgr";
+  return "";
+}
+function _mvStat(mvOrMeta, stats) {
+  const mv = (mvOrMeta && typeof mvOrMeta === "object" && (
+    "meta" in mvOrMeta || "build" in mvOrMeta || "description" in mvOrMeta || "desc" in mvOrMeta || "name" in mvOrMeta
+  )) ? mvOrMeta : { meta: mvOrMeta || {} };
+  const meta = (mv && typeof mv === "object" && mv.meta && typeof mv.meta === "object") ? mv.meta : (mvOrMeta || {});
   stats = stats || {};
-  const cat = safeStr(meta.category || meta.categoria || "").toLowerCase();
-  let label = "—", val = 0;
-  if (cat.includes("physical") || cat.includes("físic")) { label = "Stgr"; val = parseInt(stats.stgr || 0) || 0; }
-  else if (cat.includes("special") || cat.includes("especial")) { label = "Int"; val = parseInt(stats["int"] || 0) || 0; }
-  return { label, val };
+  const override = safeStr(meta.based_stat_override || meta.basedStatOverride || "");
+  const cat = safeStr(meta.category || meta.categoria || mv?.category || mv?.categoria || "").toLowerCase();
+  let label = "";
+  if (override === "Stgr" || override === "Int" || override === "—") label = override;
+  else if (meta.is_special === true) label = "Int";
+  else if (meta.is_special === false) label = "Stgr";
+  else if (cat.includes("status")) label = "—";
+  else if (cat.includes("special") || cat.includes("especial")) label = "Int";
+  else if (cat.includes("physical") || cat.includes("físic") || cat.includes("fisic")) label = "Stgr";
+  else {
+    label = _mvInferBasedFromText(
+      mv?.name,
+      mv?.build,
+      mv?.description,
+      mv?.desc,
+      meta.raw_power_name,
+      meta.category,
+    ) || "";
+  }
+  const val = label === "Stgr"
+    ? (parseInt(stats.stgr || 0) || 0)
+    : (label === "Int" ? (parseInt(stats["int"] || 0) || 0) : 0);
+  return { label: label || "—", val };
 }
 function _moveRawAccuracy(mv) {
   return parseInt(mv?.accuracy || mv?.Accuracy || mv?.acerto || 0) || 0;
@@ -11973,7 +12012,7 @@ function _mvIsArea(mv) {
 function _mvSum(mv, stats) {
   const br = parseInt(mv?.rank || mv?.Rank || 0) || 0;
   const acc = _moveRawAccuracy(mv);
-  const { label, val } = _mvStat(mv?.meta || {}, stats);
+  const { label, val } = _mvStat(mv, stats);
   return { rk: br + val, acc, label, val, area: _mvIsArea(mv), br };
 }
 
