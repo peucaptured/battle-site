@@ -11302,96 +11302,225 @@ function _injectSheetsStyleOnce() {
       letter-spacing:.02em;
     }
     #tab_sheets .cards-grid{
-      --cards-columns:4;
       display:grid;
-      grid-template-columns:repeat(var(--cards-columns), minmax(0, 1fr));
+      grid-template-columns:repeat(auto-fit, minmax(min(100%, 280px), 320px));
+      justify-content:start;
       grid-auto-flow:row;
       align-content:start;
       flex:1 1 auto;
       min-height:0;
       overflow:auto;
       padding-right:6px;
-      gap:12px;
-    }
-    #tab_sheets .cards-grid[data-count="1"]{
-      --cards-columns:1;
-    }
-    #tab_sheets .cards-grid[data-count="2"]{
-      --cards-columns:2;
-    }
-    #tab_sheets .cards-grid[data-count="3"]{
-      --cards-columns:3;
+      gap:14px;
     }
     #tab_sheets .poke-card{
       display:flex;
       flex-direction:column;
-      gap:8px;
-      height:100%;
-      min-height:0;
-      padding:12px 12px 10px;
+      gap:12px;
+      min-height:344px;
+      padding:14px;
+      border-radius:22px;
+      border:1px solid rgba(255,255,255,.12);
+      background:linear-gradient(180deg, rgba(17,24,39,.88), rgba(10,16,30,.98));
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 20px 36px rgba(2,6,23,.24);
+      isolation:isolate;
+    }
+    #tab_sheets .poke-card::before{
+      opacity:.18;
+      background:
+        radial-gradient(circle at top right, rgba(255,255,255,.12), transparent 42%),
+        linear-gradient(180deg, var(--card-bg, transparent), transparent 72%);
+    }
+    #tab_sheets .poke-card::after{
+      content:"";
+      position:absolute;
+      inset:9px;
+      border-radius:16px;
+      border:1px solid rgba(255,255,255,.06);
+      pointer-events:none;
+      z-index:0;
+    }
+    #tab_sheets .poke-card:hover{
+      border-color:rgba(255,255,255,.22);
+      transform:translateY(-3px);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.06), 0 24px 40px rgba(2,6,23,.32);
+    }
+    #tab_sheets .poke-card.selected{
+      border-color:rgba(59,130,246,.58);
+      box-shadow:inset 0 0 0 1px rgba(96,165,250,.32), inset 0 1px 0 rgba(255,255,255,.06), 0 24px 42px rgba(2,6,23,.32);
     }
     #tab_sheets .card-head{
       align-items:flex-start;
-      gap:10px;
+      gap:12px;
+    }
+    #tab_sheets .card-art-shell{
+      width:80px;
+      height:80px;
+      flex:0 0 80px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:8px;
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.16);
+      background:linear-gradient(180deg, rgba(24,36,64,.86), rgba(12,18,34,.96));
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+      position:relative;
+      z-index:1;
     }
     #tab_sheets .card-head img{
-      width:56px;
-      height:56px;
+      width:100%;
+      height:100%;
       border-radius:14px;
-      padding:3px;
+      padding:4px;
+      background:rgba(11,17,31,.92);
+      border:1px solid rgba(255,255,255,.1);
+      filter:drop-shadow(0 10px 18px rgba(2,6,23,.32));
     }
     #tab_sheets .card-info{
       display:flex;
       flex-direction:column;
+      gap:4px;
+      flex:1;
       min-height:0;
+      position:relative;
+      z-index:1;
     }
     #tab_sheets .card-name{
-      font-size:1rem;
-      line-height:1.05;
+      font-size:1.14rem;
+      line-height:1;
+      letter-spacing:-.02em;
       display:-webkit-box;
       -webkit-line-clamp:2;
       -webkit-box-orient:vertical;
       overflow:hidden;
     }
     #tab_sheets .card-sub{
-      font-size:.74rem;
-      line-height:1.25;
+      font-size:.76rem;
+      line-height:1.3;
+      letter-spacing:.05em;
+      text-transform:uppercase;
+      color:rgba(191,219,254,.76);
     }
     #tab_sheets .pill-row{
-      gap:5px;
-      margin-top:6px;
+      gap:6px;
+      margin-top:2px;
     }
     #tab_sheets .type-pill,
     #tab_sheets .chip{
-      padding:2px 7px;
-      font-size:.65rem;
+      padding:3px 8px;
+      font-size:.64rem;
+      letter-spacing:.04em;
     }
-    #tab_sheets .card-divider{
-      margin:6px 0 4px;
+    #tab_sheets .card-stat-grid{
+      position:relative;
+      z-index:1;
+      display:grid;
+      grid-template-columns:repeat(4, minmax(0, 1fr));
+      gap:8px;
     }
-    #tab_sheets .card-moves-label{
-      margin-bottom:2px;
-      font-size:.68rem;
+    #tab_sheets .card-stat{
+      text-align:center;
+      padding:8px 4px;
+      border-radius:14px;
+      border:1px solid rgba(148,163,184,.16);
+      background:linear-gradient(180deg, rgba(30,41,59,.62), rgba(15,23,42,.82));
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+    }
+    #tab_sheets .card-stat.cap{
+      border-color:rgba(56,189,248,.32);
+      background:linear-gradient(180deg, rgba(8,47,73,.44), rgba(12,24,44,.88));
+    }
+    #tab_sheets .card-stat-label{
+      font-size:.62rem;
+      font-weight:900;
       letter-spacing:.08em;
       text-transform:uppercase;
+      color:rgba(191,219,254,.82);
     }
-    #tab_sheets .card-move-row{
-      gap:4px;
-      padding:2px 0;
+    #tab_sheets .card-stat-val{
+      margin-top:4px;
+      font-size:1.12rem;
+      line-height:1;
+      font-weight:950;
+      color:rgba(241,245,249,.98);
     }
-    #tab_sheets .card-move-name{
-      font-size:.78rem;
+    #tab_sheets .card-stat.cap .card-stat-label,
+    #tab_sheets .card-stat.cap .card-stat-val{
+      color:#67e8f9;
     }
-    #tab_sheets .card-move-meta{
-      margin-bottom:2px;
-      font-size:.65rem;
+    #tab_sheets .card-footer{
+      position:relative;
+      z-index:1;
+      margin-top:auto;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      padding-top:10px;
+      border-top:1px solid rgba(255,255,255,.1);
+    }
+    #tab_sheets .card-footer-label{
+      font-size:.64rem;
+      font-weight:900;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:rgba(148,163,184,.88);
+    }
+    #tab_sheets .card-featured{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      padding:10px 12px;
+      border-radius:15px;
+      border:1px solid rgba(148,163,184,.16);
+      background:linear-gradient(180deg, rgba(15,23,42,.48), rgba(2,6,23,.36));
+      overflow:hidden;
+      position:relative;
+    }
+    #tab_sheets .card-featured.is-stab::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:linear-gradient(90deg, color-mix(in srgb, var(--stab-color, #fbbf24) 12%, transparent), transparent 58%);
+      pointer-events:none;
+    }
+    #tab_sheets .card-featured-head,
+    #tab_sheets .card-featured-meta{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:8px;
+      position:relative;
+      z-index:1;
+    }
+    #tab_sheets .card-featured-meta{
+      align-items:center;
+      flex-wrap:wrap;
+    }
+    #tab_sheets .card-featured-name{
+      flex:1;
+      min-width:0;
+      font-size:.9rem;
+      font-weight:850;
+      line-height:1.2;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    #tab_sheets .card-featured-note{
+      font-size:.7rem;
       font-weight:800;
-      line-height:1.3;
-      opacity:.68;
+      line-height:1.25;
+      color:rgba(191,219,254,.74);
+    }
+    #tab_sheets .card-featured .mv-pill{
+      flex:0 0 auto;
     }
     #tab_sheets .card-open{
-      margin-top:auto;
-      padding-top:6px;
+      margin-top:0;
+      padding-top:0;
+      font-size:.76rem;
+      letter-spacing:.02em;
     }
     #tab_sheets #sheetDetailWrap{
       display:flex;
@@ -11747,7 +11876,8 @@ function _injectSheetsStyleOnce() {
     }
     @media (max-width: 900px){
       #tab_sheets .cards-grid{
-        --cards-columns:2;
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+        justify-content:stretch;
       }
       #tab_sheets .sheets-column{
         padding:12px;
@@ -11774,7 +11904,10 @@ function _injectSheetsStyleOnce() {
     }
     @media (max-width: 640px){
       #tab_sheets .cards-grid{
-        --cards-columns:1;
+        grid-template-columns:1fr;
+      }
+      #tab_sheets .poke-card{
+        min-height:0;
       }
     }
     `;
@@ -12535,7 +12668,7 @@ function renderSheetsTab() {
   const setSheetsLayoutState = (count, hasDetail) => {
     const safeCount = Math.max(0, safeInt(count, 0));
     cardsGrid.dataset.count = String(safeCount);
-    cardsGrid.style.setProperty("--cards-columns", String(Math.min(4, Math.max(1, safeCount || 1))));
+    cardsGrid.style.removeProperty("--cards-columns");
     if (layoutEl) layoutEl.dataset.hasDetail = hasDetail ? "1" : "0";
   };
 
@@ -12633,39 +12766,79 @@ function renderSheetsTab() {
     const pidLabel = _sheetDisplayPid(sh, sh?._party_pid_raw) || "—";
     const pname = safeStr(pkm.name) || "Pokémon";
     const types = Array.isArray(pkm.types) ? pkm.types : [];
-    const np = sh.np ?? pkm.np ?? "—";
+    const npLabel = sh.np ?? pkm.np ?? "—";
+    const np = parseInt(npLabel || 0) || 0;
     const stats = sh.stats || {};
+    const stgr = parseInt(stats.stgr || 0) || 0;
+    const intel = parseInt(stats.int || 0) || 0;
+    let dodge = parseInt(stats.dodge || 0) || 0;
+    const parry = parseInt(stats.parry || 0) || 0;
+    const fort = parseInt(stats.fortitude || stats.fort || 0) || 0;
+    const will = parseInt(stats.will || 0) || 0;
+    let thg = parseInt(stats.thg || 0) || 0;
+    const cap = 2 * np;
+    if (thg <= 0 && cap > 0) thg = Math.round(cap / 2);
+    if (dodge <= 0 && cap > 0 && thg > 0) dodge = Math.max(0, cap - thg);
 
     const movesRaw = Array.isArray(sh.moves) ? sh.moves : (sh.moves ? Object.values(sh.moves) : []);
     const moves = (movesRaw || []).filter((m) => m && typeof m === "object");
-    const preview = moves.slice(0, 2);
-
     const isSel = pid === _sheetsSelectedPid;
+    const ps = _getPartyStateForSheet(by, baseSheet, pid);
+    const statBoosts = ps.stat_boosts || {};
+    const boostedStats = { ...stats };
+    for (const [key, value] of Object.entries(statBoosts)) {
+      boostedStats[key] = (parseInt(boostedStats[key] || 0) || 0) + (parseInt(value || 0) || 0);
+    }
 
-    let mvH = "";
-    for (const mv of preview) {
-      const n = safeStr(mv.name || mv.Nome || mv.nome || "Golpe");
-      const { rk, acc, label, val, area, br } = _mvSum(mv, stats);
-      const brk = ((label === "Stgr" || label === "Int") && val) ? `(R${br}+${val} ${label})` : `(R${br})`;
-      const mvColor = _moveTypeColor(n);
-      const isStab = _isMoveStab(n, types);
-      mvH += `
-        <div class="card-move-row${isStab ? " move-stab-card" : ""}"${isStab ? ` style="--stab-color:${mvColor}"` : ""}>
-          <span class="card-move-name" style="${mvColor ? `color:${mvColor}` : ""}">${escapeHtml(n)}${isStab ? " ★" : ""}</span>
-          <span class="mv-pill rk">R${rk}</span>
-          <span class="mv-pill area">${area ? "Área" : "Alvo"}</span>
+    const cardStatsH = [
+      ["Stgr", stgr + (statBoosts.stgr || 0)],
+      ["Int", intel + (statBoosts.int || 0)],
+      ["Thg", thg + (statBoosts.thg || 0)],
+      ["Dodge", dodge + (statBoosts.dodge || 0)],
+      ["Parry", parry + (statBoosts.parry || 0)],
+      ["Fort", fort + (statBoosts.fort || 0)],
+      ["Will", will + (statBoosts.will || 0)],
+      ["Cap", cap],
+    ].map(([label, value]) => `
+      <div class="card-stat${label === "Cap" ? " cap" : ""}">
+        <div class="card-stat-label">${label}</div>
+        <div class="card-stat-val">${value}</div>
+      </div>
+    `).join("");
+
+    const featuredMove = _getPreferredMovesForTrainerPid(by, pid || entry._party_pid_raw || pname, moves, 1)[0] || null;
+    let cardFooterBody = `
+      <div class="card-featured">
+        <div class="card-featured-note">Sem golpes cadastrados nesta ficha.</div>
+      </div>
+    `;
+    if (featuredMove) {
+      const moveName = safeStr(featuredMove.name || featuredMove.Nome || featuredMove.nome || "Golpe");
+      const { rk, label, val, br } = _mvSum(featuredMove, boostedStats);
+      const moveMeta = ((label === "Stgr" || label === "Int") && val)
+        ? `R${br} + ${val} ${label}`
+        : `R${br}`;
+      const moveColor = _moveTypeColor(moveName);
+      const isStab = _isMoveStab(moveName, types);
+      cardFooterBody = `
+        <div class="card-featured${isStab ? " is-stab" : ""}"${isStab ? ` style="--stab-color:${moveColor}"` : ""}>
+          <div class="card-featured-head">
+            <span class="card-featured-name" style="${moveColor ? `color:${moveColor}` : ""}">${escapeHtml(moveName)}${isStab ? " ★" : ""}</span>
+            <span class="mv-pill rk">R${rk}</span>
+          </div>
+          <div class="card-featured-meta">
+            <span class="card-featured-note">${escapeHtml(moveMeta)}</span>
+            ${_renderMoveModePill(featuredMove, { compact: true })}
+          </div>
         </div>
-        <div class="card-move-meta">${escapeHtml(brk)}</div>
       `;
     }
-    if (!mvH) mvH = `<div style="opacity:.6;font-size:.78rem;">Sem golpes nesta ficha.</div>`;
 
     const tp = (types || []).map((t) => _typePill(t)).join("");
     const megaBadge = entry.activeMegaSlug ? `<span class="chip" style="border-color:rgba(251,191,36,.45);color:#fbbf24;">MEGA</span>` : "";
 
-    const _psCard2 = _getPartyStateForSheet(by, baseSheet, pid);
-    const sprite = getSpriteUrlForPiece({ owner: by, pid }, { type: "art", shiny: !!_psCard2.shiny })
-      || _artUrlFromPidForSheets(pname || pid, _psCard2.shiny)
+    const sprite = getSpriteUrlForPiece({ owner: by, pid }, { type: "art", shiny: !!ps.shiny })
+      || _artUrlFromPidForSheets(pname || pid, ps.shiny)
       || _spriteUrlFromPidForSheets(pname || pid)
       || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
 
@@ -12680,26 +12853,23 @@ function renderSheetsTab() {
 
     card.innerHTML = `
       <div class="card-head">
-        <img src="${escapeAttr(sprite)}" alt="sprite" loading="lazy"
-          onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'"/>
+        <div class="card-art-shell">
+          <img src="${escapeAttr(sprite)}" alt="sprite" loading="lazy"
+            onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'"/>
+        </div>
         <div class="card-info">
           <div class="card-name">${escapeHtml(pname)}</div>
-          <div class="card-sub">#${escapeHtml(pidLabel)} • NP ${escapeHtml(String(np))}</div>
+          <div class="card-sub">#${escapeHtml(pidLabel)} • NP ${escapeHtml(String(npLabel))}</div>
           <div class="pill-row">${tp}${megaBadge}</div>
         </div>
       </div>
-      <div class="card-divider"></div>
-      <div class="card-moves-label">Golpes</div>
-      ${mvH}
-      <div class="card-open">Abrir ficha →</div>
+      <div class="card-stat-grid">${cardStatsH}</div>
+      <div class="card-footer">
+        <div class="card-footer-label">Golpe em destaque</div>
+        ${cardFooterBody}
+        <div class="card-open">Abrir ficha →</div>
+      </div>
     `;
-    card.querySelectorAll(".card-move-row").forEach((row, idx) => {
-      const mv = preview[idx];
-      if (!mv) return;
-      const pills = Array.from(row.querySelectorAll(".mv-pill"));
-      const statusPill = pills[pills.length - 1];
-      if (statusPill) statusPill.outerHTML = _renderMoveModePill(mv, { compact: true });
-    });
     cardsGrid.appendChild(card);
   }
 
