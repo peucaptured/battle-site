@@ -3399,16 +3399,30 @@ function _getUserDataForTrainer(trainerName) {
   return null;
 }
 
+function _trainerRpgPickStat(src, ...keys) {
+  const data = (src && typeof src === "object" && !Array.isArray(src)) ? src : {};
+  const entries = Object.entries(data);
+
+  for (const key of keys) {
+    if (!key) continue;
+    if (Object.prototype.hasOwnProperty.call(data, key)) return data[key];
+    const wanted = safeStr(key).toLowerCase();
+    const found = entries.find(([entryKey]) => safeStr(entryKey).toLowerCase() === wanted);
+    if (found) return found[1];
+  }
+  return undefined;
+}
+
 function _normalizeTrainerRpgStats(stats) {
   const src = (stats && typeof stats === "object" && !Array.isArray(stats)) ? stats : {};
   return {
-    stgr: safeInt(src.stgr, 0),
-    int: safeInt(src.int ?? src.intel, 0),
-    dodge: safeInt(src.dodge, 0),
-    parry: safeInt(src.parry, 0),
-    will: safeInt(src.will, 0),
-    fortitude: safeInt(src.fortitude ?? src.fort, 0),
-    thg: safeInt(src.thg, 0),
+    stgr: safeInt(_trainerRpgPickStat(src, "stgr", "Stgr", "STGR", "strg", "Strg"), 0),
+    int: safeInt(_trainerRpgPickStat(src, "int", "Int", "INT", "intel", "Intel", "intelligence", "Intelligence"), 0),
+    dodge: safeInt(_trainerRpgPickStat(src, "dodge", "Dodge", "DODGE"), 0),
+    parry: safeInt(_trainerRpgPickStat(src, "parry", "Parry", "PARRY"), 0),
+    will: safeInt(_trainerRpgPickStat(src, "will", "Will", "WILL"), 0),
+    fortitude: safeInt(_trainerRpgPickStat(src, "fortitude", "Fortitude", "FORTITUDE", "fort", "Fort", "FORT"), 0),
+    thg: safeInt(_trainerRpgPickStat(src, "thg", "Thg", "THG"), 0),
   };
 }
 
@@ -3444,9 +3458,12 @@ function _normalizeTrainerRpgTextList(value) {
 
 function normalizeTrainerRpgSheet(sheet, trainerName = "") {
   if (!sheet || typeof sheet !== "object" || Array.isArray(sheet)) return null;
+  const statsSource = (sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
+    ? sheet.stats
+    : sheet;
   return {
-    trainer_name: safeStr(sheet.trainer_name || trainerName || appState.by),
-    stats: _normalizeTrainerRpgStats(sheet.stats),
+    trainer_name: safeStr(sheet.trainer_name || sheet.trainerName || trainerName || appState.by),
+    stats: _normalizeTrainerRpgStats(statsSource),
     skills: _normalizeTrainerRpgTextList(sheet.skills),
     advantages: _normalizeTrainerRpgTextList(sheet.advantages),
     updated_at: sheet.updated_at || null,
@@ -11859,7 +11876,7 @@ function ensureSelfTrainerRpgSheetRealtime() {
     return;
   }
 
-  const uid = safeStr(appState.selfTrainerId) || safeDocId(by);
+  const uid = safeDocId(by);
   const key = uid;
   if (_trainerRpgSheetRtKey === key && _trainerRpgSheetUnsub) return;
 
