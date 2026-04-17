@@ -849,6 +849,8 @@ const CSS_TEXT = `
 .arena-sheet-card .move-name { font-size: 11px; font-weight: 900; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .arena-sheet-card .mv-pill { font-size: 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,.18); padding: 1px 4px; }
 .arena-sheet-card .muted { opacity: .75; font-size: 10px; }
+.arena-sheet-card .trainer-rpg-list { display:flex; flex-direction:column; gap:4px; margin-top:4px; }
+.arena-sheet-card .trainer-rpg-line { font-size: 10px; line-height: 1.35; color: rgba(226,232,240,.92); }
 `;
 
 // localStorage keys
@@ -2264,6 +2266,9 @@ export class ArenaCombatUI {
 
     if (piece?.id && typeof window.selectPiece === "function") {
       window.selectPiece(piece.id);
+    }
+    if (safeStr(piece?.kind) === "trainer" || safeStr(piece?.pid).startsWith("trainer_")) {
+      return;
     }
     await this._loadSheets(safeStr(piece.owner) || this.getBy());
     const pid = safeStr(piece.pid);

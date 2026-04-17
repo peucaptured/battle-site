@@ -687,6 +687,7 @@ const appState = {
   // login (Google Sheet)
   selfUserData: null,      // JSON da coluna B (após login)
   selfPartySnapshot: null, // snapshot da party com ficha mais recente
+  selfTrainerRpgSheet: null, // ficha RPG do treinador logado
   selfAuthStatus: null,    // "OK" | "NOT_FOUND" | "WRONG_PASS" | "ERROR"
   role: "—",
   players: [],
@@ -2558,6 +2559,12 @@ connectBtn?.addEventListener("click", async () => {
   }
 
   // players (suporta 2 formatos: subcoleção rooms/{rid}/players e/ou campos no doc rooms/{rid})
+  try {
+    ensureSelfTrainerRpgSheetRealtime?.();
+  } catch (e) {
+    console.warn("ensureSelfTrainerRpgSheetRealtime falhou:", e);
+  }
+
   let playersFromCol = [];
   let playersFromRoom = [];
   const commitPlayers = () => {
@@ -3392,6 +3399,79 @@ function _getUserDataForTrainer(trainerName) {
   return null;
 }
 
+function _normalizeTrainerRpgStats(stats) {
+  const src = (stats && typeof stats === "object" && !Array.isArray(stats)) ? stats : {};
+  return {
+    stgr: safeInt(src.stgr, 0),
+    int: safeInt(src.int ?? src.intel, 0),
+    dodge: safeInt(src.dodge, 0),
+    parry: safeInt(src.parry, 0),
+    will: safeInt(src.will, 0),
+    fortitude: safeInt(src.fortitude ?? src.fort, 0),
+    thg: safeInt(src.thg, 0),
+  };
+}
+
+function _normalizeTrainerRpgTextList(value) {
+  const out = [];
+  const pushLine = (line) => {
+    const clean = safeStr(line);
+    if (clean) out.push(clean);
+  };
+  const pushValue = (item) => {
+    if (item == null) return;
+    if (typeof item === "string") {
+      item.split(/\r?\n+/).forEach(pushLine);
+      return;
+    }
+    if (typeof item === "object" && !Array.isArray(item)) {
+      const label = safeStr(item.text || item.name || item.label || item.value);
+      const ranks = safeStr(item.ranks);
+      pushLine(label ? `${label}${ranks ? ` R${ranks}` : ""}` : "");
+      return;
+    }
+    pushLine(item);
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach(pushValue);
+    return out;
+  }
+
+  pushValue(value);
+  return out;
+}
+
+function normalizeTrainerRpgSheet(sheet, trainerName = "") {
+  if (!sheet || typeof sheet !== "object" || Array.isArray(sheet)) return null;
+  return {
+    trainer_name: safeStr(sheet.trainer_name || trainerName || appState.by),
+    stats: _normalizeTrainerRpgStats(sheet.stats),
+    skills: _normalizeTrainerRpgTextList(sheet.skills),
+    advantages: _normalizeTrainerRpgTextList(sheet.advantages),
+    updated_at: sheet.updated_at || null,
+  };
+}
+
+function _getSelfTrainerRpgSheetFallback() {
+  const direct = appState.selfUserData?.trainer_profile?.rpg_sheet;
+  if (direct && typeof direct === "object" && !Array.isArray(direct)) return direct;
+
+  const tn = safeStr(appState.by);
+  for (const uid of getTrainerCandidateIds(tn)) {
+    const entry = appState.userProfiles?.get?.(uid);
+    const raw = entry?.raw?.data || entry?.raw;
+    const rawSheet = raw?.trainer_profile?.rpg_sheet;
+    if (rawSheet && typeof rawSheet === "object" && !Array.isArray(rawSheet)) return rawSheet;
+  }
+  return null;
+}
+
+function getSelfTrainerRpgSheet() {
+  const rawSheet = appState.selfTrainerRpgSheet || _getSelfTrainerRpgSheetFallback();
+  return normalizeTrainerRpgSheet(rawSheet, safeStr(appState.by));
+}
+
 function _moveNameValue(mv) {
   return safeStr(mv?.name || mv?.Nome || mv?.nome || "Golpe");
 }
@@ -3919,6 +3999,72 @@ async function updatePartyStateHp(ownerName, pid, hp) {
   try { requestArenaRefresh(true); } catch {}
 }
 
+function _renderTrainerRpgListHtml(items, emptyText) {
+  const lines = Array.isArray(items) ? items.map((item) => safeStr(item)).filter(Boolean) : [];
+  if (!lines.length) return `<div class="muted">${escapeHtml(emptyText)}</div>`;
+  return `
+    <div class="trainer-rpg-list">
+      ${lines.map((item) => `<div class="trainer-rpg-line">&bull; ${escapeHtml(item)}</div>`).join("")}
+    </div>
+  `;
+}
+
+function _renderTrainerArenaSheetPreview(root, piece) {
+  const owner = safeStr(piece?.owner) || safeStr(appState.by);
+  const ownerLabel = humanizeInternalLabel(owner) || owner || "Treinador";
+  const sheet = getSelfTrainerRpgSheet();
+  const trainerName = safeStr(sheet?.trainer_name || ownerLabel) || ownerLabel;
+  const mediaSrc = getTrainerProfilePhotoSrc(owner, { allowAvatarFallback: true })
+    || getTrainerAvatarSrc(owner, { allowProfileFallback: true })
+    || getSpriteUrlForPiece(piece, { type: "art" })
+    || trainerLetterDataUrl(owner);
+
+  if (!sheet) {
+    root.innerHTML = `
+      <div class="arena-sheet-card">
+        <div class="sheet-top">
+          <img class="sheet-art" src="${escapeAttr(mediaSrc)}" alt="${escapeAttr(trainerName)}" />
+          <div style="flex:1;min-width:0;">
+            <div class="sheet-name">${escapeHtml(trainerName)}</div>
+            <div class="sheet-sub">${escapeHtml(ownerLabel)} &bull; Treinador em campo</div>
+          </div>
+        </div>
+        <div class="muted" style="margin-top:8px">Ficha RPG do treinador ainda não disponível.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const stats = _normalizeTrainerRpgStats(sheet.stats);
+  const skillsHtml = _renderTrainerRpgListHtml(sheet.skills, "Sem skills.");
+  const advantagesHtml = _renderTrainerRpgListHtml(sheet.advantages, "Sem advantages.");
+
+  root.innerHTML = `
+    <div class="arena-sheet-card">
+      <div class="sheet-top">
+        <img class="sheet-art" src="${escapeAttr(mediaSrc)}" alt="${escapeAttr(trainerName)}" />
+        <div style="flex:1;min-width:0;">
+          <div class="sheet-name">${escapeHtml(trainerName)}</div>
+          <div class="sheet-sub">${escapeHtml(ownerLabel)} &bull; Treinador em campo</div>
+        </div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-label">Stgr</div><div class="stat-val">${stats.stgr}</div></div>
+        <div class="stat-box"><div class="stat-label">Int</div><div class="stat-val">${stats.int}</div></div>
+        <div class="stat-box"><div class="stat-label">Thg</div><div class="stat-val">${stats.thg}</div></div>
+        <div class="stat-box"><div class="stat-label">Dodge</div><div class="stat-val">${stats.dodge}</div></div>
+        <div class="stat-box"><div class="stat-label">Parry</div><div class="stat-val">${stats.parry}</div></div>
+        <div class="stat-box"><div class="stat-label">Fort</div><div class="stat-val">${stats.fortitude}</div></div>
+        <div class="stat-box"><div class="stat-label">Will</div><div class="stat-val">${stats.will}</div></div>
+      </div>
+      <div class="section-title">Skills</div>
+      ${skillsHtml}
+      <div class="section-title">Advantages</div>
+      ${advantagesHtml}
+    </div>
+  `;
+}
+
 function renderArenaSheetPreview() {
   const root = $("arena_sheet_preview");
   if (!root) return;
@@ -3931,6 +4077,11 @@ function renderArenaSheetPreview() {
   const piece = (appState.pieces || []).find((item) => safeStr(item?.id) === selId) || null;
   if (!piece || !isPieceVisibleToMe(piece)) {
     root.innerHTML = `<div class="arena-sheet-card"><div class="muted">A peça selecionada não está visível.</div></div>`;
+    return;
+  }
+
+  if (isTrainerPiece(piece) && isPieceMine(piece)) {
+    _renderTrainerArenaSheetPreview(root, piece);
     return;
   }
 
@@ -10604,6 +10755,8 @@ setStatus("warn", "desconectado");
 let _sheetsRtKey = null;
 let _sheetsUnsub = null;
 let _partyStatesUnsub = null;
+let _trainerRpgSheetUnsub = null;
+let _trainerRpgSheetRtKey = null;
 
 let _allSheetsLatest = [];   // lista (desc por updated_at) do trainer logado
 let _allSheetsCollections = _buildSheetCollections([]);
@@ -11678,9 +11831,12 @@ function ensureSheetsUI() {
 function teardownSheetsRealtime() {
   try { if (_sheetsUnsub) _sheetsUnsub(); } catch {}
   try { if (_partyStatesUnsub) _partyStatesUnsub(); } catch {}
+  try { if (_trainerRpgSheetUnsub) _trainerRpgSheetUnsub(); } catch {}
   _sheetsUnsub = null;
   _partyStatesUnsub = null;
+  _trainerRpgSheetUnsub = null;
   _sheetsRtKey = null;
+  _trainerRpgSheetRtKey = null;
 
   _allSheetsLatest = [];
   _allSheetsCollections = _buildSheetCollections([]);
@@ -11689,6 +11845,42 @@ function teardownSheetsRealtime() {
   _megaEvolutionFx.clear();
   _sheetsSelectedPid = null;
   _sheetsLastError = "";
+  appState.selfTrainerRpgSheet = null;
+}
+
+function ensureSelfTrainerRpgSheetRealtime() {
+  const db = currentDb;
+  const by = safeStr(appState.by);
+  if (!appState.connected || !db || !by) {
+    try { if (_trainerRpgSheetUnsub) _trainerRpgSheetUnsub(); } catch {}
+    _trainerRpgSheetUnsub = null;
+    _trainerRpgSheetRtKey = null;
+    appState.selfTrainerRpgSheet = null;
+    return;
+  }
+
+  const uid = safeStr(appState.selfTrainerId) || safeDocId(by);
+  const key = uid;
+  if (_trainerRpgSheetRtKey === key && _trainerRpgSheetUnsub) return;
+
+  try { if (_trainerRpgSheetUnsub) _trainerRpgSheetUnsub(); } catch {}
+  _trainerRpgSheetUnsub = null;
+  _trainerRpgSheetRtKey = key;
+
+  try {
+    const rpgSheetDoc = doc(db, "trainers", uid, "profile", "rpg_sheet");
+    _trainerRpgSheetUnsub = onSnapshot(rpgSheetDoc, (snap) => {
+      appState.selfTrainerRpgSheet = snap.exists()
+        ? normalizeTrainerRpgSheet(snap.data() || {}, by)
+        : null;
+      try { updateSidePanels(); } catch {}
+    }, () => {
+      appState.selfTrainerRpgSheet = null;
+      try { updateSidePanels(); } catch {}
+    });
+  } catch {
+    appState.selfTrainerRpgSheet = null;
+  }
 }
 
 function ensureSheetsRealtime() {
@@ -11707,11 +11899,15 @@ function ensureSheetsRealtime() {
 
   const uid = safeDocId(by);
   const key = `${rid}::${uid}`;
-  if (_sheetsRtKey === key) return;
+  if (_sheetsRtKey === key) {
+    try { ensureSelfTrainerRpgSheetRealtime(); } catch {}
+    return;
+  }
 
   teardownSheetsRealtime();
   ensureSheetsUI();
   _sheetsRtKey = key;
+  try { ensureSelfTrainerRpgSheetRealtime(); } catch {}
 
   // party_states (HP/cond) — opcional
   try {
