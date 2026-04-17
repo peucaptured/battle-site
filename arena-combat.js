@@ -139,6 +139,53 @@ function normalizeStats(stats) {
   return { ...raw, ...norm };
 }
 
+function isTrainerPiece(pieceOrPid) {
+  const pid = typeof pieceOrPid === "object" ? safeStr(pieceOrPid?.pid) : safeStr(pieceOrPid);
+  const kind = typeof pieceOrPid === "object" ? safeStr(pieceOrPid?.kind).toLowerCase() : "";
+  return kind === "trainer" || /^trainer_/i.test(pid);
+}
+
+function trainerCacheKey(trainerName) {
+  return safeStr(trainerName).toLowerCase();
+}
+
+function pickTrainerRpgStat(src, ...keys) {
+  const data = (src && typeof src === "object" && !Array.isArray(src)) ? src : {};
+  const entries = Object.entries(data);
+  for (const key of keys) {
+    if (!key) continue;
+    if (Object.prototype.hasOwnProperty.call(data, key)) return data[key];
+    const wanted = safeStr(key).toLowerCase();
+    const found = entries.find(([entryKey]) => safeStr(entryKey).toLowerCase() === wanted);
+    if (found) return found[1];
+  }
+  return undefined;
+}
+
+function normalizeTrainerRpgStats(stats) {
+  return normalizeStats({
+    stgr: safeInt(pickTrainerRpgStat(stats, "stgr", "Stgr", "STGR", "strg", "Strg"), 0),
+    int: safeInt(pickTrainerRpgStat(stats, "int", "Int", "INT", "intel", "Intel", "intelligence", "Intelligence"), 0),
+    dodge: safeInt(pickTrainerRpgStat(stats, "dodge", "Dodge", "DODGE"), 0),
+    parry: safeInt(pickTrainerRpgStat(stats, "parry", "Parry", "PARRY"), 0),
+    fort: safeInt(pickTrainerRpgStat(stats, "fortitude", "Fortitude", "FORTITUDE", "fort", "Fort", "FORT"), 0),
+    will: safeInt(pickTrainerRpgStat(stats, "will", "Will", "WILL"), 0),
+    thg: safeInt(pickTrainerRpgStat(stats, "thg", "Thg", "THG", "toughness", "Toughness"), 0),
+  });
+}
+
+function normalizeTrainerRpgSheetData(sheet, trainerName = "") {
+  if (!sheet || typeof sheet !== "object" || Array.isArray(sheet)) return null;
+  const statsSource = (sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
+    ? sheet.stats
+    : sheet;
+  return {
+    trainer_name: safeStr(sheet.trainer_name || sheet.trainerName || trainerName),
+    stats: normalizeTrainerRpgStats(statsSource),
+    updated_at: sheet.updated_at || null,
+  };
+}
+
 function hasOwn(obj, key) {
   return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
 }
@@ -874,6 +921,8 @@ export class ArenaCombatUI {
     this._sheets = new Map();
     this._sheetsMap = new Map();
     this._sheetCollections = new Map();
+    this._trainerRpgSheets = new Map();
+    this._trainerRpgUnsubs = new Map();
     this._partyStatesUnsub = null;
 
     this._overlayRoot = null;
@@ -927,6 +976,37 @@ export class ArenaCombatUI {
     return doc(db, "rooms", rid, "public_state", "party_states");
   }
 
+  _trainerRpgSheetRef(trainerName) {
+    const db = this.getDb();
+    const tid = safeDocId(trainerName);
+    if (!db || !tid) return null;
+    return doc(db, "trainers", tid, "profile", "rpg_sheet");
+  }
+
+  _loadTrainerRpgSheet(trainerName, forceReload = false) {
+    const name = safeStr(trainerName);
+    const key = trainerCacheKey(name);
+    if (!name || !key) return;
+    if (!forceReload && this._trainerRpgUnsubs.has(key)) return;
+    if (forceReload && this._trainerRpgUnsubs.has(key)) {
+      try { this._trainerRpgUnsubs.get(key)?.(); } catch {}
+      this._trainerRpgUnsubs.delete(key);
+    }
+    const ref = this._trainerRpgSheetRef(name);
+    if (!ref) return;
+    const unsub = onSnapshot(ref, (snap) => {
+      this._trainerRpgSheets.set(key, snap.exists() ? normalizeTrainerRpgSheetData(snap.data() || {}, name) : null);
+    }, () => {
+      this._trainerRpgSheets.set(key, null);
+    });
+    this._trainerRpgUnsubs.set(key, unsub);
+  }
+
+  _getTrainerRpgSheet(trainerName) {
+    const key = trainerCacheKey(trainerName);
+    return key ? (this._trainerRpgSheets.get(key) || null) : null;
+  }
+
   async _publishRoll(value, label = "d20") {
     const db = this.getDb(); const rid = this.getRid();
     const by = safeStr(this.getBy()) || "—";
@@ -949,6 +1029,9 @@ export class ArenaCombatUI {
         if (trainerName && !this._sheets.has(trainerName)) {
           this._loadSheets(trainerName);
         }
+        if (trainerName && !this._trainerRpgUnsubs.has(trainerCacheKey(trainerName))) {
+          this._loadTrainerRpgSheet(trainerName);
+        }
       }
     }, () => {});
 
@@ -957,15 +1040,21 @@ export class ArenaCombatUI {
       for (const pl of players) {
         const name = safeStr(pl?.trainer_name);
         if (name && !this._sheets.has(name)) this._loadSheets(name);
+        if (name && !this._trainerRpgUnsubs.has(trainerCacheKey(name))) this._loadTrainerRpgSheet(name);
       }
       const by = this.getBy?.();
       if (by && !this._sheets.has(by)) this._loadSheets(by);
+      if (by && !this._trainerRpgUnsubs.has(trainerCacheKey(by))) this._loadTrainerRpgSheet(by);
     }, 400);
   }
 
   stopListening() {
     if (this._partyStatesUnsub) { try { this._partyStatesUnsub(); } catch {} }
     this._partyStatesUnsub = null;
+    for (const [trainerKey, unsub] of this._trainerRpgUnsubs.entries()) {
+      try { unsub(); } catch {}
+      this._trainerRpgUnsubs.delete(trainerKey);
+    }
   }
 
   async _loadSheets(trainerName) {
@@ -1035,6 +1124,24 @@ export class ArenaCombatUI {
       }
     }
     pData = pData || {};
+
+    if (isTrainerPiece(pid)) {
+      if (!this._trainerRpgUnsubs.has(trainerCacheKey(trainerName))) this._loadTrainerRpgSheet(trainerName);
+      const boosts = pData.stat_boosts || {};
+      const trainerSheet = this._getTrainerRpgSheet(trainerName);
+      const result = normalizeStats(trainerSheet?.stats || {});
+
+      for (const [k, v] of Object.entries(boosts)) {
+        const statKey = normalizeStatKey(k);
+        if (result[statKey] !== undefined || statKey === "acerto") {
+          result[statKey] = (safeInt(result[statKey]) + safeInt(v));
+        }
+      }
+
+      result.fortitude = safeInt(result.fort);
+      result.toughness = safeInt(result.thg);
+      return result;
+    }
 
     const sheet = this._getSheet(trainerName, pid);
     const hasPartyStats = (pData.stats && Object.keys(pData.stats).length > 0);
@@ -1180,8 +1287,7 @@ export class ArenaCombatUI {
       if (!isPlayer || !canStartCombat) return null;
       return all.filter((piece) => {
         const owner = safeStr(piece.owner).toLowerCase();
-        const isPokemon = safeStr(piece.kind) !== "trainer";
-        return !!owner && owner !== by && isPokemon;
+        return !!owner && owner !== by;
       });
     };
 
@@ -1206,7 +1312,7 @@ export class ArenaCombatUI {
         ev.clientX,
         ev.clientY,
         {
-          title: "Há mais de um pokémon aqui. Com qual deseja interagir?",
+          title: "Há mais de uma peça aqui. Com qual deseja interagir?",
           onSelect: (piece) => {
             this._closeAll();
             window.selectPiece?.(safeStr(piece.id));
@@ -1237,7 +1343,7 @@ export class ArenaCombatUI {
       const cx = ev.clientX - wrapRect.left;
       const cy = ev.clientY - wrapRect.top;
       const piecesOnTile = (window.getPiecesAt?.(tile.row, tile.col) || []).filter(Boolean);
-      const interactable = piecesOnTile.filter((piece) => safeStr(piece.kind) !== "trainer");
+      const interactable = piecesOnTile.filter(Boolean);
       const mine = interactable.filter((piece) => _isMine(piece));
       if (mine.length > 0) return;
       const enemies = interactable.filter((piece) => !_isMine(piece));
@@ -1253,7 +1359,7 @@ export class ArenaCombatUI {
       }
 
       this._showPieceChoiceMenu(enemies, ev.clientX, ev.clientY, {
-        title: "Escolha um pokémon para abrir as ações",
+        title: "Escolha uma peça para abrir as ações",
         onSelect: (piece) => this._showContextMenu(piece, tile, cx, cy),
       });
     }, true);
@@ -1980,6 +2086,7 @@ export class ArenaCombatUI {
 
     if (by) await this._loadSheets(by);
     if (tOwner) await this._loadSheets(tOwner);
+    if (isTrainerPiece(targetPiece)) this._loadTrainerRpgSheet(tOwner);
 
     const atkStats = this._getEffectiveStats(by, atkPid);
     const tStats = this._getEffectiveStats(tOwner, tPid);
