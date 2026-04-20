@@ -51,12 +51,28 @@ function extractSpeed(statsObj) {
 const _speedCache = new Map();
 
 function toPokeAPIName(raw) {
-  return String(raw || "")
+  const cleaned = String(raw || "")
     .replace(/^EXT:/i, "")
     .split(" - ")[0]
-    .trim()
+    .trim();
+  if (!cleaned) return "";
+  try {
+    if (typeof window.spriteSlugFromPokemonName === "function") {
+      const shared = String(window.spriteSlugFromPokemonName(cleaned) || "").trim().toLowerCase();
+      if (shared) return shared;
+    }
+  } catch {}
+  return cleaned
     .toLowerCase()
-    .replace(/\s+/g, "-");
+    .replace(/nidoran\s*(?:\u2640|\u00e2\u2122\u20ac)/g, "nidoran-f")
+    .replace(/nidoran\s*(?:\u2642|\u00e2\u2122\u201a)/g, "nidoran-m")
+    .replace(/(?:\u2640|\u00e2\u2122\u20ac)/g, "-f")
+    .replace(/(?:\u2642|\u00e2\u2122\u201a)/g, "-m")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .replace(/^nidoranf$/g, "nidoran-f")
+    .replace(/^nidoranm$/g, "nidoran-m");
 }
 
 async function fetchSpeedFromPokeAPI(name) {

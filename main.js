@@ -2934,6 +2934,36 @@ function slugifyPokemonName(name) {
     .replace(/^-|-$/g, "");
 }
 
+function canonicalizePokemonSlug(rawSlug) {
+  const slug = safeStr(rawSlug).toLowerCase();
+  const aliases = {
+    "nidoranf": "nidoran-f",
+    "nidoranm": "nidoran-m",
+    "nidoran-female": "nidoran-f",
+    "nidoran-male": "nidoran-m",
+  };
+  return aliases[slug] || slug;
+}
+
+function normalizeGenderMarkersForSlug(name) {
+  return safeStr(name)
+    .replace(/nidoran\s*(?:\u2640|\u00e2\u2122\u20ac)/ig, "nidoran-f")
+    .replace(/nidoran\s*(?:\u2642|\u00e2\u2122\u201a)/ig, "nidoran-m")
+    .replace(/(?:\u2640|\u00e2\u2122\u20ac)/g, "-f")
+    .replace(/(?:\u2642|\u00e2\u2122\u201a)/g, "-m");
+}
+
+function slugifyPokemonName(name) {
+  return canonicalizePokemonSlug(
+    normalizeGenderMarkersForSlug(name)
+      .toLowerCase()
+      .replace(/['`\.]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+  );
+}
+
 function normalizePokemonFormName(name) {
   let n = safeStr(name);
   if (!n) return "";
@@ -3027,7 +3057,7 @@ function spriteSlugFromPokemonName(name) {
     slug = "ursaluna-bloodmoon";
   }
 
-  return slug;
+  return canonicalizePokemonSlug(slug);
 }
 
 function spriteUrlFromPokemonName(name) {
@@ -6634,16 +6664,18 @@ function _normalizePokeApiSlug(raw) {
     : "";
   const base = sharedSlug || input;
 
-  return base
-    .toLowerCase()
-    .replace(/-alolan$/, "-alola")
-    .replace(/-galarian$/, "-galar")
-    .replace(/-hisuian$/, "-hisui")
-    .replace(/-paldean$/, "-paldea")
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9\-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+  return canonicalizePokemonSlug(
+    base
+      .toLowerCase()
+      .replace(/-alolan$/, "-alola")
+      .replace(/-galarian$/, "-galar")
+      .replace(/-hisuian$/, "-hisui")
+      .replace(/-paldean$/, "-paldea")
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9\-]/g, "")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+  );
 }
 
 function _getEffectivePokeApiSlug(ownerName, pidLike) {
