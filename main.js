@@ -116,6 +116,7 @@ const battlePre = $("battle");
 // inputs
 const ridInput = $("rid");
 const byInput = $("by");
+const pwInput = $("pw");
 // tenta pré-preencher "by" com o último login
 try {
   const cache = loadLoginCache();
@@ -589,7 +590,7 @@ async function buildPartySnapshotFromFirestore(db, trainerName, userData, limitS
 }
 
 // Faz login antes de conectar
-async function ensureLoggedInIfNeeded(db, auth, typedName) {
+async function ensureLoggedInIfNeeded(db, auth, typedName, typedPassword = "") {
 
   const tn = safeStr(typedName);
 
@@ -638,9 +639,12 @@ async function ensureLoggedInIfNeeded(db, auth, typedName) {
 
   }
 
-  // 2) pede senha via prompt (não exige mexer no HTML)
-  const pw = window.prompt(`Senha do treinador "${tn}" (mesma da planilha):`, "");
-  if (pw == null) return { ok: false, cancel: true };
+  // 2) usa a senha digitada na tela; se não vier preenchida, mantém prompt como fallback
+  let pw = safeStr(typedPassword);
+  if (!pw) {
+    pw = window.prompt(`Senha do treinador "${tn}" (mesma da planilha):`, "");
+    if (pw == null) return { ok: false, cancel: true };
+  }
 
   const result = await sheetAuthenticateUser(tn, pw);
   appState.selfAuthStatus = result.status;
@@ -2523,7 +2527,8 @@ connectBtn?.addEventListener("click", async () => {
   
   // login
   const typedName = safeStr(byInput?.value || "");
-  const login = await ensureLoggedInIfNeeded(db, auth, typedName);
+  const typedPassword = String(pwInput?.value || "");
+  const login = await ensureLoggedInIfNeeded(db, auth, typedName, typedPassword);
   if (!login.ok) {
     if (login.cancel) {
       setStatus("warn", "login cancelado");
@@ -2540,6 +2545,7 @@ connectBtn?.addEventListener("click", async () => {
   const by = safeStr(login.name || "");
   appState.by = by;
   if (byInput && by) byInput.value = by;
+  if (pwInput) pwInput.value = "";
   updateTopBadges();
 
   currentDb = db;
@@ -2923,7 +2929,7 @@ function pieceDisplayName(p) {
   return { pid, id, owner };
 }
 
-function slugifyPokemonName(name) {
+function slugifyPokemonNameLegacy(name) {
   return safeStr(name)
     .toLowerCase()
     .replaceAll("♀", "f")
