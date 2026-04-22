@@ -581,11 +581,24 @@ async function buildPartySnapshotFromFirestore(db, trainerName, userData, limitS
     const pid = entry.pid;
     const heldItem = entry?.held_item || entry?.heldItem || _getHeldItemFromHubMeta(hubMeta, entry);
     const captureBall = entry?.capture_ball || entry?.captureBall || _getCaptureBallFromHubMeta(hubMeta, entry);
+    const entryTypes = _extractResolvedTypesFromSource(entry);
+    const resolvedTypes = entryTypes.length ? entryTypes : _getResolvedTypesFromHubMeta(hubMeta, entry);
     const base = Object.assign({}, entry);
     if (heldItem && !base.held_item && !base.heldItem) base.held_item = heldItem;
     if (captureBall && !base.capture_ball && !base.captureBall) base.capture_ball = captureBall;
+    if (resolvedTypes.length) {
+      base.resolved_types = resolvedTypes;
+      if (!base.type_override && !base.typeOverride) base.type_override = resolvedTypes;
+    }
     const extra = byPid.get(pid);
-    return extra ? Object.assign(base, extra) : base;
+    const merged = extra ? Object.assign(base, extra) : base;
+    if (resolvedTypes.length) {
+      merged.pokemon = Object.assign({}, merged?.pokemon || {}, {
+        id: merged?.pokemon?.id || pid,
+        types: resolvedTypes,
+      });
+    }
+    return merged;
   });
 }
 
@@ -920,6 +933,7 @@ function ensureUserSubscriptions() {
     try {
       const rawDoc = doc(currentDb, "users_raw", uid);
       const profileDoc = doc(currentDb, "users", uid);
+      const pokemonMetaDoc = doc(currentDb, "users", uid, "trainer_hub", "pokemon_meta");
       const un1 = onSnapshot(rawDoc, (snap) => {
         const data = snap.exists() ? snap.data() : null;
         const cur = appState.userProfiles.get(uid) || {};
@@ -950,7 +964,16 @@ function ensureUserSubscriptions() {
         updateSidePanels();
         window.requestScoreboardRefresh?.();
       }, () => {});
-      userUnsub.set(uid, () => { try { un1(); } catch {} ; try { un2(); } catch {} });
+      const un3 = onSnapshot(pokemonMetaDoc, (snap) => {
+        const data = snap.exists() ? (snap.data() || {}) : null;
+        const cur = appState.userProfiles.get(uid) || {};
+        cur.hubPokemonMeta = _extractHubPokemonMetaMap(data) || null;
+        appState.userProfiles.set(uid, cur);
+        updateSidePanels();
+        window.requestScoreboardRefresh?.();
+        try { requestArenaRefresh(true); } catch {}
+      }, () => {});
+      userUnsub.set(uid, () => { try { un1(); } catch {} ; try { un2(); } catch {} ; try { un3(); } catch {} });
     } catch {}
   }
 }
@@ -3254,7 +3277,9 @@ function getPartyForTrainer(trainerName) {
     const byId = ps.byId || {};
     const tnLower = safeStr(tn).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
     const entry = byId[safeDocId(tn)] || byId[tn] || byId[tnLower] || byId[safeStr(tn).toLowerCase()];
-    const party2 = Array.isArray(entry?.party) ? entry.party : (Array.isArray(entry?.party_snapshot) ? entry.party_snapshot : []);
+    const party2 = (Array.isArray(entry?.party_snapshot) && entry.party_snapshot.length)
+      ? entry.party_snapshot
+      : (Array.isArray(entry?.party) ? entry.party : []);
     if (party2.length) {
       return _normalizePartyList(party2);
     }
@@ -3386,6 +3411,9 @@ function _getPartySnapshotForTrainer(trainerName) {
     const snapshot = Array.isArray(player?.party_snapshot) ? player.party_snapshot : [];
     if (snapshot.length) return snapshot;
   }
+  const publicEntry = getPublicPlayerEntryByTrainer(trainerName);
+  const publicSnapshot = Array.isArray(publicEntry?.party_snapshot) ? publicEntry.party_snapshot : [];
+  if (publicSnapshot.length) return publicSnapshot;
   return [];
 }
 
@@ -3433,6 +3461,168 @@ function _getUserDataForTrainer(trainerName) {
     if (data && typeof data === "object") return data;
   }
   return null;
+}
+
+function _extractHubPokemonMetaMap(source) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return null;
+  if (source.hubPokemonMeta && typeof source.hubPokemonMeta === "object" && !Array.isArray(source.hubPokemonMeta)) {
+    return source.hubPokemonMeta;
+  }
+  if (source.hub_pokemon_meta && typeof source.hub_pokemon_meta === "object" && !Array.isArray(source.hub_pokemon_meta)) {
+    return source.hub_pokemon_meta;
+  }
+  if (source.data && typeof source.data === "object" && !Array.isArray(source.data)) {
+    const nested = _extractHubPokemonMetaMap(source.data);
+    if (nested) return nested;
+  }
+  if (source.pokemons && typeof source.pokemons === "object" && !Array.isArray(source.pokemons)) {
+    return source.pokemons;
+  }
+  return null;
+}
+
+function _getHubPokemonMetaForTrainer(trainerName) {
+  const tn = safeStr(trainerName);
+  if (!tn) return null;
+
+  const fromUserData = _extractHubPokemonMetaMap(_getUserDataForTrainer(tn));
+  if (fromUserData) return fromUserData;
+
+  for (const uid of getTrainerCandidateIds(tn)) {
+    const entry = appState.userProfiles?.get?.(uid);
+    const mapped = _extractHubPokemonMetaMap(entry);
+    if (mapped) return mapped;
+  }
+
+  return null;
+}
+
+function _normalizeResolvedTypeName(value) {
+  const normalized = normalizeType(value);
+  return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "";
+}
+
+function _appendResolvedTypes(out, seen, value) {
+  if (value == null) return;
+
+  const push = (typeLike) => {
+    const label = _normalizeResolvedTypeName(typeLike);
+    if (!label) return;
+    const key = normalizeType(label);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(label);
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach((entry) => _appendResolvedTypes(out, seen, entry));
+    return;
+  }
+
+  if (typeof value === "string") {
+    value
+      .split(/[,\|/]+/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .forEach(push);
+    return;
+  }
+
+  if (typeof value !== "object") {
+    push(value);
+    return;
+  }
+
+  if (Array.isArray(value.types)) {
+    _appendResolvedTypes(out, seen, value.types);
+    return;
+  }
+  if (Array.isArray(value.resolved_types)) {
+    _appendResolvedTypes(out, seen, value.resolved_types);
+    return;
+  }
+
+  for (const key of ["primary", "secondary", "type1", "type2", "type_1", "type_2", "slot1", "slot2", "first", "second"]) {
+    if (value[key] != null) push(value[key]);
+  }
+
+  if (!out.length) {
+    for (const candidate of Object.values(value)) {
+      if (typeof candidate === "string" || Array.isArray(candidate)) {
+        _appendResolvedTypes(out, seen, candidate);
+      }
+    }
+  }
+}
+
+function _coerceResolvedTypes(value) {
+  const out = [];
+  const seen = new Set();
+  _appendResolvedTypes(out, seen, value);
+  return out;
+}
+
+function _extractResolvedTypesFromSource(source) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return [];
+  const fromResolved = _coerceResolvedTypes(source?.resolved_types ?? source?.resolvedTypes);
+  if (fromResolved.length) return fromResolved;
+  return _coerceResolvedTypes(source?.type_override ?? source?.typeOverride);
+}
+
+function _getResolvedTypesFromHubMeta(hubMeta, pidLike) {
+  if (!hubMeta || typeof hubMeta !== "object") return [];
+  const targetKeys = _partyEntryLookupKeys(pidLike);
+  if (!targetKeys.length) return [];
+  for (const [rawKey, meta] of Object.entries(hubMeta)) {
+    if (!targetKeys.includes(pidKey(rawKey))) continue;
+    const resolved = _extractResolvedTypesFromSource(meta);
+    if (resolved.length) return resolved;
+  }
+  return [];
+}
+
+function getResolvedTypesForTrainerPid(trainerName, pidLike, options = {}) {
+  const owner = safeStr(trainerName);
+  const pid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
+  const piece = options?.piece || null;
+  const sheet = options?.sheet || null;
+
+  for (const source of [
+    getPartySnapshotEntryForTrainerPid(owner, pidLike),
+    _getPartyEntryForTrainerPid(owner, pidLike),
+    piece,
+  ]) {
+    const resolved = _extractResolvedTypesFromSource(source);
+    if (resolved.length) return resolved;
+  }
+
+  const fromHubMeta = _getResolvedTypesFromHubMeta(_getHubPokemonMetaForTrainer(owner), pidLike);
+  if (fromHubMeta.length) return fromHubMeta;
+
+  const fromSheet = _coerceResolvedTypes(sheet?.pokemon?.types);
+  if (fromSheet.length) return fromSheet;
+
+  const fromPiece = _coerceResolvedTypes(piece?.types);
+  if (fromPiece.length) return fromPiece;
+
+  const slug = _getEffectivePokeApiSlug(owner, pid);
+  if (slug) {
+    const cached = _getPokeApiCached(slug);
+    if (cached && Array.isArray(cached.types) && cached.types.length) return cached.types;
+    if (_pokeApiCache.get(slug) !== "pending") fetchPokeApiData(slug);
+  }
+
+  const displayName = dexNameFromPid(pid) || pid;
+  if (displayName && displayName !== "???" && displayName !== "â€”") {
+    const nameSlug = _normalizePokeApiSlug(displayName);
+    if (nameSlug) {
+      const cached = _getPokeApiCached(nameSlug);
+      if (cached && Array.isArray(cached.types) && cached.types.length) return cached.types;
+      if (_pokeApiCache.get(nameSlug) !== "pending") fetchPokeApiData(nameSlug);
+    }
+  }
+
+  return [];
 }
 
 function _trainerRpgPickStat(src, ...keys) {
@@ -4150,9 +4340,7 @@ function renderArenaSheetPreview() {
     || getSpriteFallbackUrlForPiece(piece)
     || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
   const hpUi = getHpUiState(spriteState.hp ?? 6);
-  const types = Array.isArray(pkm?.types) && pkm.types.length
-    ? pkm.types
-    : resolvePieceInspectorTypes(piece, { isMine });
+  const types = getResolvedTypesForTrainerPid(owner, pid, { piece, sheet });
   const typeHtml = (types || []).map((type) => {
     const color = getTypeColor(type);
     return `<span class="chip" style="border-color:${color}66;color:${color};background:${color}22;">${escapeHtml(type)}</span>`;
@@ -4522,7 +4710,7 @@ function renderInspectorConditionsPanelHTML(piece, { isMine }) {
   const owner = safeStr(piece?.owner) || "—";
   const ownerLabel = humanizeInternalLabel(owner) || owner || "—";
   const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
-  const types = resolvePieceInspectorTypes(piece, { isMine });
+  const types = getResolvedTypesForTrainerPid(owner, piece, { piece, sheet: isMine ? getSheetForPiece(piece) : null });
   const spriteState = _getPartyStateEntry(owner, safeStr(piece?.pid)) || {};
   const spriteUrl = getSpriteUrlForPiece(piece, { type: "art", shiny: !!spriteState.shiny });
   const spriteFallbackUrl = getSpriteFallbackUrlForPiece(piece);
@@ -4813,7 +5001,7 @@ function renderArenaHoverCard() {
   const ownerLabel = humanizeInternalLabel(owner) || owner || "-";
   const canSeeIdentity = isMine || revealed;
   const name = canSeeIdentity ? displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine }) : "???";
-  const types = resolvePieceInspectorTypes(piece, { isMine });
+  const types = getResolvedTypesForTrainerPid(owner, piece, { piece, sheet: isMine ? getSheetForPiece(piece) : null });
   const typeChips = types.map((type) => _typePill(type)).join("");
   const moveBudget = getPieceMovementBudget(piece);
   const moveSummary = `Velocidade ${moveBudget.speed} • deslocamento ${moveBudget.maxTiles % 1 ? "1/2" : moveBudget.maxTiles} quadrado(s)`;
@@ -5223,7 +5411,7 @@ function renderSheetsInspectorCard(wrap) {
   const pid = activeEntry._base_pid;
   const pidLabel = _sheetDisplayPid(sh, sh?._party_pid_raw) || "—";
   const pname = safeStr(pkm.name) || "Pokémon";
-  const types = Array.isArray(pkm.types) ? pkm.types : [];
+  const types = getResolvedTypesForTrainerPid(by, pid, { sheet: sh });
   const abilities = Array.isArray(pkm.abilities) ? pkm.abilities : [];
   const np = parseInt(sh.np || pkm.np || 0) || 0;
   const st = sh.stats || {};
@@ -5292,11 +5480,8 @@ function renderSheetsInspectorCard(wrap) {
     const tpRevealed = (tp?.revealed != null) ? !!tp.revealed : true;
     if (!isPieceMine(tp) && !tpRevealed) return { types: [], name: "" };
     const tsh = getSheetForPiece(tp);
-    if (tsh && Array.isArray(tsh?.pokemon?.types) && tsh.pokemon.types.length)
-      return { types: tsh.pokemon.types, name: safeStr(tsh?.pokemon?.name || tp.pid) };
-    if (Array.isArray(tp.types) && tp.types.length)
-      return { types: tp.types, name: safeStr(tp.pid) };
-    return { types: [], name: safeStr(tp.pid || "") };
+    const resolvedTypes = getResolvedTypesForTrainerPid(safeStr(tp?.owner), tp, { piece: tp, sheet: tsh });
+    return { types: resolvedTypes, name: safeStr(tsh?.pokemon?.name || tp.pid) };
   })();
 
   // Aplica boosts de stats ao cálculo de dano da ficha
@@ -12803,7 +12988,7 @@ function renderSheetsTab() {
     const pid = entry._base_pid;
     const pidLabel = _sheetDisplayPid(sh, sh?._party_pid_raw) || "—";
     const pname = safeStr(pkm.name) || "Pokémon";
-    const types = Array.isArray(pkm.types) ? pkm.types : [];
+    const types = getResolvedTypesForTrainerPid(by, pid, { sheet: sh });
     const npLabel = sh.np ?? pkm.np ?? "—";
     const np = parseInt(npLabel || 0) || 0;
     const stats = sh.stats || {};
@@ -12957,6 +13142,7 @@ window.appState           = appState;
 window.updateSidePanels   = updateSidePanels;
 window.getPartyForTrainer = getPartyForTrainer;
 window.getHeldItemForTrainerPid = getHeldItemForTrainerPid;
+window.getResolvedTypesForTrainerPid = getResolvedTypesForTrainerPid;
 window.renderHeldItemBadgeHtml = renderHeldItemBadgeHtml;
 window.renderHeldItemSummaryHtml = renderHeldItemSummaryHtml;
 window.getSheetMoveTempModifiers = getSheetMoveTempModifiers;

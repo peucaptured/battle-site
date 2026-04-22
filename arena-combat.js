@@ -281,6 +281,14 @@ function getSnapshotEntry(trainerName, pidLike) {
   return null;
 }
 
+function resolveTrainerPokemonTypes(trainerName, pidLike, options = {}) {
+  if (typeof window.getResolvedTypesForTrainerPid === "function") {
+    const resolved = window.getResolvedTypesForTrainerPid(trainerName, pidLike, options);
+    if (Array.isArray(resolved) && resolved.length) return resolved;
+  }
+  return Array.isArray(options?.sheet?.pokemon?.types) ? options.sheet.pokemon.types : [];
+}
+
 function getBattleMegaState(partyStates, trainerName, pidLike) {
   const state = getPartyStateEntry(partyStates, trainerName, pidLike) || {};
   const snapshot = getSnapshotEntry(trainerName, pidLike) || {};
@@ -1193,9 +1201,9 @@ export class ArenaCombatUI {
     const moveName = safeStr(move.name) || "Golpe";
     const moveType = getMoveType(moveName) || safeStr(move.meta?.type) || safeStr(move.type) || "";
 
-    const atkTypes = Array.isArray(atkSheet?.pokemon?.types) ? atkSheet.pokemon.types : [];
+    const atkTypes = resolveTrainerPokemonTypes(atkOwner, atkPid, { sheet: atkSheet });
     const tSheet = this._getSheet(tOwner, tPid);
-    const tgtTypes = Array.isArray(tSheet?.pokemon?.types) ? tSheet.pokemon.types : [];
+    const tgtTypes = resolveTrainerPokemonTypes(tOwner, tPid, { sheet: tSheet });
 
     const typeBonus = moveType && tgtTypes.length > 0 ? getTypeDamageBonus(moveType, tgtTypes) : 0;
     const stabBonus = (moveType && atkTypes.some(t => normalizeType(t) === moveType)) ? 2 : 0;

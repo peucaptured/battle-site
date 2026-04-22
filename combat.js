@@ -241,6 +241,14 @@ function getSnapshotEntry(trainerName, pidLike) {
   return null;
 }
 
+function resolveTrainerPokemonTypes(trainerName, pidLike, options = {}) {
+  if (typeof window.getResolvedTypesForTrainerPid === "function") {
+    const resolved = window.getResolvedTypesForTrainerPid(trainerName, pidLike, options);
+    if (Array.isArray(resolved) && resolved.length) return resolved;
+  }
+  return Array.isArray(options?.sheet?.pokemon?.types) ? options.sheet.pokemon.types : [];
+}
+
 function getBattleMegaState(partyStates, trainerName, pidLike) {
   const state = getPartyStateEntry(partyStates, trainerName, pidLike) || {};
   const snapshot = getSnapshotEntry(trainerName, pidLike) || {};
@@ -1435,7 +1443,7 @@ export class CombatUI {
   _renderTypeTable(pid, trainerName, container) {
     if (!container) return;
     const sheet = this._getSheet(trainerName, pid);
-    const pokTypes = Array.isArray(sheet?.pokemon?.types) ? sheet.pokemon.types : [];
+    const pokTypes = resolveTrainerPokemonTypes(trainerName, pid, { sheet });
     if (pokTypes.length === 0) { container.innerHTML = ""; return; }
 
     const allTypes = ["Normal","Fire","Water","Electric","Grass","Ice","Fighting","Poison",
@@ -1549,7 +1557,7 @@ export class CombatUI {
       const owner = safeStr(p.owner);
       // Pré-carrega tipos do alvo no option element (fallback para race condition de carregamento de ficha)
       const tSheetPre = this._getSheet(owner, pid);
-      const tTypesPre = Array.isArray(tSheetPre?.pokemon?.types) ? tSheetPre.pokemon.types.join(",") : "";
+      const tTypesPre = resolveTrainerPokemonTypes(owner, pid, { sheet: tSheetPre }).join(",");
       html += `<option value="${escHtml(safeStr(p.id))}" data-owner="${escHtml(owner)}" data-pid="${escHtml(pid)}" data-types="${escHtml(tTypesPre)}">${escHtml(name)} (${escHtml(owner)})</option>`;
     }
     html += `</select>`;
@@ -1643,10 +1651,11 @@ export class CombatUI {
       const tPid = tOpt.dataset.pid;
       if (!tOwner || !tPid) return [];
       const tSheet = this._getSheet(tOwner, tPid);
-      if (tSheet && Array.isArray(tSheet?.pokemon?.types) && tSheet.pokemon.types.length > 0) {
+      const resolved = resolveTrainerPokemonTypes(tOwner, tPid, { sheet: tSheet });
+      if (resolved.length > 0) {
         // Atualiza cache no option para futuras consultas
-        tOpt.dataset.types = tSheet.pokemon.types.join(",");
-        return tSheet.pokemon.types;
+        tOpt.dataset.types = resolved.join(",");
+        return resolved;
       }
       // Fallback: tipos armazenados no atributo data-types do option
       const stored = safeStr(tOpt.dataset.types);
@@ -1678,7 +1687,7 @@ export class CombatUI {
       const baseStats = sheet?.stats || this._getPokeStats(by, pid) || {};
       const effectiveStats = this._getEffectiveStats(by, pid);
       const stats = Object.keys(effectiveStats).length > 0 ? effectiveStats : baseStats;
-      const atkTypes = Array.isArray(sheet?.pokemon?.types) ? sheet.pokemon.types : [];
+      const atkTypes = resolveTrainerPokemonTypes(by, pid, { sheet });
       const moves = sheet?.moves || [];
       const tgtTypes = getTargetTypes();
       // Boost de acerto global (afeta todas as rolagens de ataque)
@@ -1828,12 +1837,13 @@ export class CombatUI {
           const moveType = getMoveTypeResolved(moveName, mv);
           // Tipos do alvo: tenta carregar da ficha, com fallback para option data-types
           const tSheet = this._getSheet(tOwner, tPid);
-          const tgtTypes = (tSheet && Array.isArray(tSheet?.pokemon?.types) && tSheet.pokemon.types.length > 0)
-            ? tSheet.pokemon.types
+          const resolvedTargetTypes = resolveTrainerPokemonTypes(tOwner, tPid, { sheet: tSheet });
+          const tgtTypes = resolvedTargetTypes.length > 0
+            ? resolvedTargetTypes
             : (safeStr(targetOpt.dataset.types) ? safeStr(targetOpt.dataset.types).split(",").filter(Boolean) : []);
           const typeBonus = moveType && tgtTypes.length > 0 ? getTypeDamageBonus(moveType, tgtTypes) : 0;
           // STAB: +2 se o tipo do golpe = tipo do pokémon atacante
-          const atkTypes = Array.isArray(sheet?.pokemon?.types) ? sheet.pokemon.types : [];
+          const atkTypes = resolveTrainerPokemonTypes(by, attackerPid, { sheet });
           const stabBonus = (moveType && atkTypes.some(t => normalizeType(t) === moveType)) ? 2 : 0;
           movePayload = {
             name: moveName,
