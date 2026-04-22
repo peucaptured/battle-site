@@ -863,10 +863,11 @@ async function tryLoadDexMapFromAssets() {
   return null;
 }
 
-let _pokemonFormManifestRaw = { available_slugs: [] };
+let _pokemonFormManifestRaw = { available_slugs: [], gif_map: {} };
 let _pokemonFormManifestList = [];
 let _pokemonFormManifestSet = new Set();
 let _pokemonFormManifestGroups = new Map();
+let _pokemonFormManifestGifMap = new Map();
 
 async function tryLoadPokemonFormManifestFromAssets() {
   try {
@@ -3138,20 +3139,20 @@ function spriteSlugFromPokemonName(name) {
 function spriteUrlFromPokemonName(name) {
   const slug = spriteSlugFromPokemonName(name);
   if (!slug) return "";
-  return localSpriteUrl(slug, "art", false)
-    || `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
+  return spriteUrlWithFallback(slug, "art", false);
 }
 
 // ── Local sprite repo ─────────────────────────────────────────────
-// Base path relative to the site root where pokemon folders live.
-const LOCAL_POKEMON_BASE = "pokemon";
+// Base paths relative to the site root for static artwork and field GIFs.
+const LOCAL_POKEMON_ART_BASE = "pokemon";
+const LOCAL_BATTLE_GIF_BASE = "sprites";
 
 /**
  * Convert a PokemonDB-style slug to local folder name.
  * PokemonDB uses -alolan/-galarian/-hisuian/-paldean, but local folders use
  * the PokeAPI convention: -alola/-galar/-hisui/-paldea.
  */
-function _toLocalSlug(slug) {
+function _toLocalArtSlug(slug) {
   if (!slug) return "";
   return slug
     .replace(/-alolan$/,  "-alola")
@@ -3161,20 +3162,54 @@ function _toLocalSlug(slug) {
 }
 
 /**
- * Returns a local sprite URL for the given slug.
+ * Returns a local art URL for the given slug.
  * @param {string} slug   - pokemondb-style slug (e.g. "charizard", "muk-alolan")
- * @param {"battle"|"art"} type
- *   "battle" → animated showdown gif (used on the arena canvas)
- *   "art"    → official artwork png (used everywhere else)
  * @param {boolean} shiny
  */
+function localArtSpriteUrl(slug, shiny) {
+  if (!slug) return "";
+  const folder = _toLocalArtSlug(slug);
+  const file = shiny ? "official_artwork_male_shiny.png" : "official_artwork_male.png";
+  return `${LOCAL_POKEMON_ART_BASE}/${folder}/${file}`;
+}
+
+function _normalizeBattleGifBasename(value) {
+  return canonicalizePokemonSlug(
+    safeStr(value)
+      .toLowerCase()
+      .replace(/\.gif$/i, "")
+  );
+}
+
+function _getBattleGifBasenameForSlug(slug) {
+  const rawSlug = canonicalizePokemonSlug(safeStr(slug).toLowerCase());
+  const normalizedSlug = _normalizePokemonFormSlug(slug) || rawSlug;
+  const rootSlug = rawSlug ? _inferCanonicalFormRoot(rawSlug) : "";
+  const defaultSlug = rootSlug ? _defaultFormSlugForRoot(rootSlug) : "";
+  const isBareRoot = !!rawSlug && rawSlug === rootSlug;
+  const candidates = isBareRoot
+    ? [defaultSlug, normalizedSlug, rawSlug]
+    : [normalizedSlug, rawSlug, defaultSlug];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const mapped = safeStr(_pokemonFormManifestGifMap.get(candidate));
+    if (mapped) return _normalizeBattleGifBasename(mapped);
+  }
+  return _normalizeBattleGifBasename(defaultSlug || normalizedSlug || rawSlug);
+}
+
+function localBattleSpriteUrl(slug, shiny) {
+  const basename = _getBattleGifBasenameForSlug(slug);
+  if (!basename) return "";
+  // Local GIFs do not have shiny variants; reuse the base animation when available.
+  return `${LOCAL_BATTLE_GIF_BASE}/${basename}.gif`;
+}
+
 function localSpriteUrl(slug, type, shiny) {
   if (!slug) return "";
-  const folder = _toLocalSlug(slug);
-  const file = type === "battle"
-    ? (shiny ? "showdown_male_shiny_animated_preview.gif" : "showdown_male_animated_preview.gif")
-    : (shiny ? "official_artwork_male_shiny.png" : "official_artwork_male.png");
-  return `${LOCAL_POKEMON_BASE}/${folder}/${file}`;
+  return type === "battle"
+    ? localBattleSpriteUrl(slug, shiny)
+    : localArtSpriteUrl(slug, shiny);
 }
 
 /**
@@ -3275,6 +3310,7 @@ const FORM_ROOT_DEFAULT_SLUGS = {
   oricorio: "oricorio-baile",
   palafin: "palafin-zero",
   pumpkaboo: "pumpkaboo-average",
+  sawsbuck: "sawsbuck-spring",
   shaymin: "shaymin-land",
   silvally: "silvally-normal",
   squawkabilly: "squawkabilly-green-plumage",
@@ -3347,6 +3383,16 @@ function _humanizePokemonFormSlug(slug) {
   return toTitleWords(normalized.replace(/-/g, " "));
 }
 
+function _manifestFormFamilyCount(candidate) {
+  const root = canonicalizePokemonSlug(safeStr(candidate).toLowerCase());
+  if (!root) return 0;
+  let count = 0;
+  for (const slug of _pokemonFormManifestList) {
+    if (slug === root || slug.startsWith(`${root}-`)) count += 1;
+  }
+  return count;
+}
+
 function _inferCanonicalFormRoot(formSlug) {
   const slug = canonicalizePokemonSlug(safeStr(formSlug).toLowerCase());
   if (!slug) return "";
@@ -3361,6 +3407,11 @@ function _inferCanonicalFormRoot(formSlug) {
   for (let i = parts.length - 1; i > 0; i -= 1) {
     const candidate = parts.slice(0, i).join("-");
     if (_pokemonFormManifestSet.has(candidate)) return candidate;
+  }
+
+  for (let i = 1; i < parts.length; i += 1) {
+    const candidate = parts.slice(0, i).join("-");
+    if (_manifestFormFamilyCount(candidate) > 1) return candidate;
   }
 
   return slug;
@@ -3381,13 +3432,28 @@ function _sortPokemonFormSlugs(slugs, rootSlug) {
 }
 
 function _rebuildPokemonFormManifestIndexes() {
-  _pokemonFormManifestList = Array.isArray(_pokemonFormManifestRaw?.available_slugs)
+  const manifestList = Array.isArray(_pokemonFormManifestRaw?.available_slugs)
     ? _pokemonFormManifestRaw.available_slugs
-        .map((slug) => canonicalizePokemonSlug(safeStr(slug).toLowerCase()))
-        .filter(Boolean)
     : [];
+  const gifMapEntries = (_pokemonFormManifestRaw?.gif_map && typeof _pokemonFormManifestRaw.gif_map === "object" && !Array.isArray(_pokemonFormManifestRaw.gif_map))
+    ? Object.entries(_pokemonFormManifestRaw.gif_map)
+    : [];
+  _pokemonFormManifestList = Array.from(new Set(
+    manifestList
+      .concat(gifMapEntries.map(([slug]) => slug))
+      .map((slug) => canonicalizePokemonSlug(safeStr(slug).toLowerCase()))
+      .filter(Boolean)
+  ));
   _pokemonFormManifestSet = new Set(_pokemonFormManifestList);
   _pokemonFormManifestGroups = new Map();
+  _pokemonFormManifestGifMap = new Map();
+
+  for (const [slug, basename] of gifMapEntries) {
+    const normalizedSlug = canonicalizePokemonSlug(safeStr(slug).toLowerCase());
+    const normalizedBasename = _normalizeBattleGifBasename(basename);
+    if (!normalizedSlug || !normalizedBasename) continue;
+    _pokemonFormManifestGifMap.set(normalizedSlug, normalizedBasename);
+  }
 
   for (const slug of _pokemonFormManifestList) {
     const root = _inferCanonicalFormRoot(slug);
@@ -3404,13 +3470,14 @@ function _rebuildPokemonFormManifestIndexes() {
 function _setPokemonFormManifest(payload) {
   const next = (payload && typeof payload === "object" && !Array.isArray(payload))
     ? payload
-    : { available_slugs: [] };
+    : { available_slugs: [], gif_map: {} };
   _pokemonFormManifestRaw = next;
   _rebuildPokemonFormManifestIndexes();
   window.pokemonFormManifest = {
     raw: _pokemonFormManifestRaw,
     available_slugs: _pokemonFormManifestList.slice(),
     groups: Object.fromEntries(Array.from(_pokemonFormManifestGroups.entries())),
+    gif_map: Object.fromEntries(Array.from(_pokemonFormManifestGifMap.entries()).sort(([a], [b]) => a.localeCompare(b))),
   };
   try { updateSidePanels(); } catch {}
   try { renderSheetsTab(); } catch {}
@@ -3427,7 +3494,53 @@ function _getPokemonFormOptionsForRoot(rootSlug) {
       form_slug: slug,
       root_slug: root,
       display_name: _humanizePokemonFormSlug(slug),
-      image: localSpriteUrl(slug, "art", false),
+      image: spriteUrlWithFallback(slug, "art", false),
+    }));
+}
+
+function _inferPokemonSpeciesSlug(trainerName, pidLike, options = {}) {
+  const owner = safeStr(trainerName);
+  const piece = options?.piece || null;
+  const sheet = options?.sheet || null;
+  const rawPid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
+  const fromDex = dexNameFromPid(rawPid) || resolvePokemonNameFromPid(rawPid);
+  const normalizedDex = _normalizePokemonFormSlug(fromDex);
+  if (normalizedDex) return _inferCanonicalFormRoot(normalizedDex);
+
+  const fromBaseSheet = _normalizePokemonFormSlug(
+    sheet?.base_pokemon_name
+    || sheet?.basePokemonName
+    || sheet?.base_pokemon_id
+    || sheet?.pokemon?.id
+  );
+  if (fromBaseSheet) return _inferCanonicalFormRoot(fromBaseSheet);
+
+  const inferredForm = _inferBasePokemonFormSlug(owner, piece || pidLike, { piece, sheet, source: options?.source });
+  if (inferredForm) return _inferCanonicalFormRoot(inferredForm);
+
+  return _inferCanonicalFormRoot(_normalizePokemonFormSlug(rawPid));
+}
+
+function _folderFormSuffixLabel(speciesSlug, formSlug) {
+  const species = canonicalizePokemonSlug(safeStr(speciesSlug).toLowerCase());
+  const form = canonicalizePokemonSlug(safeStr(formSlug).toLowerCase());
+  if (!species || !form) return "";
+  const prefix = `${species}-`;
+  if (form.startsWith(prefix)) return form.slice(prefix.length);
+  return form === species ? "base" : form;
+}
+
+function _getPokemonFolderOptionsForSpecies(speciesSlug) {
+  const species = canonicalizePokemonSlug(safeStr(speciesSlug).toLowerCase());
+  if (!species) return [];
+  const matches = _pokemonFormManifestList.filter((slug) => slug === species || slug.startsWith(`${species}-`));
+  return matches
+    .filter((slug) => slug && !/-mega(?:-|$)/i.test(slug))
+    .map((slug) => ({
+      form_slug: slug,
+      root_slug: species,
+      display_name: _folderFormSuffixLabel(species, slug),
+      image: spriteUrlWithFallback(slug, "art", false),
     }));
 }
 
@@ -4034,7 +4147,7 @@ function _buildPokemonFormSource(source, sourceKind = "") {
     sourceKind,
     formSlug,
     displayName: displayName || (formSlug ? _humanizePokemonFormSlug(formSlug) : ""),
-    image: image || (formSlug ? localSpriteUrl(formSlug, "art", false) : ""),
+    image: image || (formSlug ? spriteUrlWithFallback(formSlug, "art", false) : ""),
     resolvedTypes,
     resolvedAbilities,
     raw: source,
@@ -4099,8 +4212,13 @@ function _inferBasePokemonFormSlug(trainerName, pidLike, options = {}) {
 
   const rawPid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
   const dexName = dexNameFromPid(rawPid) || resolvePokemonNameFromPid(rawPid);
-  if (dexName) return _normalizePokemonFormSlug(dexName);
-  if (rawPid && !/^\d+$/.test(rawPid)) return _normalizePokemonFormSlug(rawPid);
+  const inferred = dexName ? _normalizePokemonFormSlug(dexName) : (rawPid && !/^\d+$/.test(rawPid) ? _normalizePokemonFormSlug(rawPid) : "");
+  if (inferred) {
+    const root = _inferCanonicalFormRoot(inferred);
+    const optionsForRoot = _getPokemonFormOptionsForRoot(root);
+    if (!_pokemonFormManifestSet.has(inferred) && optionsForRoot.length) return _defaultFormSlugForRoot(root);
+    return inferred;
+  }
   return "";
 }
 
@@ -7478,7 +7596,7 @@ function _getEffectivePokemonContext(ownerName, pidLike, options = {}) {
       || _humanizePokemonFormSlug(formSlug);
   const image = (!activeMegaSlug && !matchedFormSheet ? safeStr(formSource?.image) : "")
     || safeStr(_extractPokemonImageFromSource(pokemon))
-    || (formSlug ? localSpriteUrl(formSlug, "art", false) : "");
+    || (formSlug ? spriteUrlWithFallback(formSlug, "art", false) : "");
   const resolvedTypes = activeMegaSlug
     ? _coerceResolvedTypes(pokemon?.types)
     : (matchedFormSheet ? _coerceResolvedTypes(pokemon?.types) : (formSource?.resolvedTypes || []));
@@ -8307,7 +8425,7 @@ function hidePieceContextMenu() {
 
 function _getPieceFormPickerState(piece) {
   if (!piece || isTrainerPiece(piece)) {
-    return { canShow: false, options: [], currentFormSlug: "", partySlot: "" };
+    return { canShow: false, options: [], currentFormSlug: "", partySlot: "", speciesSlug: "" };
   }
   const owner = safeStr(piece?.owner);
   const partyEntry = _getPartyEntryForTrainerPid(owner, piece);
@@ -8318,25 +8436,30 @@ function _getPieceFormPickerState(piece) {
   const baseSheet = isPieceMine(piece)
     ? (_resolveSelfEffectiveSheet(identity, owner, { ignoreMega: true })?.baseSheet || sheet)
     : sheet;
-  const currentFormSlug = _normalizePokemonFormSlug(
+  let currentFormSlug = _normalizePokemonFormSlug(
     formSource?.formSlug
     || _sheetPokemonFormSlug(baseSheet)
     || _inferBasePokemonFormSlug(owner, identity, { piece, sheet: baseSheet, source: formSource?.raw })
   );
-  const rootSlug = _inferCanonicalFormRoot(currentFormSlug);
-  let options = _getPokemonFormOptionsForRoot(rootSlug);
+  const speciesSlug = _inferPokemonSpeciesSlug(owner, identity, { piece, sheet: baseSheet, source: formSource?.raw });
+  let options = _getPokemonFolderOptionsForSpecies(speciesSlug);
+  const rootSlug = speciesSlug || _inferCanonicalFormRoot(currentFormSlug);
+  if (currentFormSlug && !_pokemonFormManifestSet.has(currentFormSlug) && options.length) {
+    currentFormSlug = _defaultFormSlugForRoot(rootSlug);
+  }
   if (currentFormSlug && !/-mega(?:-|$)/i.test(currentFormSlug) && !options.some((option) => option.form_slug === currentFormSlug)) {
     options = _sortPokemonFormSlugs(options.map((option) => option.form_slug).concat([currentFormSlug]), rootSlug).map((slug) => ({
       form_slug: slug,
       root_slug: rootSlug,
-      display_name: _humanizePokemonFormSlug(slug),
-      image: localSpriteUrl(slug, "art", false),
+      display_name: _folderFormSuffixLabel(rootSlug, slug),
+      image: spriteUrlWithFallback(slug, "art", false),
     }));
   }
   return {
     canShow: options.length > 1,
     options,
     rootSlug,
+    speciesSlug,
     currentFormSlug,
     partySlot,
     identity,
@@ -8373,7 +8496,7 @@ function _buildPokemonFormOverridePayload(ownerName, piece, formSlug) {
       || _humanizePokemonFormSlug(normalizedFormSlug),
     image: safeStr(_extractPokemonImageFromSource(formSheet?.pokemon))
       || (currentSource?.formSlug === normalizedFormSlug ? safeStr(currentSource?.image) : "")
-      || localSpriteUrl(normalizedFormSlug, "art", false),
+      || spriteUrlWithFallback(normalizedFormSlug, "art", false),
     resolved_types: resolvedTypes,
     resolved_abilities: resolvedAbilities,
     updated_at: serverTimestamp(),
