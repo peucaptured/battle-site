@@ -74,6 +74,19 @@ function normalizePartyPid(pidLike) {
   return v;
 }
 
+function normalizePartySlot(slotLike, fallbackIndex = null) {
+  const raw = safeStr(slotLike);
+  if (raw) {
+    const prefixed = raw.match(/^slot[_-]?(\d+)$/i);
+    if (prefixed) return `slot_${Number(prefixed[1])}`;
+    if (/^\d+$/.test(raw)) return `slot_${Number(raw)}`;
+  }
+  if (fallbackIndex != null && Number.isFinite(Number(fallbackIndex)) && Number(fallbackIndex) >= 0) {
+    return `slot_${Number(fallbackIndex)}`;
+  }
+  return "";
+}
+
 function getPartyStateEntry(partyStates, pidLike) {
   if (!partyStates || typeof partyStates !== "object") return {};
   const rawPid = safeStr(pidLike);
@@ -490,19 +503,23 @@ function buildSlots(player) {
     if (i < count) {
       const pid = pids[i];
       const partyEntry = party[i];
+      const partySlot = normalizePartySlot(partyEntry?.party_slot ?? partyEntry?._party_slot, i);
+      const identity = partySlot ? { ...(partyEntry && typeof partyEntry === "object" ? partyEntry : {}), pid, party_slot: partySlot } : (partyEntry || pid);
       const ps = getPartyStateEntry(partyStates, pid);
       const piece = pieces.find(p =>
-        safeStr(p?.owner) === tn && safeStr(p?.pid) === pid && safeStr(p?.status || "active") === "active"
+        safeStr(p?.owner) === tn
+        && safeStr(p?.status || "active") === "active"
+        && (partySlot ? normalizePartySlot(p?.party_slot) === partySlot : safeStr(p?.pid) === pid)
       );
       const wasSeen = seenList.some((seenPid) => normalizePartyPid(seenPid) === normalizePartyPid(pid));
       const revealed = piece ? (!!piece.revealed || wasSeen) : wasSeen;
       const hp = ps.hp != null ? Number(ps.hp) : null;
       const ko = hp != null && hp <= 0;
-      const spriteUrl = getTrainerPidSpriteUrl(tn, pid, { type: "art", shiny: !!ps.shiny }) || getSpriteUrl(pid, { type: "art", shiny: !!ps.shiny });
+      const spriteUrl = getTrainerPidSpriteUrl(tn, identity, { type: "art", shiny: !!ps.shiny }) || getSpriteUrl(pid, { type: "art", shiny: !!ps.shiny });
       const heldItem = typeof window.getHeldItemForTrainerPid === "function"
         ? window.getHeldItemForTrainerPid(tn, partyEntry || pid)
         : null;
-      slots.push({ pid, revealed, ko, hp, spriteUrl, heldItem, empty: false });
+      slots.push({ pid, partySlot, revealed, ko, hp, spriteUrl, heldItem, empty: false });
     } else {
       slots.push({ pid: null, revealed: false, ko: false, hp: null, spriteUrl: "", empty: true });
     }
@@ -526,12 +543,12 @@ function getSpriteUrl(pid, opts) {
   return POKE_BALL_URL;
 }
 
-function getTrainerPidSpriteUrl(ownerName, pid, opts) {
+function getTrainerPidSpriteUrl(ownerName, pidLike, opts) {
   const owner = safeStr(ownerName);
-  const monPid = safeStr(pid);
+  const monPid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
   if (!monPid) return "";
   if (typeof window.getEffectiveSpriteUrlForTrainerPid === "function") {
-    return window.getEffectiveSpriteUrlForTrainerPid(owner, monPid, opts) || "";
+    return window.getEffectiveSpriteUrlForTrainerPid(owner, pidLike, opts) || "";
   }
   return getSpriteUrl(monPid, opts);
 }
@@ -636,7 +653,7 @@ function computeHash() {
     safeStr(as.by),
     safeStr(as.rid),
     JSON.stringify((as.players || []).map(p => safeStr(p?.trainer_name) + "|" + (p?.party_snapshot?.length || 0))),
-    JSON.stringify((as.pieces || []).map(p => `${p?.owner}:${p?.pid}:${p?.revealed}:${p?.status}`)),
+    JSON.stringify((as.pieces || []).map(p => `${p?.owner}:${p?.pid}:${p?.party_slot || ""}:${p?.revealed}:${p?.status}`)),
     JSON.stringify(as.board?.seen || []),
     JSON.stringify(_partyStates),
     safeStr(as.placingTrainer ? "pt" : ""),

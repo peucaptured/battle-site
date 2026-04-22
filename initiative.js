@@ -709,7 +709,12 @@ export class InitiativeUI {
       let speedMod = 0;
 
       if (!isTrainer) {
-        if (window.dexMap) {
+        const presentation = typeof window.getEffectivePokemonPresentationForTrainerPid === "function"
+          ? window.getEffectivePokemonPresentationForTrainerPid(owner, p, { piece: p })
+          : null;
+        if (presentation?.display_name) {
+          display = presentation.display_name;
+        } else if (window.dexMap) {
           const mapped = window.dexMap[pid] || window.dexMap[String(Number(pid))];
           display = mapped || p?.name || p?.display_name || pid || "Pokemon";
         } else {
@@ -754,6 +759,7 @@ export class InitiativeUI {
         owner,
         kind: isTrainer ? "Avatar" : "Pokemon",
         pid,
+        partySlot: String(p?.party_slot || ""),
         display,
         speed: speedVal,
         mod_speed: speedMod,
@@ -800,10 +806,13 @@ export class InitiativeUI {
       return `<div class="init-card-media"><span class="init-card-media-avatar">${initial}</span></div>`;
     }
 
-    const sprite = typeof window.getSpriteUrlFromPid === "function"
-      ? (window.getSpriteUrlFromPid(row.pid || row.display, { type: "art" }) ||
-         window.getSpriteUrlFromPid(row.display, { type: "art" }) || "")
-      : "";
+    const sprite = (typeof window.getEffectiveSpriteUrlForTrainerPid === "function"
+      ? (window.getEffectiveSpriteUrlForTrainerPid(row.owner, row.piece || { pid: row.pid, party_slot: row.partySlot }, { type: "art" }) || "")
+      : "")
+      || (typeof window.getSpriteUrlFromPid === "function"
+        ? (window.getSpriteUrlFromPid(row.pid || row.display, { type: "art" }) ||
+           window.getSpriteUrlFromPid(row.display, { type: "art" }) || "")
+        : "");
 
     if (!sprite) {
       return `<div class="init-card-media"><span class="init-card-media-avatar">${initial}</span></div>`;

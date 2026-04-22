@@ -3205,7 +3205,7 @@ function getSpriteUrlForPiece(p, opts) {
   }
 
   const owner = safeStr(p?.owner);
-  const effectiveSlug = owner ? _getEffectivePokemonSlug(owner, pidStr) : "";
+  const effectiveSlug = owner ? _getEffectivePokemonSlug(owner, p) : "";
   const effectiveCtx = owner ? _getEffectivePokemonContext(owner, p) : null;
   if (effectiveSlug) {
     return localSpriteUrl(effectiveSlug, type, shiny)
@@ -3272,11 +3272,13 @@ const FORM_ROOT_DEFAULT_SLUGS = {
   mimikyu: "mimikyu-disguised",
   minior: "minior-red-meteor",
   morpeko: "morpeko-full-belly",
+  oricorio: "oricorio-baile",
   palafin: "palafin-zero",
   pumpkaboo: "pumpkaboo-average",
   shaymin: "shaymin-land",
   silvally: "silvally-normal",
   squawkabilly: "squawkabilly-green-plumage",
+  tatsugiri: "tatsugiri-curly",
   thundurus: "thundurus-incarnate",
   tornadus: "tornadus-incarnate",
   toxtricity: "toxtricity-amped",
@@ -3361,7 +3363,7 @@ function _inferCanonicalFormRoot(formSlug) {
     if (_pokemonFormManifestSet.has(candidate)) return candidate;
   }
 
-  return parts[0] || slug;
+  return slug;
 }
 
 function _sortPokemonFormSlugs(slugs, rootSlug) {
@@ -3654,11 +3656,11 @@ function _getPartySnapshotForTrainer(trainerName) {
   for (const player of (appState.players || [])) {
     if (_trainerLookupKey(player?.trainer_name) !== targetKey) continue;
     const snapshot = Array.isArray(player?.party_snapshot) ? player.party_snapshot : [];
-    if (snapshot.length) return snapshot;
+    if (snapshot.length) return _normalizePartyList(snapshot);
   }
   const publicEntry = getPublicPlayerEntryByTrainer(trainerName);
   const publicSnapshot = Array.isArray(publicEntry?.party_snapshot) ? publicEntry.party_snapshot : [];
-  if (publicSnapshot.length) return publicSnapshot;
+  if (publicSnapshot.length) return _normalizePartyList(publicSnapshot);
   return [];
 }
 
@@ -4107,6 +4109,7 @@ function getResolvedTypesForTrainerPid(trainerName, pidLike, options = {}) {
   const pid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
   const piece = options?.piece || null;
   const sheet = options?.sheet || null;
+  const effectiveIdentity = piece || pidLike;
   const formSource = _getPreferredPokemonFormSource(owner, piece || pidLike);
   const canUseSelfSheets = _trainerLookupKey(owner) === _trainerLookupKey(appState.by);
 
@@ -4141,14 +4144,14 @@ function getResolvedTypesForTrainerPid(trainerName, pidLike, options = {}) {
   const fromPiece = _coerceResolvedTypes(piece?.types);
   if (fromPiece.length) return fromPiece;
 
-  const slug = _getEffectivePokeApiSlug(owner, pid);
+  const slug = _getEffectivePokeApiSlug(owner, effectiveIdentity);
   if (slug) {
     const cached = _getPokeApiCached(slug);
     if (cached && Array.isArray(cached.types) && cached.types.length) return cached.types;
     if (_pokeApiCache.get(slug) !== "pending") fetchPokeApiData(slug);
   }
 
-  const displayName = dexNameFromPid(pid) || pid;
+  const displayName = displayNameFromPid(effectiveIdentity, { owner }) || dexNameFromPid(pid) || pid;
   if (displayName && displayName !== "???" && displayName !== "â€”") {
     const nameSlug = _normalizePokeApiSlug(displayName);
     if (nameSlug) {
@@ -6169,7 +6172,7 @@ function renderSheetsInspectorCard(wrap) {
     });
   }
 
-  const art = getSpriteUrlForPiece({ owner: by, pid }, { type: "art", shiny: !!ps.shiny })
+  const art = getSpriteUrlForPiece({ owner: by, pid, party_slot: activeEntry._party_slot }, { type: "art", shiny: !!ps.shiny })
     || _artUrlFromPidForSheets(pname || pid, ps.shiny)
     || _spriteUrlFromPidForSheets(pname || pid)
     || "";
@@ -6392,10 +6395,10 @@ function updateSidePanels() {
       if (oppParty.length > 0) {
         for (const it of oppParty) {
           const oppPid = safeStr(it?.pid || it);
-          const oppPiece = findBoardPieceForTrainer(owner, oppPid, { pieces: visiblePieces });
+          const oppPiece = findBoardPieceForTrainer(owner, it || oppPid, { pieces: visiblePieces });
           const oppOnMap = !!oppPiece?.id;
           const oppRevealed = oppPiece ? !!oppPiece.revealed : false;
-          const oppName = dexNameFromPid(oppPid) || (oppPid.startsWith("EXT:") ? oppPid.slice(4) : oppPid);
+          const oppName = displayNameFromPid(it || oppPid, { owner }) || (oppPid.startsWith("EXT:") ? oppPid.slice(4) : oppPid);
           const row = document.createElement("div");
           row.className = "pvp-opp-row";
           row.innerHTML = `
@@ -8298,6 +8301,185 @@ function hidePieceContextMenu() {
   if (!pieceContextMenu) return;
   pieceContextMenu.style.display = "none";
   pieceMenuState.pieceId = null;
+  pieceMenuState.clientX = 0;
+  pieceMenuState.clientY = 0;
+}
+
+function _getPieceFormPickerState(piece) {
+  if (!piece || isTrainerPiece(piece)) {
+    return { canShow: false, options: [], currentFormSlug: "", partySlot: "" };
+  }
+  const owner = safeStr(piece?.owner);
+  const partyEntry = _getPartyEntryForTrainerPid(owner, piece);
+  const partySlot = _getPartySlot(piece) || _getPartySlot(partyEntry);
+  const identity = partySlot ? { pid: piece?.pid, party_slot: partySlot } : piece;
+  const formSource = _getPreferredPokemonFormSource(owner, identity);
+  const sheet = isPieceMine(piece) ? getSheetForPiece(piece) : null;
+  const baseSheet = isPieceMine(piece)
+    ? (_resolveSelfEffectiveSheet(identity, owner, { ignoreMega: true })?.baseSheet || sheet)
+    : sheet;
+  const currentFormSlug = _normalizePokemonFormSlug(
+    formSource?.formSlug
+    || _sheetPokemonFormSlug(baseSheet)
+    || _inferBasePokemonFormSlug(owner, identity, { piece, sheet: baseSheet, source: formSource?.raw })
+  );
+  const rootSlug = _inferCanonicalFormRoot(currentFormSlug);
+  let options = _getPokemonFormOptionsForRoot(rootSlug);
+  if (currentFormSlug && !/-mega(?:-|$)/i.test(currentFormSlug) && !options.some((option) => option.form_slug === currentFormSlug)) {
+    options = _sortPokemonFormSlugs(options.map((option) => option.form_slug).concat([currentFormSlug]), rootSlug).map((slug) => ({
+      form_slug: slug,
+      root_slug: rootSlug,
+      display_name: _humanizePokemonFormSlug(slug),
+      image: localSpriteUrl(slug, "art", false),
+    }));
+  }
+  return {
+    canShow: options.length > 1,
+    options,
+    rootSlug,
+    currentFormSlug,
+    partySlot,
+    identity,
+    unresolved: !partySlot,
+  };
+}
+
+function _buildPokemonFormOverridePayload(ownerName, piece, formSlug) {
+  const owner = safeStr(ownerName);
+  const normalizedFormSlug = _normalizePokemonFormSlug(formSlug);
+  const currentSource = _getPreferredPokemonFormSource(owner, piece);
+  const canUseSelfSheets = _trainerLookupKey(owner) === _trainerLookupKey(appState.by);
+  const formSheet = canUseSelfSheets
+    ? _resolveSelfEffectiveSheet(piece, owner, { preferredFormSlug: normalizedFormSlug, ignoreMega: true })?.baseSheet
+    : null;
+  const cached = _getPokeApiCached(normalizedFormSlug);
+  if (normalizedFormSlug && _pokeApiCache.get(normalizedFormSlug) !== "pending") fetchPokeApiData(normalizedFormSlug);
+  const resolvedTypes = _coerceResolvedTypes(
+    formSheet?.pokemon?.types
+    || (currentSource?.formSlug === normalizedFormSlug ? currentSource?.resolvedTypes : [])
+    || cached?.types
+    || []
+  );
+  const resolvedAbilities = _coerceResolvedAbilities(
+    formSheet?.pokemon?.abilities
+    || (currentSource?.formSlug === normalizedFormSlug ? currentSource?.resolvedAbilities : [])
+    || (cached?.abilities || []).map((item) => item?.ability?.name || item?.name || item)
+    || []
+  );
+  return {
+    form_slug: normalizedFormSlug,
+    display_name: safeStr(formSheet?.pokemon?.name)
+      || (currentSource?.formSlug === normalizedFormSlug ? safeStr(currentSource?.displayName) : "")
+      || _humanizePokemonFormSlug(normalizedFormSlug),
+    image: safeStr(_extractPokemonImageFromSource(formSheet?.pokemon))
+      || (currentSource?.formSlug === normalizedFormSlug ? safeStr(currentSource?.image) : "")
+      || localSpriteUrl(normalizedFormSlug, "art", false),
+    resolved_types: resolvedTypes,
+    resolved_abilities: resolvedAbilities,
+    updated_at: serverTimestamp(),
+  };
+}
+
+async function setBattlePokemonFormForPiece(piece, formSlug) {
+  const owner = safeStr(piece?.owner);
+  const formState = _getPieceFormPickerState(piece);
+  const normalizedFormSlug = _normalizePokemonFormSlug(formSlug);
+  if (!owner || !normalizedFormSlug) return;
+  if (!formState.partySlot) {
+    setStatus("warn", "não foi possível resolver o slot desse pokémon nesta sala. Recoloque-o no campo e tente novamente.");
+    return;
+  }
+  const payload = _buildPokemonFormOverridePayload(owner, { ...piece, party_slot: formState.partySlot }, normalizedFormSlug);
+  const ref = (currentDb && currentRid)
+    ? doc(currentDb, "rooms", currentRid, "public_state", "pokemon_forms")
+    : null;
+  if (!ref) {
+    setStatus("err", "sala desconectada");
+    return;
+  }
+  await setDoc(ref, {
+    [owner]: {
+      [formState.partySlot]: payload,
+    },
+    updated_at: serverTimestamp(),
+  }, { merge: true });
+  setStatus("ok", `${payload.display_name}: forma atualizada na sala.`);
+}
+
+let _formPickerEl = null;
+let _formPickerState = { pieceId: null, options: [], currentFormSlug: "", clientX: 0, clientY: 0 };
+
+function _ensureFormPickerEl() {
+  if (_formPickerEl) return _formPickerEl;
+  _formPickerEl = document.createElement("div");
+  _formPickerEl.id = "piece_form_menu";
+  _formPickerEl.className = "piece-context-menu";
+  _formPickerEl.style.display = "none";
+  _formPickerEl.style.flexDirection = "column";
+  _formPickerEl.style.maxHeight = "240px";
+  _formPickerEl.style.overflowY = "auto";
+  canvasWrap?.appendChild(_formPickerEl);
+  _formPickerEl.addEventListener("click", async (ev) => {
+    const btn = ev.target?.closest("[data-form-slug]");
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const piece = (appState.pieces || []).find((entry) => safeStr(entry?.id) === safeStr(_formPickerState.pieceId));
+    const formSlug = safeStr(btn.dataset.formSlug);
+    hidePieceFormPickerMenu();
+    if (!piece || !formSlug) return;
+    await setBattlePokemonFormForPiece(piece, formSlug);
+  });
+  return _formPickerEl;
+}
+
+function openPieceFormPickerMenu(piece, clientX, clientY) {
+  const el = _ensureFormPickerEl();
+  const state = _getPieceFormPickerState(piece);
+  if (!state.canShow) {
+    setStatus("warn", "esse pokémon não tem outras formas disponíveis no repositório.");
+    return;
+  }
+  if (!state.partySlot) {
+    setStatus("warn", "não foi possível resolver o slot desse pokémon nesta sala. Recoloque-o no campo e tente novamente.");
+    return;
+  }
+  _formPickerState = {
+    pieceId: safeStr(piece?.id),
+    options: state.options,
+    currentFormSlug: state.currentFormSlug,
+    clientX,
+    clientY,
+  };
+  el.innerHTML = `
+    <div class="menu-caption">Trocar forma</div>
+    <div class="menu-summary">Selecione a forma visível apenas nesta sala.</div>
+    <div class="menu-divider"></div>
+    ${state.options.map((option) => {
+      const active = option.form_slug === state.currentFormSlug;
+      return `
+        <button type="button" data-form-slug="${escapeAttr(option.form_slug)}"${active ? " disabled" : ""}>
+          ${active ? "✓ " : ""}${escapeHtml(option.display_name)}
+        </button>
+      `;
+    }).join("")}
+  `;
+  const wrapRect = canvasWrap.getBoundingClientRect();
+  const localX = Math.max(0, Math.min(wrapRect.width - 8, clientX - wrapRect.left + 12));
+  const localY = Math.max(0, Math.min(wrapRect.height - 8, clientY - wrapRect.top));
+  el.style.display = "flex";
+  el.style.left = `${localX}px`;
+  el.style.top = `${localY}px`;
+  const menuRect = el.getBoundingClientRect();
+  const overflowX = menuRect.right - wrapRect.right;
+  const overflowY = menuRect.bottom - wrapRect.bottom;
+  if (overflowX > 0) el.style.left = `${Math.max(8, localX - overflowX - 8)}px`;
+  if (overflowY > 0) el.style.top = `${Math.max(8, localY - overflowY - 8)}px`;
+}
+
+function hidePieceFormPickerMenu() {
+  if (_formPickerEl) _formPickerEl.style.display = "none";
+  _formPickerState = { pieceId: null, options: [], currentFormSlug: "", clientX: 0, clientY: 0 };
 }
 
 openPieceContextMenu = function(piece, x, y) {
@@ -8305,6 +8487,9 @@ openPieceContextMenu = function(piece, x, y) {
   const id = safeStr(piece?.id);
   if (!id) return;
   pieceMenuState.pieceId = id;
+  pieceMenuState.clientX = x;
+  pieceMenuState.clientY = y;
+  hidePieceFormPickerMenu();
   selectPiece(id);
   setArenaHoverPiece(id, { persist: true });
 
@@ -8321,6 +8506,7 @@ openPieceContextMenu = function(piece, x, y) {
 
   const moveBtn = pieceContextMenu.querySelector('[data-menu-act="move"]');
   const movementBtn = pieceContextMenu.querySelector('[data-menu-act="movement"]');
+  const formBtn = pieceContextMenu.querySelector('[data-menu-act="form"]');
   const megaBtn = pieceContextMenu.querySelector('[data-menu-act="mega"]');
   const conditionsBtn = pieceContextMenu.querySelector('[data-menu-act="conditions"]');
   const toggleBtn = pieceContextMenu.querySelector('[data-menu-act="toggle"]');
@@ -8332,6 +8518,12 @@ openPieceContextMenu = function(piece, x, y) {
     movementBtn.title = isMine
       ? `${movementText}. Clique para ${freeMove ? "voltar ao alcance normal" : "liberar posicionamento em qualquer lugar da arena"}.`
       : movementText;
+  }
+  const formState = _getPieceFormPickerState(piece);
+  if (formBtn) {
+    formBtn.hidden = !isMine || !formState.canShow;
+    formBtn.disabled = !isMine || !formState.canShow;
+    formBtn.textContent = "🧬 Trocar forma";
   }
   const megaState = getPieceMegaUiState(piece);
   if (megaBtn) {
@@ -8616,7 +8808,7 @@ handlePieceMenuAction = async function(action, pieceId) {
   }
 
   const mine = isPieceMine(piece);
-  if (!mine && ["move", "movement", "mega", "conditions", "toggle", "remove"].includes(action)) {
+  if (!mine && ["move", "movement", "form", "mega", "conditions", "toggle", "remove"].includes(action)) {
     setStatus("err", "você só pode usar essas ações em peças suas");
     return;
   }
@@ -8630,6 +8822,10 @@ handlePieceMenuAction = async function(action, pieceId) {
   }
   if (action === "movement") {
     togglePieceFreeMovement(id);
+    return;
+  }
+  if (action === "form") {
+    openPieceFormPickerMenu(piece, pieceMenuState.clientX, pieceMenuState.clientY);
     return;
   }
   if (action === "summary") {
@@ -8675,7 +8871,11 @@ pieceContextMenu?.addEventListener("click", async (ev) => {
   ev.stopPropagation();
   const act = safeStr(btn.dataset.menuAct);
   const pieceId = pieceMenuState.pieceId;
+  const clientX = pieceMenuState.clientX;
+  const clientY = pieceMenuState.clientY;
   hidePieceContextMenu();
+  pieceMenuState.clientX = clientX;
+  pieceMenuState.clientY = clientY;
   await handlePieceMenuAction(act, pieceId);
 });
 
@@ -8683,6 +8883,9 @@ document.addEventListener("click", (ev) => {
   // Fecha picker se clicar fora
   if (_pickerEl && _pickerEl.style.display === "flex" && !ev.target?.closest?.("#piece_picker_menu")) {
     hidePiecePickerMenu();
+  }
+  if (_formPickerEl && _formPickerEl.style.display === "flex" && !ev.target?.closest?.("#piece_form_menu")) {
+    hidePieceFormPickerMenu();
   }
   if (!pieceContextMenu || pieceContextMenu.style.display !== "flex") return;
   if (ev.target?.closest?.("#piece_context_menu")) return;
@@ -13847,6 +14050,8 @@ window.updateSidePanels   = updateSidePanels;
 window.getPartyForTrainer = getPartyForTrainer;
 window.getHeldItemForTrainerPid = getHeldItemForTrainerPid;
 window.getResolvedTypesForTrainerPid = getResolvedTypesForTrainerPid;
+window.getResolvedAbilitiesForTrainerPid = getResolvedAbilitiesForTrainerPid;
+window.getEffectivePokemonPresentationForTrainerPid = getEffectivePokemonPresentationForTrainerPid;
 window.renderHeldItemBadgeHtml = renderHeldItemBadgeHtml;
 window.renderHeldItemSummaryHtml = renderHeldItemSummaryHtml;
 window.getSheetMoveTempModifiers = getSheetMoveTempModifiers;
@@ -13857,6 +14062,7 @@ window.selectPiece        = selectPiece;
 window.togglePieceRevealed = togglePieceRevealed;
 window.removePieceFromBoard = removePieceFromBoard;
 window.startPlacePokemon  = startPlacePokemon;
+window.getPlacingPokemonPartySlot = getPlacingPokemonPartySlot;
 window.screenToTile       = screenToTile;
 window.getPieceAt         = getPieceAt;
 window.getPiecesAt        = getPiecesAt;
