@@ -1718,6 +1718,9 @@ export class ArenaCombatUI {
 
     html += `</div>`;
     container.innerHTML = html;
+    if (getRange() === "area") {
+      container.querySelector('.ac-move-item[data-mode="area"]')?.remove();
+    }
 
     const searchInput = container.querySelector("#ac-move-search");
     searchInput?.addEventListener("input", () => {
@@ -1734,10 +1737,8 @@ export class ArenaCombatUI {
         const mv = moves[idx];
         if (!mv) return;
         if (getRange() === "area") {
-          const areaData = getMoveData(mv, getMoveTempMods(atkPid, idx, atkSheet));
-          this._openAreaDialog(targetPiece, getAtkPid(), {
-            level: Math.max(1, safeInt(mv.rank, 1) + safeInt(areaData.tempDmg, 0)),
-            isEffect: this._isEffectMove(mv),
+          this._launchAreaAttack(getAtkPid(), targetPiece, mv, stats, {
+            moveIdx: idx,
           });
           return;
         }
@@ -1895,13 +1896,17 @@ export class ArenaCombatUI {
     });
   }
 
-  _promptExtraAttackModifiers(move) {
+  _promptExtraAttackModifiers(move, options = {}) {
     this._closeOverlay();
     this._closeRadial();
     this._closePrompt();
 
     return new Promise((resolve) => {
       const moveName = safeStr(move?.name) || "Golpe";
+      const allowAccuracy = options.allowAccuracy !== false;
+      const allowDamage = options.allowDamage !== false;
+      const introText = safeStr(options.introText)
+        || `Ajuste bônus ou penalidades manuais para ${moveName}. Se não houver modificadores extras, confirme abaixo e o combate continua normalmente.`;
       const backdrop = document.createElement("div");
       backdrop.className = "modal-backdrop";
       backdrop.setAttribute("role", "dialog");
@@ -1938,19 +1943,31 @@ export class ArenaCombatUI {
           </div>
         </div>
       `;
+      const hintEl = backdrop.querySelector(".modal-hint");
+      if (hintEl) hintEl.textContent = introText;
+
+      const accField = backdrop.querySelector("#ac-extra-acc")?.closest("label");
+      const dmgField = backdrop.querySelector("#ac-extra-dmg")?.closest("label");
+      if (!allowAccuracy) accField?.remove();
+      if (!allowDamage) dmgField?.remove();
+
+      const fieldsGrid = backdrop.querySelector(".modal-body > div");
+      if (fieldsGrid && (!allowAccuracy || !allowDamage)) {
+        fieldsGrid.style.gridTemplateColumns = "minmax(0,1fr)";
+      }
 
       const readMods = () => ({
-        acc: safeInt(backdrop.querySelector("#ac-extra-acc")?.value, 0),
-        dmg: safeInt(backdrop.querySelector("#ac-extra-dmg")?.value, 0),
+        acc: allowAccuracy ? safeInt(backdrop.querySelector("#ac-extra-acc")?.value, 0) : 0,
+        dmg: allowDamage ? safeInt(backdrop.querySelector("#ac-extra-dmg")?.value, 0) : 0,
       });
 
       backdrop._acOnClose = (result = null) => resolve(result);
       document.body.appendChild(backdrop);
       this._currentPrompt = backdrop;
 
-      const accInput = backdrop.querySelector("#ac-extra-acc");
-      accInput?.focus();
-      accInput?.select();
+      const firstInput = backdrop.querySelector("#ac-extra-acc") || backdrop.querySelector("#ac-extra-dmg");
+      firstInput?.focus();
+      firstInput?.select();
 
       backdrop.querySelector("#ac-extra-mod-close")?.addEventListener("click", () => this._closePrompt(null));
       backdrop.querySelector("#ac-extra-mod-cancel")?.addEventListener("click", () => this._closePrompt(null));
@@ -2032,10 +2049,8 @@ export class ArenaCombatUI {
           this._closeRadial();
           this._closeOverlay();
           if (currentRange === "area") {
-            const areaLevel = Math.max(1, safeInt(mv.rank, 1) + safeInt(moveData.tempDmg, 0));
-            this._openAreaDialog(targetPiece, getAtkPid(), {
-              level: areaLevel,
-              isEffect: this._isEffectMove(mv),
+            this._launchAreaAttack(getAtkPid(), targetPiece, mv, stats, {
+              moveIdx,
             });
             return;
           }
@@ -2079,6 +2094,110 @@ export class ArenaCombatUI {
     setTimeout(() => document.addEventListener("mousedown", closeHandler, true), 50);
   }
 
+  _buildResolvedMovePayload(move, ctx, extraAttackMods = {}) {
+    const extraAccMod = safeInt(extraAttackMods.acc, 0);
+    const extraDmgMod = safeInt(extraAttackMods.dmg, 0);
+    const atkMod = ctx.atkMod + extraAccMod;
+    const totalDmg = Math.max(0, ctx.totalDmg + extraDmgMod);
+    const totalModDano = ctx.extraDmg + extraDmgMod;
+
+    return {
+      atkMod,
+      totalDmg,
+      extraAccMod,
+      extraDmgMod,
+      totalModDano,
+      movePayload: {
+        name: safeStr(move?.name) || "Golpe",
+        accuracy: atkMod,
+        damage: totalDmg,
+        rank: ctx.rank,
+        based_stat: ctx.based,
+        stat_value: ctx.statVal,
+        move_type: ctx.moveType,
+        type_bonus: ctx.typeBonus,
+        stab_bonus: ctx.stabBonus,
+        modDano: totalModDano,
+        move_idx: ctx.moveIdx,
+        temp_mod_acc: ctx.tempAcc,
+        temp_mod_dano: ctx.tempDmg,
+        manual_acc_mod: extraAccMod,
+        manual_dmg_mod: extraDmgMod,
+        meta: move?.meta || {},
+      },
+    };
+  }
+
+  async _launchAreaAttack(atkPid, targetPiece, move, stats, opts = {}) {
+    const extraAttackMods = opts.askExtraMods === false
+      ? { acc: 0, dmg: 0 }
+      : (opts.extraAttackMods || await this._promptExtraAttackModifiers(move, {
+          allowAccuracy: false,
+          introText: `Ajuste apenas o modificador final de dano para ${safeStr(move?.name) || "o golpe"}. Ataques em área usam Dodge obrigatório e não rolam acerto.`,
+        }));
+    if (extraAttackMods == null) return;
+
+    this._closeAll();
+
+    const by = this.getBy();
+    const tId = safeStr(targetPiece.id);
+    const tOwner = safeStr(targetPiece.owner);
+    const tPid = safeStr(targetPiece.pid);
+
+    if (by) await this._loadSheets(by);
+    if (tOwner) await this._loadSheets(tOwner);
+    if (isTrainerPiece(targetPiece)) this._loadTrainerRpgSheet(tOwner);
+
+    const atkStats = Object.keys(stats || {}).length > 0 ? stats : this._getEffectiveStats(by, atkPid);
+    const atkSheet = this._getSheet(by, atkPid);
+    const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid, {
+      moveIdx: opts.moveIdx,
+      atkSheet,
+    });
+    const resolved = this._buildResolvedMovePayload(move, ctx, extraAttackMods);
+    const totalDmg = resolved.totalDmg;
+    const aoeDc = totalDmg + 10;
+    const isEffect = this._isEffectMove(move);
+    const extraModsTxt = describeExtraAttackMods(0, resolved.extraDmgMod);
+
+    this._lastMove = {
+      moveName: safeStr(move?.name),
+      moveIdx: ctx.moveIdx,
+      attackerPid: atkPid,
+      mode: "area",
+      rangeStr: "area",
+      sneakAttack: false,
+    };
+    try { localStorage.setItem(LAST_MOVE_KEY, JSON.stringify(this._lastMove)); } catch {}
+    this._updateRepeatBtn();
+
+    const logs = [
+      `${by} lançou Área com ${safeStr(move?.name) || "Golpe"} (Rank ${totalDmg}). Defensor rola Dodge obrigatório (CD ${aoeDc}).`,
+    ];
+    if (extraModsTxt) logs.push(`Modificadores extras aplicados: ${extraModsTxt}.`);
+
+    await this._writeBattle({
+      status: "aoe_defense",
+      attacker: by,
+      attacker_pid: atkPid,
+      target_id: tId,
+      target_owner: tOwner,
+      target_pid: tPid,
+      attack_move: resolved.movePayload,
+      attack_range: "Área (Dodge)",
+      aoe_dc: aoeDc,
+      dmg_base: totalDmg,
+      is_effect: isEffect,
+      extra_acc_mod: 0,
+      extra_dmg_mod: resolved.extraDmgMod,
+      pendingFor: tOwner,
+      prompt: { type: "ROLL_RESIST", options: { dc: aoeDc, isEffect, isAoe: true, aoePhase: "dodge" } },
+      logs,
+    });
+
+    this._showFloat(targetPiece, `🌀 ${safeStr(move?.name) || "Área"} R${totalDmg} — CD ${aoeDc}`, "pending");
+  }
+
   async _executeAttack(atkPid, targetPiece, move, stats, rangeStr, opts = {}) {
     const extraAttackMods = opts.askExtraMods === false
       ? { acc: 0, dmg: 0 }
@@ -2116,9 +2235,9 @@ export class ArenaCombatUI {
       moveIdx: opts.moveIdx,
       atkSheet,
     });
-    const atkMod = ctx.atkMod + extraAccMod;
-    const totalDmg = Math.max(0, ctx.totalDmg + extraDmgMod);
-    const totalModDano = ctx.extraDmg + extraDmgMod;
+    const resolved = this._buildResolvedMovePayload(move, ctx, extraAttackMods);
+    const atkMod = resolved.atkMod;
+    const totalDmg = resolved.totalDmg;
     const isEffect = this._isEffectMove(move);
 
     const roll = d20Roll();
@@ -2150,24 +2269,7 @@ export class ArenaCombatUI {
     try { localStorage.setItem(LAST_MOVE_KEY, JSON.stringify(this._lastMove)); } catch {}
     this._updateRepeatBtn();
 
-    const movePayload = {
-      name: safeStr(move.name) || "Golpe",
-      accuracy: atkMod,
-      damage: totalDmg,
-      rank: ctx.rank,
-      based_stat: ctx.based,
-      stat_value: ctx.statVal,
-      move_type: ctx.moveType,
-      type_bonus: ctx.typeBonus,
-      stab_bonus: ctx.stabBonus,
-      modDano: totalModDano,
-      move_idx: ctx.moveIdx,
-      temp_mod_acc: ctx.tempAcc,
-      temp_mod_dano: ctx.tempDmg,
-      manual_acc_mod: extraAccMod,
-      manual_dmg_mod: extraDmgMod,
-      meta: move.meta || {},
-    };
+    const movePayload = resolved.movePayload;
 
     const atkRange = isDistance ? "Distância (Dodge)" : "Corpo-a-corpo (Parry)";
     const critTxt = critBonus ? " (CRÍTICO +5)" : "";
@@ -2263,9 +2365,14 @@ export class ArenaCombatUI {
       this._showFloat(targetPiece, `❌ Golpe "${this._lastMove.moveName}" não encontrado`, "miss");
       return;
     }
+    const moveIdx = resolveMoveIndex(moves, mv, preferredIdx);
+    if (safeStr(this._lastMove.mode) === "area" || safeStr(this._lastMove.rangeStr) === "area") {
+      this._launchAreaAttack(atkPid, targetPiece, mv, stats, { moveIdx });
+      return;
+    }
     this._executeAttack(atkPid, targetPiece, mv, stats, this._lastMove.rangeStr || "distance", {
       sneakAttack: !!this._lastMove.sneakAttack,
-      moveIdx: resolveMoveIndex(moves, mv, preferredIdx),
+      moveIdx,
     });
   }
 
@@ -2571,7 +2678,7 @@ export class ArenaCombatUI {
           const baseRank = safeInt(battle.dmg_base);
           let finalRank, msg;
           if (checkTotal >= dc) {
-            finalRank = Math.max(1, Math.floor(baseRank / 2));
+            finalRank = baseRank <= 0 ? 0 : Math.max(1, Math.floor(baseRank / 2));
             msg = `Sucesso no Dodge! (${checkTotal} vs ${dc}). Rank: ${baseRank}→${finalRank}`;
           } else {
             finalRank = baseRank;
@@ -2643,7 +2750,7 @@ export class ArenaCombatUI {
       if (atk.stat_value) parts.push(`+${atk.stat_value} ${atk.based_stat || ""}`);
       if (atk.stab_bonus) parts.push(`+${atk.stab_bonus} STAB`);
       if (atk.type_bonus && atk.type_bonus !== 0) parts.push(`${atk.type_bonus > 0 ? '+' : ''}${atk.type_bonus} tipo`);
-      if (safeInt(atk.manual_dmg_mod, 0) !== 0) parts.push(`${signedMod(safeInt(atk.manual_dmg_mod, 0))} extra`);
+      if (safeInt(atk.modDano, 0) !== 0) parts.push(`${signedMod(safeInt(atk.modDano, 0))} mod`);
       const critBonus = safeInt(battle.crit_bonus);
       if (critBonus) parts.push(`+${critBonus} crit`);
       breakdownHtml = `<div style="font-size:10px;color:rgba(56,189,248,.8);margin:4px 0 6px">${escHtml(parts.join(" "))}</div>`;

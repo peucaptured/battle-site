@@ -712,15 +712,18 @@ const appState = {
   // docs
   board: null, // public_state/state
   battle: null, // public_state/battle
+  publicPlayers: null,
+  pokemonForms: null,
   // derived
   gridSize: 10,
   theme: "biome_grass",
+  piecesRaw: [],
   pieces: [],
   traps: [],   // armadilhas por célula (field-zones-patch)
   zones: [],   // zonas de clima/terreno (field-zones-patch)
   // UI selection
   selectedPieceId: null,
-  placing: null, // { mode: "pokemon", trainer, pid }
+  placing: null, // { mode: "pokemon", trainer, pid, party_slot }
   placingPid: null,
   placingTrainer: null, // trainer name when placing trainer avatar
   hover: { row: null, col: null },
@@ -770,6 +773,7 @@ const mapEditorState = {
 
 // Local UI state (não vai pro Firestore)
 let armedPokemonId = null; // modo posicionamento via pokébola
+let armedPokemonSlot = null;
 
 // -------------------------
 // Dex / Map overrides (localStorage)
@@ -795,6 +799,8 @@ function setDexMap(obj) {
 
 const pieceMenuState = {
   pieceId: null,
+  clientX: 0,
+  clientY: 0,
 };
 
 function loadDexMapFromStorage() {
@@ -857,6 +863,21 @@ async function tryLoadDexMapFromAssets() {
   return null;
 }
 
+let _pokemonFormManifestRaw = { available_slugs: [] };
+let _pokemonFormManifestList = [];
+let _pokemonFormManifestSet = new Set();
+let _pokemonFormManifestGroups = new Map();
+
+async function tryLoadPokemonFormManifestFromAssets() {
+  try {
+    const res = await fetch("./assets/pokemon_form_manifest.json", { cache: "no-cache" });
+    if (!res.ok) return null;
+    const obj = await res.json();
+    if (obj && typeof obj === "object") return obj;
+  } catch {}
+  return null;
+}
+
 // Inicializa overrides
 (function initOverrides() {
   setDexMap(loadDexMapFromStorage());
@@ -872,6 +893,9 @@ async function tryLoadDexMapFromAssets() {
   }
   tryLoadDexSlugMapFromAssets().then((obj) => {
     if (obj && typeof obj === 'object') window.dexSlugToId = obj;
+  });
+  tryLoadPokemonFormManifestFromAssets().then((obj) => {
+    if (obj && typeof obj === "object") _setPokemonFormManifest(obj);
   });
 })();
 
@@ -1041,10 +1065,10 @@ function isTrainerPiece(pieceOrPid) {
 }
 
 function displayNameFromPid(pid, opts = {}) {
-  const rawPid = safeStr(pid);
+  const rawPid = safeStr(pid?.pid ?? pid?.pokemon?.id ?? pid);
   const owner = safeStr(opts.owner);
   if (!rawPid) return owner || "Peca";
-  const effectiveName = owner ? _getEffectivePokemonName(owner, rawPid) : "";
+  const effectiveName = owner ? _getEffectivePokemonName(owner, pid) : "";
   if (effectiveName) return effectiveName;
   const mapped = safeStr(dexNameFromPid(rawPid) || resolvePokemonNameFromPid(rawPid));
   if (mapped) return mapped;
@@ -1059,7 +1083,7 @@ function displayNameFromPiece(piece, opts = {}) {
   if (!opts.allowHiddenIdentity && !mine && !revealed) return "???";
   const owner = safeStr(opts.owner || p?.owner);
   if (isTrainerPiece(p)) return owner || displayNameFromPid(p?.pid, { owner });
-  return displayNameFromPid(p?.pid, { owner });
+  return displayNameFromPid({ pid: p?.pid, party_slot: _getPartySlot(p) }, { owner });
 }
 
 function pieceTypeLabel(piece) {
@@ -2506,6 +2530,9 @@ function cleanup() {
   appState.players = [];
   appState.board = null;
   appState.battle = null;
+  appState.publicPlayers = null;
+  appState.pokemonForms = null;
+  appState.piecesRaw = [];
   appState.pieces = [];
   appState.selectedPieceId = null;
   appState.selfUserData = null;
@@ -2620,6 +2647,8 @@ connectBtn?.addEventListener("click", async () => {
     renderMapEditorPanel?.();
     window.requestScoreboardRefresh?.();
     ensureUserSubscriptions();
+    _refreshResolvedRoomPieces();
+    requestArenaRefresh(true);
   };
 
   // A) subcoleção rooms/{rid}/players
@@ -2685,7 +2714,8 @@ connectBtn?.addEventListener("click", async () => {
         appState.board = data;
         appState.gridSize = Number(data?.gridSize) || 10;
         appState.theme = safeStr(data?.theme) || "biome_grass";
-        appState.pieces = Array.isArray(data?.pieces) ? data.pieces : [];
+        appState.piecesRaw = Array.isArray(data?.pieces) ? data.pieces : [];
+        _refreshResolvedRoomPieces();
         try { autoLogPiecesDiff(appState.pieces); } catch {}
         appState.traps  = Array.isArray(data?.traps)  ? data.traps  : [];
         appState.zones  = Array.isArray(data?.zones)  ? data.zones  : [];
@@ -2728,6 +2758,7 @@ unsub.push(
     playersDoc,
     (snap) => {
       appState.publicPlayers = snap.exists() ? snap.data() : null;
+      _refreshResolvedRoomPieces();
       const pp = $("players_preview");
       if (pp) pp.textContent = pretty(appState.publicPlayers);
 
@@ -2765,6 +2796,21 @@ unsub.push(
       (err) => {
         if (battlePre) battlePre.textContent = "Erro: " + err.message;
       }
+    )
+  );
+
+  const pokemonFormsDoc = doc(db, "rooms", rid, "public_state", "pokemon_forms");
+  unsub.push(
+    onSnapshot(
+      pokemonFormsDoc,
+      (snap) => {
+        appState.pokemonForms = snap.exists() ? (snap.data() || {}) : {};
+        try { updateSidePanels?.(); } catch {}
+        try { renderSheetsTab?.(); } catch {}
+        try { window.requestScoreboardRefresh?.(); } catch {}
+        try { requestArenaRefresh(true); } catch {}
+      },
+      () => {}
     )
   );
 
@@ -3160,8 +3206,10 @@ function getSpriteUrlForPiece(p, opts) {
 
   const owner = safeStr(p?.owner);
   const effectiveSlug = owner ? _getEffectivePokemonSlug(owner, pidStr) : "";
+  const effectiveCtx = owner ? _getEffectivePokemonContext(owner, p) : null;
   if (effectiveSlug) {
     return localSpriteUrl(effectiveSlug, type, shiny)
+      || (type === "art" ? safeStr(effectiveCtx?.image) : "")
       || (type === "art"
         ? `https://img.pokemondb.net/artwork/large/${effectiveSlug}.jpg`
         : `https://img.pokemondb.net/sprites/home/normal/${effectiveSlug}.png`);
@@ -3203,6 +3251,184 @@ function getSpriteUrlForPiece(p, opts) {
   return "";
 }
 
+const FORM_ROOT_DEFAULT_SLUGS = {
+  aegislash: "aegislash-blade",
+  arceus: "arceus-normal",
+  basculin: "basculin-red-striped",
+  basculegion: "basculegion-male",
+  darmanitan: "darmanitan-standard",
+  deoxys: "deoxys-normal",
+  eiscue: "eiscue-ice",
+  enamorus: "enamorus-incarnate",
+  giratina: "giratina-altered",
+  gourgeist: "gourgeist-average",
+  indeedee: "indeedee-male",
+  keldeo: "keldeo-ordinary",
+  landorus: "landorus-incarnate",
+  lycanroc: "lycanroc-midday",
+  maushold: "maushold-family-of-four",
+  meloetta: "meloetta-aria",
+  meowstic: "meowstic-male",
+  mimikyu: "mimikyu-disguised",
+  minior: "minior-red-meteor",
+  morpeko: "morpeko-full-belly",
+  palafin: "palafin-zero",
+  pumpkaboo: "pumpkaboo-average",
+  shaymin: "shaymin-land",
+  silvally: "silvally-normal",
+  squawkabilly: "squawkabilly-green-plumage",
+  thundurus: "thundurus-incarnate",
+  tornadus: "tornadus-incarnate",
+  toxtricity: "toxtricity-amped",
+  urshifu: "urshifu-single-strike",
+  wishiwashi: "wishiwashi-solo",
+  wormadam: "wormadam-plant",
+  zygarde: "zygarde-50",
+};
+const FORM_SPECIAL_ROOTS = Object.keys(FORM_ROOT_DEFAULT_SLUGS).sort((a, b) => b.length - a.length);
+
+function _normalizePartySlot(slotLike, fallbackIndex = null) {
+  const raw = safeStr(slotLike).trim();
+  if (raw) {
+    const prefixed = raw.match(/^slot[_-]?(\d+)$/i);
+    if (prefixed) return `slot_${Number(prefixed[1])}`;
+    if (/^\d+$/.test(raw)) return `slot_${Number(raw)}`;
+  }
+  if (fallbackIndex != null && Number.isFinite(Number(fallbackIndex)) && Number(fallbackIndex) >= 0) {
+    return `slot_${Number(fallbackIndex)}`;
+  }
+  return "";
+}
+
+function _getPartySlot(entryLike, fallbackIndex = null) {
+  if (entryLike && typeof entryLike === "object") {
+    return _normalizePartySlot(
+      entryLike.party_slot
+      ?? entryLike.partySlot
+      ?? entryLike.slot_key
+      ?? entryLike.slotKey
+      ?? entryLike.slot
+      ?? entryLike.index
+      ?? entryLike._party_slot,
+      fallbackIndex
+    );
+  }
+  return _normalizePartySlot(entryLike, fallbackIndex);
+}
+
+function _getPartySlotIndex(entryLike, fallbackIndex = -1) {
+  const slot = _getPartySlot(entryLike, fallbackIndex);
+  const match = slot.match(/^slot_(\d+)$/i);
+  return match ? Number(match[1]) : -1;
+}
+
+function _defaultFormSlugForRoot(rootSlug) {
+  const root = canonicalizePokemonSlug(safeStr(rootSlug).toLowerCase());
+  return FORM_ROOT_DEFAULT_SLUGS[root] || root;
+}
+
+function _normalizePokemonFormSlug(value) {
+  const raw = safeStr(value);
+  if (!raw) return "";
+  const slug = raw.includes(" ")
+    ? safeStr(spriteSlugFromPokemonName(raw))
+    : raw.toLowerCase();
+  return _normalizePokeApiSlug(slug || raw);
+}
+
+function _humanizePokemonFormSlug(slug) {
+  const normalized = safeStr(slug).replace(/[_/]+/g, "-");
+  if (!normalized) return "";
+  const key = safeStr(window.dexSlugToId?.[normalized]);
+  const mapped = key ? safeStr(dexNameFromPid(key)) : "";
+  if (mapped) return mapped;
+  return toTitleWords(normalized.replace(/-/g, " "));
+}
+
+function _inferCanonicalFormRoot(formSlug) {
+  const slug = canonicalizePokemonSlug(safeStr(formSlug).toLowerCase());
+  if (!slug) return "";
+
+  for (const root of FORM_SPECIAL_ROOTS) {
+    if (slug === root || slug.startsWith(`${root}-`)) return root;
+  }
+
+  if (_pokemonFormManifestSet.has(slug) && !slug.includes("-")) return slug;
+
+  const parts = slug.split("-").filter(Boolean);
+  for (let i = parts.length - 1; i > 0; i -= 1) {
+    const candidate = parts.slice(0, i).join("-");
+    if (_pokemonFormManifestSet.has(candidate)) return candidate;
+  }
+
+  return parts[0] || slug;
+}
+
+function _sortPokemonFormSlugs(slugs, rootSlug) {
+  const root = canonicalizePokemonSlug(safeStr(rootSlug).toLowerCase());
+  const preferred = _defaultFormSlugForRoot(root);
+  const unique = Array.from(new Set((Array.isArray(slugs) ? slugs : []).filter(Boolean)));
+  unique.sort((a, b) => {
+    if (a === preferred && b !== preferred) return -1;
+    if (b === preferred && a !== preferred) return 1;
+    if (a === root && b !== root) return -1;
+    if (b === root && a !== root) return 1;
+    return _humanizePokemonFormSlug(a).localeCompare(_humanizePokemonFormSlug(b));
+  });
+  return unique;
+}
+
+function _rebuildPokemonFormManifestIndexes() {
+  _pokemonFormManifestList = Array.isArray(_pokemonFormManifestRaw?.available_slugs)
+    ? _pokemonFormManifestRaw.available_slugs
+        .map((slug) => canonicalizePokemonSlug(safeStr(slug).toLowerCase()))
+        .filter(Boolean)
+    : [];
+  _pokemonFormManifestSet = new Set(_pokemonFormManifestList);
+  _pokemonFormManifestGroups = new Map();
+
+  for (const slug of _pokemonFormManifestList) {
+    const root = _inferCanonicalFormRoot(slug);
+    if (!root) continue;
+    if (!_pokemonFormManifestGroups.has(root)) _pokemonFormManifestGroups.set(root, []);
+    _pokemonFormManifestGroups.get(root).push(slug);
+  }
+
+  for (const [root, list] of _pokemonFormManifestGroups.entries()) {
+    _pokemonFormManifestGroups.set(root, _sortPokemonFormSlugs(list, root));
+  }
+}
+
+function _setPokemonFormManifest(payload) {
+  const next = (payload && typeof payload === "object" && !Array.isArray(payload))
+    ? payload
+    : { available_slugs: [] };
+  _pokemonFormManifestRaw = next;
+  _rebuildPokemonFormManifestIndexes();
+  window.pokemonFormManifest = {
+    raw: _pokemonFormManifestRaw,
+    available_slugs: _pokemonFormManifestList.slice(),
+    groups: Object.fromEntries(Array.from(_pokemonFormManifestGroups.entries())),
+  };
+  try { updateSidePanels(); } catch {}
+  try { renderSheetsTab(); } catch {}
+  try { window.requestScoreboardRefresh?.(); } catch {}
+  try { requestArenaRefresh(true); } catch {}
+}
+
+function _getPokemonFormOptionsForRoot(rootSlug) {
+  const root = canonicalizePokemonSlug(safeStr(rootSlug).toLowerCase());
+  const slugs = _pokemonFormManifestGroups.get(root) || [];
+  return slugs
+    .filter((slug) => slug && !/-mega(?:-|$)/i.test(slug))
+    .map((slug) => ({
+      form_slug: slug,
+      root_slug: root,
+      display_name: _humanizePokemonFormSlug(slug),
+      image: localSpriteUrl(slug, "art", false),
+    }));
+}
+
 function normalizePartyPid(x) {
   // aceita: "887", 887, {pid}, {pokemon:{id}}, "Weavile", "Muk-A", "EXT:Hydreigon", "PID 887"
   let v = safeStr(x?.pid ?? x?.id ?? x?.pokemon?.id ?? x?.pokemon ?? x);
@@ -3233,17 +3459,23 @@ function normalizePartyPid(x) {
   return v;
 }
 
-function _normalizePartyEntry(entryLike) {
+function _normalizePartyEntry(entryLike, index = 0) {
   const pid = normalizePartyPid(entryLike?.pid ?? entryLike?.pokemon?.id ?? entryLike?.pokemon ?? entryLike);
   if (!pid) return null;
+  const partySlot = _getPartySlot(entryLike, index);
   if (entryLike && typeof entryLike === "object") {
-    return Object.assign({}, entryLike, { pid });
+    return Object.assign({}, entryLike, {
+      pid,
+      party_slot: partySlot,
+      _party_slot: partySlot,
+      _party_slot_index: _getPartySlotIndex(partySlot, index),
+    });
   }
-  return { pid };
+  return { pid, party_slot: partySlot, _party_slot: partySlot, _party_slot_index: _getPartySlotIndex(partySlot, index) };
 }
 
 function _normalizePartyList(list) {
-  return (Array.isArray(list) ? list : []).map(_normalizePartyEntry).filter((entry) => entry?.pid);
+  return (Array.isArray(list) ? list : []).map((entry, index) => _normalizePartyEntry(entry, index)).filter((entry) => entry?.pid);
 }
 
 function getPartyForTrainer(trainerName) {
@@ -3385,11 +3617,23 @@ function _partyEntryLookupKeys(entryLike) {
   return out;
 }
 
-function _pieceMatchesPid(pieceLike, pidLike) {
-  const targetKeys = _partyEntryLookupKeys(pidLike);
+function _samePartySlot(a, b) {
+  const left = _getPartySlot(a);
+  const right = _getPartySlot(b);
+  return !!left && !!right && left === right;
+}
+
+function _matchesPartyIdentity(candidateLike, targetLike) {
+  const targetSlot = _getPartySlot(targetLike);
+  if (targetSlot) return _getPartySlot(candidateLike) === targetSlot;
+  const targetKeys = _partyEntryLookupKeys(targetLike);
   if (!targetKeys.length) return false;
-  const pieceKeys = _partyEntryLookupKeys(pieceLike);
-  return pieceKeys.some((key) => targetKeys.includes(key));
+  const candidateKeys = _partyEntryLookupKeys(candidateLike);
+  return candidateKeys.some((key) => targetKeys.includes(key));
+}
+
+function _pieceMatchesPid(pieceLike, pidLike) {
+  return _matchesPartyIdentity(pieceLike, pidLike);
 }
 
 function findBoardPieceForTrainer(ownerName, pidLike, options = {}) {
@@ -3399,7 +3643,8 @@ function findBoardPieceForTrainer(ownerName, pidLike, options = {}) {
   return pieces.find((piece) => {
     if (_trainerLookupKey(piece?.owner) !== ownerKey) return false;
     if (!options.includeInactive && safeStr(piece?.status || "active") !== "active") return false;
-    return _pieceMatchesPid(piece, pidLike);
+    if (_getPartySlot(pidLike) && !_getPartySlot(piece)) return false;
+    return _matchesPartyIdentity(piece, pidLike);
   }) || null;
 }
 
@@ -3418,25 +3663,113 @@ function _getPartySnapshotForTrainer(trainerName) {
 }
 
 function getPartySnapshotEntryForTrainerPid(trainerName, pidLike) {
-  const targetKeys = _partyEntryLookupKeys(pidLike);
-  if (!targetKeys.length) return null;
   const snapshot = _getPartySnapshotForTrainer(trainerName);
   for (const entry of snapshot) {
-    const entryKeys = _partyEntryLookupKeys(entry);
-    if (entryKeys.some((key) => targetKeys.includes(key))) return entry;
+    if (_matchesPartyIdentity(entry, pidLike)) return entry;
   }
   return null;
 }
 
 function _getPartyEntryForTrainerPid(trainerName, pidLike) {
-  const targetKeys = _partyEntryLookupKeys(pidLike);
-  if (!targetKeys.length) return null;
   const party = getPartyForTrainer(trainerName);
   for (const entry of party) {
-    const entryKeys = _partyEntryLookupKeys(entry);
-    if (entryKeys.some((key) => targetKeys.includes(key))) return entry;
+    if (_matchesPartyIdentity(entry, pidLike)) return entry;
   }
   return null;
+}
+
+function _pieceSlotSortValue(piece) {
+  return [
+    safeInt(piece?.createdAt, 0),
+    safeInt(piece?.updatedAt, 0),
+    safeInt(piece?.row, 0),
+    safeInt(piece?.col, 0),
+    safeStr(piece?.id),
+  ];
+}
+
+function _resolveRoomPiecesPartySlots(rawPieces = appState.piecesRaw) {
+  const source = Array.isArray(rawPieces) ? rawPieces : [];
+  const resolved = source.map((piece) => ((piece && typeof piece === "object") ? { ...piece } : piece));
+  const ownerBuckets = new Map();
+
+  resolved.forEach((piece, index) => {
+    if (!piece || typeof piece !== "object" || isTrainerPiece(piece)) return;
+    const ownerKey = _trainerLookupKey(piece?.owner);
+    if (!ownerKey) return;
+    if (!ownerBuckets.has(ownerKey)) ownerBuckets.set(ownerKey, []);
+    ownerBuckets.get(ownerKey).push({ piece, index });
+  });
+
+  for (const [, ownerEntries] of ownerBuckets.entries()) {
+    const ownerName = safeStr(ownerEntries[0]?.piece?.owner);
+    const party = getPartyForTrainer(ownerName);
+    if (!party.length) {
+      ownerEntries.forEach(({ piece }) => {
+        piece.party_slot = _getPartySlot(piece);
+        piece._party_slot = piece.party_slot || "";
+        piece._party_slot_inferred = false;
+        piece._party_slot_ambiguous = !piece.party_slot;
+      });
+      continue;
+    }
+
+    const freeSlotsByLookupKey = new Map();
+    const usedSlots = new Set();
+    for (const entry of party) {
+      const slot = _getPartySlot(entry);
+      if (!slot) continue;
+      for (const key of _partyEntryLookupKeys(entry)) {
+        if (!key) continue;
+        if (!freeSlotsByLookupKey.has(key)) freeSlotsByLookupKey.set(key, []);
+        freeSlotsByLookupKey.get(key).push(slot);
+      }
+    }
+
+    ownerEntries.forEach(({ piece }) => {
+      const explicitSlot = _getPartySlot(piece);
+      if (!explicitSlot) return;
+      usedSlots.add(explicitSlot);
+      piece.party_slot = explicitSlot;
+      piece._party_slot = explicitSlot;
+      piece._party_slot_inferred = false;
+      piece._party_slot_ambiguous = false;
+    });
+
+    ownerEntries
+      .filter(({ piece }) => !_getPartySlot(piece))
+      .sort((left, right) => {
+        const a = _pieceSlotSortValue(left.piece);
+        const b = _pieceSlotSortValue(right.piece);
+        for (let i = 0; i < a.length; i += 1) {
+          if (a[i] === b[i]) continue;
+          return a[i] > b[i] ? 1 : -1;
+        }
+        return 0;
+      })
+      .forEach(({ piece }) => {
+        const candidates = [];
+        for (const key of _partyEntryLookupKeys(piece)) {
+          const slots = freeSlotsByLookupKey.get(key) || [];
+          for (const slot of slots) {
+            if (slot && !candidates.includes(slot) && !usedSlots.has(slot)) candidates.push(slot);
+          }
+        }
+        const pickedSlot = candidates[0] || "";
+        if (pickedSlot) usedSlots.add(pickedSlot);
+        piece.party_slot = pickedSlot;
+        piece._party_slot = pickedSlot;
+        piece._party_slot_inferred = !!pickedSlot;
+        piece._party_slot_ambiguous = !pickedSlot;
+      });
+  }
+
+  return resolved;
+}
+
+function _refreshResolvedRoomPieces() {
+  appState.pieces = _resolveRoomPiecesPartySlots(appState.piecesRaw);
+  return appState.pieces;
 }
 
 function _getUserDataForTrainer(trainerName) {
@@ -3581,11 +3914,214 @@ function _getResolvedTypesFromHubMeta(hubMeta, pidLike) {
   return [];
 }
 
+function _normalizeResolvedAbilityName(value) {
+  return toTitleWords(safeStr(value).replace(/[_-]+/g, " ").trim());
+}
+
+function _appendResolvedAbilities(out, seen, value) {
+  if (value == null) return;
+
+  const push = (abilityLike) => {
+    const label = _normalizeResolvedAbilityName(abilityLike);
+    if (!label) return;
+    const key = label.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(label);
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach((entry) => _appendResolvedAbilities(out, seen, entry));
+    return;
+  }
+
+  if (typeof value === "string") {
+    value
+      .split(/[,\|/]+/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .forEach(push);
+    return;
+  }
+
+  if (typeof value !== "object") {
+    push(value);
+    return;
+  }
+
+  if (Array.isArray(value.abilities)) {
+    _appendResolvedAbilities(out, seen, value.abilities);
+    return;
+  }
+  if (Array.isArray(value.resolved_abilities)) {
+    _appendResolvedAbilities(out, seen, value.resolved_abilities);
+    return;
+  }
+
+  for (const key of ["primary", "secondary", "hidden", "ability1", "ability2", "ability_1", "ability_2"]) {
+    if (value[key] != null) push(value[key]);
+  }
+
+  if (!out.length) {
+    for (const candidate of Object.values(value)) {
+      if (typeof candidate === "string" || Array.isArray(candidate)) {
+        _appendResolvedAbilities(out, seen, candidate);
+      }
+    }
+  }
+}
+
+function _coerceResolvedAbilities(value) {
+  const out = [];
+  const seen = new Set();
+  _appendResolvedAbilities(out, seen, value);
+  return out;
+}
+
+function _extractResolvedAbilitiesFromSource(source) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return [];
+  const fromResolved = _coerceResolvedAbilities(source?.resolved_abilities ?? source?.resolvedAbilities);
+  if (fromResolved.length) return fromResolved;
+  return _coerceResolvedAbilities(source?.ability_override ?? source?.abilityOverride ?? source?.abilities);
+}
+
+function _extractPokemonFormSlugFromSource(source) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return "";
+  return _normalizePokemonFormSlug(
+    source?.form_slug
+    ?? source?.formSlug
+    ?? source?.selected_form
+    ?? source?.selectedForm
+    ?? source?.form
+  );
+}
+
+function _extractPokemonDisplayNameFromSource(source) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return "";
+  return safeStr(
+    source?.display_name
+    ?? source?.displayName
+    ?? source?.form_display_name
+    ?? source?.formDisplayName
+    ?? source?.resolved_name
+    ?? source?.resolvedName
+  );
+}
+
+function _extractPokemonImageFromSource(source) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return "";
+  return safeStr(
+    source?.image
+    ?? source?.image_url
+    ?? source?.imageUrl
+    ?? source?.sprite
+    ?? source?.sprite_url
+    ?? source?.spriteUrl
+  );
+}
+
+function _buildPokemonFormSource(source, sourceKind = "") {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return null;
+  const formSlug = _extractPokemonFormSlugFromSource(source);
+  const displayName = _extractPokemonDisplayNameFromSource(source);
+  const image = _extractPokemonImageFromSource(source);
+  const resolvedTypes = _extractResolvedTypesFromSource(source);
+  const resolvedAbilities = _extractResolvedAbilitiesFromSource(source);
+  if (!(formSlug || displayName || image || resolvedTypes.length || resolvedAbilities.length)) return null;
+  return {
+    sourceKind,
+    formSlug,
+    displayName: displayName || (formSlug ? _humanizePokemonFormSlug(formSlug) : ""),
+    image: image || (formSlug ? localSpriteUrl(formSlug, "art", false) : ""),
+    resolvedTypes,
+    resolvedAbilities,
+    raw: source,
+  };
+}
+
+function _getPokemonFormsBucket(trainerName) {
+  return _getTrainerBucket(appState.pokemonForms, trainerName);
+}
+
+function _getPokemonFormEntry(trainerName, pidLike) {
+  const slot = _getPartySlot(pidLike);
+  if (!slot) return null;
+  const bucket = _getPokemonFormsBucket(trainerName);
+  const direct = bucket?.[slot];
+  return (direct && typeof direct === "object" && !Array.isArray(direct)) ? direct : null;
+}
+
+function _getPokemonFormSourceFromHubMeta(hubMeta, pidLike) {
+  if (!hubMeta || typeof hubMeta !== "object") return null;
+  const targetKeys = _partyEntryLookupKeys(pidLike);
+  if (!targetKeys.length) return null;
+  for (const [rawKey, meta] of Object.entries(hubMeta)) {
+    if (!targetKeys.includes(pidKey(rawKey))) continue;
+    const built = _buildPokemonFormSource(meta, "hub");
+    if (built) return built;
+  }
+  return null;
+}
+
+function _getPreferredPokemonFormSource(trainerName, pidLike) {
+  const owner = safeStr(trainerName);
+  for (const [kind, source] of [
+    ["room", _getPokemonFormEntry(owner, pidLike)],
+    ["snapshot", getPartySnapshotEntryForTrainerPid(owner, pidLike)],
+    ["party", _getPartyEntryForTrainerPid(owner, pidLike)],
+  ]) {
+    const built = _buildPokemonFormSource(source, kind);
+    if (built) return built;
+  }
+  return _getPokemonFormSourceFromHubMeta(_getHubPokemonMetaForTrainer(owner), pidLike);
+}
+
+function _inferBasePokemonFormSlug(trainerName, pidLike, options = {}) {
+  const owner = safeStr(trainerName);
+  const piece = options?.piece || null;
+  const sheet = options?.sheet || null;
+
+  for (const source of [
+    options?.source || null,
+    getPartySnapshotEntryForTrainerPid(owner, pidLike),
+    _getPartyEntryForTrainerPid(owner, pidLike),
+    piece,
+    sheet?.pokemon,
+    sheet,
+  ]) {
+    const fromForm = _extractPokemonFormSlugFromSource(source);
+    if (fromForm) return fromForm;
+    const fromName = _normalizePokemonFormSlug(source?.pokemon?.name || source?.name);
+    if (fromName) return fromName;
+  }
+
+  const rawPid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
+  const dexName = dexNameFromPid(rawPid) || resolvePokemonNameFromPid(rawPid);
+  if (dexName) return _normalizePokemonFormSlug(dexName);
+  if (rawPid && !/^\d+$/.test(rawPid)) return _normalizePokemonFormSlug(rawPid);
+  return "";
+}
+
 function getResolvedTypesForTrainerPid(trainerName, pidLike, options = {}) {
   const owner = safeStr(trainerName);
   const pid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
   const piece = options?.piece || null;
   const sheet = options?.sheet || null;
+  const formSource = _getPreferredPokemonFormSource(owner, piece || pidLike);
+  const canUseSelfSheets = _trainerLookupKey(owner) === _trainerLookupKey(appState.by);
+
+  if (formSource?.resolvedTypes?.length) return formSource.resolvedTypes;
+
+  if (formSource?.formSlug) {
+    const formSheet = canUseSelfSheets
+      ? _resolveSelfEffectiveSheet(piece || pidLike, owner, { preferredFormSlug: formSource.formSlug, ignoreMega: true })?.baseSheet
+      : null;
+    const fromFormSheet = _coerceResolvedTypes(formSheet?.pokemon?.types);
+    if (fromFormSheet.length) return fromFormSheet;
+    const cachedForm = _getPokeApiCached(formSource.formSlug);
+    if (cachedForm && Array.isArray(cachedForm.types) && cachedForm.types.length) return cachedForm.types;
+    if (_pokeApiCache.get(formSource.formSlug) !== "pending") fetchPokeApiData(formSource.formSlug);
+  }
 
   for (const source of [
     getPartySnapshotEntryForTrainerPid(owner, pidLike),
@@ -3620,6 +4156,51 @@ function getResolvedTypesForTrainerPid(trainerName, pidLike, options = {}) {
       if (cached && Array.isArray(cached.types) && cached.types.length) return cached.types;
       if (_pokeApiCache.get(nameSlug) !== "pending") fetchPokeApiData(nameSlug);
     }
+  }
+
+  return [];
+}
+
+function getResolvedAbilitiesForTrainerPid(trainerName, pidLike, options = {}) {
+  const owner = safeStr(trainerName);
+  const piece = options?.piece || null;
+  const sheet = options?.sheet || null;
+  const formSource = _getPreferredPokemonFormSource(owner, piece || pidLike);
+  const canUseSelfSheets = _trainerLookupKey(owner) === _trainerLookupKey(appState.by);
+
+  if (formSource?.resolvedAbilities?.length) return formSource.resolvedAbilities;
+
+  if (formSource?.formSlug) {
+    const formSheet = canUseSelfSheets
+      ? _resolveSelfEffectiveSheet(piece || pidLike, owner, { preferredFormSlug: formSource.formSlug, ignoreMega: true })?.baseSheet
+      : null;
+    const fromFormSheet = _coerceResolvedAbilities(formSheet?.pokemon?.abilities);
+    if (fromFormSheet.length) return fromFormSheet;
+    const cachedForm = _getPokeApiCached(formSource.formSlug);
+    if (cachedForm && Array.isArray(cachedForm.abilities) && cachedForm.abilities.length) {
+      return _coerceResolvedAbilities(cachedForm.abilities.map((item) => item?.ability?.name || item?.name || item));
+    }
+    if (_pokeApiCache.get(formSource.formSlug) !== "pending") fetchPokeApiData(formSource.formSlug);
+  }
+
+  for (const source of [
+    getPartySnapshotEntryForTrainerPid(owner, pidLike),
+    _getPartyEntryForTrainerPid(owner, pidLike),
+    piece,
+  ]) {
+    const resolved = _extractResolvedAbilitiesFromSource(source);
+    if (resolved.length) return resolved;
+  }
+
+  const fromHubMeta = _getPokemonFormSourceFromHubMeta(_getHubPokemonMetaForTrainer(owner), pidLike);
+  if (fromHubMeta?.resolvedAbilities?.length) return fromHubMeta.resolvedAbilities;
+
+  const fromSheet = _coerceResolvedAbilities(sheet?.pokemon?.abilities);
+  if (fromSheet.length) return fromSheet;
+
+  const cached = _getPokeApiCached(_inferBasePokemonFormSlug(owner, pidLike, { piece, sheet }));
+  if (cached && Array.isArray(cached.abilities) && cached.abilities.length) {
+    return _coerceResolvedAbilities(cached.abilities.map((item) => item?.ability?.name || item?.name || item));
   }
 
   return [];
@@ -4109,14 +4690,16 @@ function renderHeldItemSummaryHtml(rawItem, options = {}) {
 
 function renderPartyCard(it, ownerName) {
   const pid = safeStr(it?.pid || it?.pokemon?.id || it);
-  const name = displayNameFromPid(pid, { owner: ownerName }) || (pid.startsWith("EXT:") ? pid.slice(4) : `PID ${pid}`);
+  const partySlot = _getPartySlot(it);
+  const identity = partySlot ? { ...(it && typeof it === "object" ? it : {}), pid, party_slot: partySlot } : (it || pid);
+  const name = displayNameFromPid(identity, { owner: ownerName }) || (pid.startsWith("EXT:") ? pid.slice(4) : `PID ${pid}`);
   const _psPartyCard = _getPartyStateEntry(ownerName, pid) || {};
-  const spriteUrl = getSpriteUrlForPiece({ owner: ownerName, pid }, { type: "art", shiny: !!_psPartyCard.shiny });
+  const spriteUrl = getSpriteUrlForPiece({ owner: ownerName, pid, party_slot: partySlot }, { type: "art", shiny: !!_psPartyCard.shiny });
   const mine = safeStr(ownerName) && safeStr(ownerName) === safeStr(appState.by);
-  const p = findBoardPieceForTrainer(ownerName, pid);
+  const p = findBoardPieceForTrainer(ownerName, identity);
   const onMap = !!p?.id;
   const isExt = pid.startsWith("EXT:");
-  const megaState = _getBattleMegaStateForTrainerPid(ownerName, pid);
+  const megaState = _getBattleMegaStateForTrainerPid(ownerName, identity);
   const ps = _getPartyStateEntry(ownerName, pid) || {};
   const hp = (ps.hp != null ? Number(ps.hp) : 6);
   const maxHp = 6;
@@ -4143,7 +4726,7 @@ function renderPartyCard(it, ownerName) {
   const megaBadge = megaState?.activeMegaSlug ? `<span class="pvp-ext-badge">MEGA</span>` : "";
   const actionsHtml = mine ? `
     <div class="pvp-actions">
-      <button class="pvp-btn" data-act="${onMap ? "select" : "place"}">${onMap ? "🎯 Selecionar" : (getPlacingPokemonPid() === pid ? "📍 Clique no mapa" : "➕ Colocar")}</button>
+      <button class="pvp-btn" data-act="${onMap ? "select" : "place"}">${onMap ? "🎯 Selecionar" : (((partySlot && getPlacingPokemonPartySlot() === partySlot) || (!partySlot && getPlacingPokemonPid() === pid)) ? "📍 Clique no mapa" : "➕ Colocar")}</button>
       <button class="pvp-btn pvp-btn-icon" data-act="toggle"${onMap ? "" : " disabled"}>👁️</button>
       <button class="pvp-btn pvp-btn-icon pvp-btn-danger" data-act="remove"${onMap ? "" : " disabled"}>❌</button>
     </div>` : "";
@@ -4178,13 +4761,13 @@ function renderPartyCard(it, ownerName) {
   card.querySelector('[data-act="place"]')?.addEventListener("click", (ev) => {
     ev.stopPropagation();
     // toggle: clicar na mesma pokébola desarma
-    if (getPlacingPokemonPid() && getPlacingPokemonPid() === pid) {
+    if ((partySlot && getPlacingPokemonPartySlot() === partySlot) || (!partySlot && getPlacingPokemonPid() === pid)) {
       clearPokemonPlacingMode();
       updateSidePanels();
       setStatus("ok", "posicionamento cancelado");
       return;
     }
-    startPlacePokemon(pid);
+    startPlacePokemon(identity);
     updateSidePanels();
   });
   card.querySelector('[data-act="toggle"]')?.addEventListener("click", async (ev) => {
@@ -4333,14 +4916,15 @@ function renderArenaSheetPreview() {
   const isMine = isPieceMine(piece);
   const sheet = isMine ? getSheetForPiece(piece) : null;
   const pkm = sheet?.pokemon || {};
-  const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine }) || "Pokémon";
+  const ctx = _getEffectivePokemonContext(owner, piece, { piece, sheet });
+  const name = safeStr(ctx?.displayName || displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine })) || "Pokémon";
   const ownerLabel = humanizeInternalLabel(owner) || owner || "—";
   const spriteState = _getPartyStateEntry(owner, pid) || {};
   const sprite = getSpriteUrlForPiece(piece, { type: "art", shiny: !!spriteState.shiny })
     || getSpriteFallbackUrlForPiece(piece)
     || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
   const hpUi = getHpUiState(spriteState.hp ?? 6);
-  const types = getResolvedTypesForTrainerPid(owner, pid, { piece, sheet });
+  const types = (ctx?.resolvedTypes?.length ? ctx.resolvedTypes : getResolvedTypesForTrainerPid(owner, piece, { piece, sheet })) || [];
   const typeHtml = (types || []).map((type) => {
     const color = getTypeColor(type);
     return `<span class="chip" style="border-color:${color}66;color:${color};background:${color}22;">${escapeHtml(type)}</span>`;
@@ -4377,7 +4961,7 @@ function renderArenaSheetPreview() {
 
   const pidLabel = _sheetDisplayPid(sheet, sheet?._party_pid_raw || pid) || pid || "—";
   const np = safeInt(sheet?.np ?? pkm?.np ?? 0, 0);
-  const abilities = Array.isArray(pkm?.abilities) ? pkm.abilities : [];
+  const abilities = (ctx?.resolvedAbilities?.length ? ctx.resolvedAbilities : getResolvedAbilitiesForTrainerPid(owner, piece, { piece, sheet })) || [];
   const st = sheet?.stats || {};
   const stgr = safeInt(st.stgr, 0);
   const intel = safeInt(st.int, 0);
@@ -4477,24 +5061,27 @@ function renderPartyWindow() {
   const by = safeStr(appState.by);
   const party = by ? getPartyForTrainer(by) : [];
   const placingPid = getPlacingPokemonPid();
+  const placingSlot = getPlacingPokemonPartySlot();
 
   const slots = [];
   for (let i = 0; i < 8; i++) slots.push(party[i] || null);
   root.innerHTML = slots.map((entry, idx) => {
     const pid = safeStr(entry?.pid || entry || "");
     if (!pid) return `<button type="button" class="party-slot empty" data-slot="${idx}" disabled></button>`;
+    const partySlot = _getPartySlot(entry, idx);
+    const identity = partySlot ? { ...(entry && typeof entry === "object" ? entry : {}), pid, party_slot: partySlot } : (entry || pid);
     const _psSlot = ((_partyStates && _partyStates[by]) ? _partyStates[by] : {})[pid] || {};
-    const sprite = getEffectiveSpriteUrlForTrainerPid(by, pid, { type: "art", shiny: !!_psSlot.shiny }) || getSpriteUrlFromPid(pid);
+    const sprite = getEffectiveSpriteUrlForTrainerPid(by, identity, { type: "art", shiny: !!_psSlot.shiny }) || getSpriteUrlFromPid(pid);
     const heldItem = getHeldItemForTrainerPid(by, entry || pid);
     const captureBall = getCaptureBallForTrainerPid(by, entry || pid);
     const captureBallStyle = _cssVarStyleAttr(getCaptureBallCssVarMap(captureBall));
     const captureBallLabel = safeStr(captureBall?.name || "Poké Ball") || "Poké Ball";
     const hp = getPartyHp(by, pid);
     const ko = hp <= 0;
-    const onBoard = isPokemonAlreadyOnBoard(by, pid);
-    const placing = placingPid && placingPid === pid;
+    const onBoard = isPokemonAlreadyOnBoard(by, identity);
+    const placing = (partySlot && placingSlot === partySlot) || (!partySlot && placingPid && placingPid === pid);
     const disabled = ko && !onBoard;
-    return `<button type="button" class="party-slot ${ko ? 'ko' : ''} ${placing ? 'placing' : ''}" data-slot="${idx}" data-pid="${escapeAttr(pid)}" data-capture-ball="${escapeAttr(captureBall?.api_name || DEFAULT_CAPTURE_BALL_API_NAME)}" title="${escapeAttr(captureBallLabel)}" style="${escapeAttr(captureBallStyle)}" ${disabled ? 'disabled' : ''}>
+    return `<button type="button" class="party-slot ${ko ? 'ko' : ''} ${placing ? 'placing' : ''}" data-slot="${idx}" data-pid="${escapeAttr(pid)}" data-party-slot="${escapeAttr(partySlot)}" data-capture-ball="${escapeAttr(captureBall?.api_name || DEFAULT_CAPTURE_BALL_API_NAME)}" title="${escapeAttr(captureBallLabel)}" style="${escapeAttr(captureBallStyle)}" ${disabled ? 'disabled' : ''}>
       ${renderCaptureBallBackdropHtml(captureBall)}
       ${renderHeldItemBadgeHtml(heldItem, { className: "held-item-anchor-slot", size: "sm" })}
       ${sprite ? `<img class="party-slot-sprite" src="${escapeAttr(sprite)}" alt="${escapeAttr(pid)}" loading="lazy" onerror="this.style.display='none'"/>` : ''}
@@ -4507,24 +5094,26 @@ function renderPartyWindow() {
     const btn = ev.target?.closest?.(".party-slot[data-pid]");
     if (!btn) return;
     const pid = safeStr(btn.dataset.pid);
+    const partySlot = _normalizePartySlot(btn.dataset.partySlot);
+    const identity = partySlot ? { pid, party_slot: partySlot } : { pid };
     if (!pid) return;
 
     const ownerName = safeStr(appState.by);
 
-    const activePieceId = getActivePieceIdForPokemon(ownerName, pid);
+    const activePieceId = getActivePieceIdForPokemon(ownerName, identity);
     if (activePieceId) {
       removePieceFromBoard(activePieceId);
       return;
     }
 
-    if (getPlacingPokemonPid() && getPlacingPokemonPid() === pid) {
+    if ((partySlot && getPlacingPokemonPartySlot() === partySlot) || (!partySlot && getPlacingPokemonPid() === pid)) {
       clearPokemonPlacingMode();
       updateSidePanels();
       setStatus("ok", "posicionamento cancelado");
       return;
     }
 
-    startPlacePokemon(pid);
+    startPlacePokemon(identity);
   });
 }
 
@@ -4709,8 +5298,10 @@ function renderInspectorConditionsPanelHTML(piece, { isMine }) {
   const pkm = _getPiecePokemonConditions(piece);
   const owner = safeStr(piece?.owner) || "—";
   const ownerLabel = humanizeInternalLabel(owner) || owner || "—";
-  const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
-  const types = getResolvedTypesForTrainerPid(owner, piece, { piece, sheet: isMine ? getSheetForPiece(piece) : null });
+  const sheet = isMine ? getSheetForPiece(piece) : null;
+  const ctx = _getEffectivePokemonContext(owner, piece, { piece, sheet });
+  const name = safeStr(ctx?.displayName || displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine }));
+  const types = (ctx?.resolvedTypes?.length ? ctx.resolvedTypes : getResolvedTypesForTrainerPid(owner, piece, { piece, sheet })) || [];
   const spriteState = _getPartyStateEntry(owner, safeStr(piece?.pid)) || {};
   const spriteUrl = getSpriteUrlForPiece(piece, { type: "art", shiny: !!spriteState.shiny });
   const spriteFallbackUrl = getSpriteFallbackUrlForPiece(piece);
@@ -5000,8 +5591,10 @@ function renderArenaHoverCard() {
   const revealed = (piece?.revealed != null) ? !!piece.revealed : true;
   const ownerLabel = humanizeInternalLabel(owner) || owner || "-";
   const canSeeIdentity = isMine || revealed;
-  const name = canSeeIdentity ? displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine }) : "???";
-  const types = getResolvedTypesForTrainerPid(owner, piece, { piece, sheet: isMine ? getSheetForPiece(piece) : null });
+  const sheet = isMine ? getSheetForPiece(piece) : null;
+  const ctx = _getEffectivePokemonContext(owner, piece, { piece, sheet });
+  const name = canSeeIdentity ? (safeStr(ctx?.displayName) || displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine })) : "???";
+  const types = (ctx?.resolvedTypes?.length ? ctx.resolvedTypes : getResolvedTypesForTrainerPid(owner, piece, { piece, sheet })) || [];
   const typeChips = types.map((type) => _typePill(type)).join("");
   const moveBudget = getPieceMovementBudget(piece);
   const moveSummary = `Velocidade ${moveBudget.speed} • deslocamento ${moveBudget.maxTiles % 1 ? "1/2" : moveBudget.maxTiles} quadrado(s)`;
@@ -5390,11 +5983,11 @@ function renderSheetsInspectorCard(wrap) {
     if (sh) sheets.push(Object.assign({}, sh, { _party_pid_raw: rawPid }));
   }
 
-  if (!_sheetsSelectedPid || !sheetEntries.some((entry) => entry._base_pid === _sheetsSelectedPid)) {
-    _sheetsSelectedPid = sheetEntries[0]?._base_pid || null;
+  if (!_sheetsSelectedPid || !sheetEntries.some((entry) => entry._selection_id === _sheetsSelectedPid)) {
+    _sheetsSelectedPid = sheetEntries[0]?._selection_id || null;
   }
 
-  const activeEntry = sheetEntries.find((entry) => entry._base_pid === _sheetsSelectedPid) || sheetEntries[0] || null;
+  const activeEntry = sheetEntries.find((entry) => entry._selection_id === _sheetsSelectedPid) || sheetEntries[0] || null;
   if (!activeEntry) {
     wrap.innerHTML = `
       <div class="inspector-empty">
@@ -5409,10 +6002,12 @@ function renderSheetsInspectorCard(wrap) {
   const baseSheet = activeEntry.baseSheet || sh;
   const pkm = sh?.pokemon || {};
   const pid = activeEntry._base_pid;
+  const partyIdentity = activeEntry._party_entry || { pid, party_slot: activeEntry._party_slot };
+  const ctx = _getEffectivePokemonContext(by, partyIdentity, { sheet: sh });
   const pidLabel = _sheetDisplayPid(sh, sh?._party_pid_raw) || "—";
-  const pname = safeStr(pkm.name) || "Pokémon";
-  const types = getResolvedTypesForTrainerPid(by, pid, { sheet: sh });
-  const abilities = Array.isArray(pkm.abilities) ? pkm.abilities : [];
+  const pname = safeStr(ctx?.displayName || pkm.name) || "Pokémon";
+  const types = (ctx?.resolvedTypes?.length ? ctx.resolvedTypes : getResolvedTypesForTrainerPid(by, partyIdentity, { sheet: sh })) || [];
+  const abilities = (ctx?.resolvedAbilities?.length ? ctx.resolvedAbilities : getResolvedAbilitiesForTrainerPid(by, partyIdentity, { sheet: sh })) || [];
   const np = parseInt(sh.np || pkm.np || 0) || 0;
   const st = sh.stats || {};
 
@@ -5439,12 +6034,12 @@ function renderSheetsInspectorCard(wrap) {
   const hpUi = getHpUiState(hp);
   const hpPct = hpUi.pct;
   const hpCol = hpUi.color;
-  const heldItem = getHeldItemForTrainerPid(by, pid || activeEntry._party_pid_raw || pname);
+  const heldItem = getHeldItemForTrainerPid(by, activeEntry._party_entry || pid || activeEntry._party_pid_raw || pname);
   const megaControlsHtml = _renderMegaControlsHtml(by, pid, activeEntry);
   const megaFxActive = !!getMegaEvolutionFxState(by, pid);
   // Boosts temporários de stat
   const statBoosts = ps.stat_boosts || {};
-  const sheetBoardPiece = findBoardPieceForSheet(by, sh, sh?._party_pid_raw);
+  const sheetBoardPiece = findBoardPieceForSheet(by, sh, activeEntry._party_entry || sh?._party_pid_raw);
   const isOnBoard = !!sheetBoardPiece;
   // Resumo de movimento (velocidade/deslocamento) — usa peça em campo se existir,
   // senão calcula a partir da ficha para que a info fique disponível mesmo fora do mapa.
@@ -5739,10 +6334,13 @@ function updateSidePanels() {
   // Botão de cancelar: só aparece quando estiver armado
   try {
     const placingPid = getPlacingPokemonPid();
+    const placingIdentity = getPlacingPokemonPartySlot()
+      ? { pid: placingPid, party_slot: getPlacingPokemonPartySlot() }
+      : placingPid;
     if (cancelPlaceBtn) cancelPlaceBtn.style.display = placingPid ? "" : "none";
     const armedLabel = document.getElementById("armed_label");
     if (armedLabel) {
-      armedLabel.textContent = placingPid ? `Pronto: ${displayNameFromPid(placingPid, { owner: by })}` : "—";
+      armedLabel.textContent = placingPid ? `Pronto: ${displayNameFromPid(placingIdentity, { owner: by })}` : "—";
     }
   } catch {}
 
@@ -6701,9 +7299,11 @@ function _getBattleMegaStateForTrainerPid(trainerName, pidLike) {
 function _buildSheetCollections(sheets) {
   const list = Array.isArray(sheets) ? sheets : [];
   const baseByKey = new Map();
+  const baseListsByKey = new Map();
   const byId = new Map();
   const megaByBaseSheetId = new Map();
   const megaByBaseKey = new Map();
+  const baseSheets = [];
   const pushMega = (map, rawKey, sheet) => {
     const keys = [];
     _pushPartyLookupKey(keys, rawKey);
@@ -6717,7 +7317,11 @@ function _buildSheetCollections(sheets) {
     const keys = [];
     _pushPartyLookupKey(keys, rawKey);
     for (const key of keys) {
-      if (key && !baseByKey.has(key)) baseByKey.set(key, sheet);
+      if (!key) continue;
+      if (!baseByKey.has(key)) baseByKey.set(key, sheet);
+      if (!baseListsByKey.has(key)) baseListsByKey.set(key, []);
+      const bucket = baseListsByKey.get(key);
+      if (!bucket.includes(sheet)) bucket.push(sheet);
     }
   };
   for (const sheet of list) {
@@ -6734,20 +7338,38 @@ function _buildSheetCollections(sheets) {
       pushMega(megaByBaseKey, sheet?.linked_pid, sheet);
       continue;
     }
+    baseSheets.push(sheet);
     pushBase(sheet?.pokemon?.id, sheet);
     pushBase(sheet?.linked_pid, sheet);
     pushBase(sheet?.pokemon?.name, sheet);
   }
-  return { baseByKey, byId, megaByBaseSheetId, megaByBaseKey };
+  return { baseByKey, baseListsByKey, baseSheets, byId, megaByBaseSheetId, megaByBaseKey };
 }
 
-function _findBaseSheetInCollections(collections, pidLike) {
+function _sheetPokemonFormSlug(sheet) {
+  return _normalizePokemonFormSlug(sheet?.pokemon?.name || sheet?.linked_pid || sheet?.pokemon?.id);
+}
+
+function _findBaseSheetInCollections(collections, pidLike, options = {}) {
   const targetKeys = _partyEntryLookupKeys(pidLike);
   if (!targetKeys.length) return null;
+  const preferredFormSlug = _normalizePokemonFormSlug(options?.preferredFormSlug);
+  const candidates = [];
+  const seen = new Set();
+  const push = (sheet) => {
+    const key = _sheetDocId(sheet) || _sheetPokemonFormSlug(sheet) || safeStr(sheet?.pokemon?.name);
+    if (!sheet || !key || seen.has(key)) return;
+    seen.add(key);
+    candidates.push(sheet);
+  };
   for (const key of targetKeys) {
-    if (collections?.baseByKey?.has?.(key)) return collections.baseByKey.get(key);
+    for (const sheet of (collections?.baseListsByKey?.get?.(key) || [])) push(sheet);
   }
-  return null;
+  if (preferredFormSlug) {
+    const byForm = candidates.find((sheet) => _sheetPokemonFormSlug(sheet) === preferredFormSlug);
+    if (byForm) return byForm;
+  }
+  return candidates[0] || null;
 }
 
 function _getMegaSheetsForBase(collections, baseSheet, pidLike) {
@@ -6773,32 +7395,41 @@ function _getMegaSheetsForBase(collections, baseSheet, pidLike) {
   return out;
 }
 
-function _resolveEffectiveSheetFromCollections(collections, ownerName, pidLike) {
-  const baseSheet = _findBaseSheetInCollections(collections, pidLike);
+function _resolveEffectiveSheetFromCollections(collections, ownerName, pidLike, options = {}) {
+  const requestedFormSlug = _normalizePokemonFormSlug(
+    options?.preferredFormSlug
+    || _getPreferredPokemonFormSource(ownerName, pidLike)?.formSlug
+    || _inferBasePokemonFormSlug(ownerName, pidLike, options)
+  );
+  const baseSheet = _findBaseSheetInCollections(collections, pidLike, { preferredFormSlug: requestedFormSlug });
   const megaState = _getBattleMegaStateForTrainerPid(ownerName, pidLike);
   const megaSheets = baseSheet ? _getMegaSheetsForBase(collections, baseSheet, pidLike) : [];
   let effectiveSheet = baseSheet;
-  const activeMegaSlug = safeStr(megaState?.activeMegaSlug).toLowerCase();
+  const activeMegaSlug = options?.ignoreMega ? "" : safeStr(megaState?.activeMegaSlug).toLowerCase();
   if (activeMegaSlug) {
     const bySlug = megaSheets.find((sheet) => safeStr(sheet?.mega_slug).toLowerCase() === activeMegaSlug);
     if (bySlug) effectiveSheet = bySlug;
   }
   const effectiveSheetId = safeStr(megaState?.effectiveSheetId);
-  if ((!effectiveSheet || effectiveSheet === baseSheet) && effectiveSheetId && collections?.byId?.has?.(effectiveSheetId)) {
+  if (!options?.ignoreMega && (!effectiveSheet || effectiveSheet === baseSheet) && effectiveSheetId && collections?.byId?.has?.(effectiveSheetId)) {
     const byIdSheet = collections.byId.get(effectiveSheetId);
     if (_sheetIsMega(byIdSheet)) effectiveSheet = byIdSheet;
   }
+  const baseSheetFormSlug = _sheetPokemonFormSlug(baseSheet);
   return {
     baseSheet,
     effectiveSheet: effectiveSheet || baseSheet || null,
     megaSheets,
-    activeMegaSlug: safeStr(megaState?.activeMegaSlug),
+    activeMegaSlug: safeStr(activeMegaSlug || ""),
     megaState,
+    requestedFormSlug,
+    baseSheetFormSlug,
+    baseSheetMatchesRequestedForm: !!requestedFormSlug && !!baseSheetFormSlug && baseSheetFormSlug === requestedFormSlug,
   };
 }
 
-function _resolveSelfEffectiveSheet(pidLike, ownerName = safeStr(appState.by)) {
-  return _resolveEffectiveSheetFromCollections(_allSheetsCollections, ownerName, pidLike);
+function _resolveSelfEffectiveSheet(pidLike, ownerName = safeStr(appState.by), options = {}) {
+  return _resolveEffectiveSheetFromCollections(_allSheetsCollections, ownerName, pidLike, options);
 }
 
 function _displayNameFromMegaSlug(slug) {
@@ -6807,43 +7438,77 @@ function _displayNameFromMegaSlug(slug) {
   return humanizeInternalLabel(raw.replace(/\//g, "-")) || raw;
 }
 
-function _getEffectivePokemonContext(ownerName, pidLike) {
+function _getEffectivePokemonContext(ownerName, pidLike, options = {}) {
+  const owner = safeStr(ownerName);
+  const piece = options?.piece || ((pidLike && typeof pidLike === "object" && !Array.isArray(pidLike) && safeStr(pidLike?.pid)) ? pidLike : null);
+  const targetLike = piece || pidLike;
+  const formSource = _getPreferredPokemonFormSource(owner, targetLike);
+  const preferredFormSlug = _normalizePokemonFormSlug(
+    options?.preferredFormSlug
+    || formSource?.formSlug
+    || _inferBasePokemonFormSlug(owner, targetLike, { piece, sheet: options?.sheet, source: formSource?.raw })
+  );
   const isMine = _trainerLookupKey(ownerName) === _trainerLookupKey(appState.by);
+  let resolved = null;
+  let baseSheet = null;
+  let effectiveSheet = null;
   if (isMine) {
-    const resolved = _resolveSelfEffectiveSheet(pidLike, ownerName);
-    const effectiveSheet = resolved?.effectiveSheet;
-    if (effectiveSheet?.pokemon) {
-      return {
-        pokemon: effectiveSheet.pokemon,
-        sheet: effectiveSheet,
-        activeMegaSlug: resolved?.activeMegaSlug || safeStr(effectiveSheet?.mega_slug),
-      };
-    }
+    resolved = _resolveSelfEffectiveSheet(targetLike, ownerName, { preferredFormSlug });
+    baseSheet = resolved?.baseSheet || null;
+    effectiveSheet = resolved?.effectiveSheet || baseSheet || null;
   }
-  const megaState = _getBattleMegaStateForTrainerPid(ownerName, pidLike);
+  const megaState = resolved?.megaState || _getBattleMegaStateForTrainerPid(ownerName, targetLike);
+  const activeMegaSlug = safeStr(resolved?.activeMegaSlug || megaState?.activeMegaSlug);
   const effectivePokemon = megaState?.effectivePokemon;
-  if (effectivePokemon && typeof effectivePokemon === "object") {
-    return { pokemon: effectivePokemon, sheet: null, activeMegaSlug: megaState.activeMegaSlug };
-  }
-  return { pokemon: null, sheet: null, activeMegaSlug: megaState?.activeMegaSlug || "" };
+  const matchedFormSheet = !!resolved?.baseSheetMatchesRequestedForm && !activeMegaSlug;
+  const pokemon = activeMegaSlug
+    ? (effectiveSheet?.pokemon || (effectivePokemon && typeof effectivePokemon === "object" ? effectivePokemon : null))
+    : (effectiveSheet?.pokemon || baseSheet?.pokemon || null);
+  const fallbackFormSlug = preferredFormSlug || _sheetPokemonFormSlug(baseSheet) || _sheetPokemonFormSlug(effectiveSheet);
+  const formSlug = activeMegaSlug
+    ? (_normalizePokemonFormSlug(pokemon?.name) || _normalizePokemonFormSlug(activeMegaSlug))
+    : (matchedFormSheet ? (_sheetPokemonFormSlug(baseSheet) || fallbackFormSlug) : fallbackFormSlug);
+  const displayName = activeMegaSlug
+    ? (safeStr(pokemon?.name) || _displayNameFromMegaSlug(activeMegaSlug))
+    : (matchedFormSheet ? safeStr(pokemon?.name) : safeStr(formSource?.displayName))
+      || safeStr(pokemon?.name)
+      || _humanizePokemonFormSlug(formSlug);
+  const image = (!activeMegaSlug && !matchedFormSheet ? safeStr(formSource?.image) : "")
+    || safeStr(_extractPokemonImageFromSource(pokemon))
+    || (formSlug ? localSpriteUrl(formSlug, "art", false) : "");
+  const resolvedTypes = activeMegaSlug
+    ? _coerceResolvedTypes(pokemon?.types)
+    : (matchedFormSheet ? _coerceResolvedTypes(pokemon?.types) : (formSource?.resolvedTypes || []));
+  const resolvedAbilities = activeMegaSlug
+    ? _coerceResolvedAbilities(pokemon?.abilities)
+    : (matchedFormSheet ? _coerceResolvedAbilities(pokemon?.abilities) : (formSource?.resolvedAbilities || []));
+  return {
+    owner,
+    pid: safeStr(targetLike?.pid ?? targetLike?.pokemon?.id ?? targetLike),
+    partySlot: _getPartySlot(targetLike) || _getPartySlot(_getPartyEntryForTrainerPid(owner, targetLike)),
+    pokemon,
+    sheet: effectiveSheet || baseSheet || null,
+    baseSheet,
+    effectiveSheet: effectiveSheet || baseSheet || null,
+    activeMegaSlug,
+    megaState,
+    formSource,
+    formSlug,
+    displayName,
+    image,
+    resolvedTypes,
+    resolvedAbilities,
+    baseSheetMatchesRequestedForm: matchedFormSheet,
+  };
 }
 
 function _getEffectivePokemonName(ownerName, pidLike) {
-  const ctx = _getEffectivePokemonContext(ownerName, pidLike);
-  const pname = safeStr(ctx?.pokemon?.name);
-  if (pname) return pname;
-  if (ctx?.activeMegaSlug) return _displayNameFromMegaSlug(ctx.activeMegaSlug);
-  return "";
+  return safeStr(_getEffectivePokemonContext(ownerName, pidLike)?.displayName);
 }
 
 function _getEffectivePokemonSlug(ownerName, pidLike) {
   const ctx = _getEffectivePokemonContext(ownerName, pidLike);
-  const pname = safeStr(ctx?.pokemon?.name);
-  if (pname && typeof spriteSlugFromPokemonName === "function") {
-    const slug = spriteSlugFromPokemonName(pname);
-    if (slug) return slug;
-  }
-  return safeStr(ctx?.activeMegaSlug);
+  return _normalizePokemonFormSlug(ctx?.formSlug || ctx?.pokemon?.name || ctx?.activeMegaSlug);
 }
 
 function _normalizePokeApiSlug(raw) {
@@ -6875,11 +7540,27 @@ function _getEffectivePokeApiSlug(ownerName, pidLike) {
   return _pokeApiSlugFromPid(pidLike);
 }
 
+function getEffectivePokemonPresentationForTrainerPid(ownerName, pidLike, options = {}) {
+  const ctx = _getEffectivePokemonContext(ownerName, pidLike, options);
+  return {
+    owner: safeStr(ownerName),
+    pid: safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike),
+    party_slot: safeStr(ctx?.partySlot),
+    form_slug: safeStr(ctx?.formSlug),
+    display_name: safeStr(ctx?.displayName),
+    image: safeStr(ctx?.image),
+    resolved_types: Array.isArray(ctx?.resolvedTypes) ? ctx.resolvedTypes.slice() : [],
+    resolved_abilities: Array.isArray(ctx?.resolvedAbilities) ? ctx.resolvedAbilities.slice() : [],
+    effective_sheet: ctx?.effectiveSheet || null,
+    active_mega_slug: safeStr(ctx?.activeMegaSlug),
+  };
+}
+
 function getEffectiveSpriteUrlForTrainerPid(ownerName, pidLike, options = {}) {
   const owner = safeStr(ownerName);
-  const pid = safePidValue(pidLike);
+  const pid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
   if (!pid) return "";
-  return getSpriteUrlForPiece({ owner, pid }, options);
+  return getSpriteUrlForPiece({ owner, pid, party_slot: _getPartySlot(pidLike) }, options);
 }
 
 function readSpeedFromStats(statsObj) {
@@ -7250,18 +7931,28 @@ function getPlacingPokemonPid() {
   return safeStr(appState.placingPid);
 }
 
+function getPlacingPokemonPartySlot() {
+  if (armedPokemonSlot) return _normalizePartySlot(armedPokemonSlot);
+  if (appState.placing && appState.placing.mode === "pokemon") return _getPartySlot(appState.placing);
+  return "";
+}
+
 
 function clearPokemonPlacingMode() {
   armedPokemonId = null;
+  armedPokemonSlot = null;
   if (appState.placing && appState.placing.mode === "pokemon") appState.placing = null;
   appState.placingPid = null;
 }
 
 
-function startPlacePokemon(pid) {
-  const monPid = safeStr(pid);
+function startPlacePokemon(pidLike, options = {}) {
+  const monPid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
+  const partySlot = _getPartySlot(options?.party_slot ?? options?.partySlot ?? pidLike);
+  const identity = partySlot ? { pid: monPid, party_slot: partySlot } : { pid: monPid };
   if (!monPid) return;
   armedPokemonId = monPid;
+  armedPokemonSlot = partySlot;
   if (!appState.connected || !appState.rid) {
     setStatus("err", "conecte antes de colocar pokémon no mapa");
     return;
@@ -7270,22 +7961,24 @@ function startPlacePokemon(pid) {
     setStatus("err", "preencha o campo by para colocar pokémon");
     return;
   }
-  if (isPokemonKo(appState.by, monPid)) {
+  if (isPokemonKo(appState.by, identity)) {
     setStatus("err", "pokémon com HP 0 não pode ser posicionado");
     return;
   }
-  if (isPokemonAlreadyOnBoard(appState.by, monPid)) {
+  if (isPokemonAlreadyOnBoard(appState.by, identity)) {
     setStatus("warn", "esse pokémon já está no campo");
     return;
   }
-  appState.placing = { mode: "pokemon", trainer: safeStr(appState.by), pid: monPid };
+  appState.placing = { mode: "pokemon", trainer: safeStr(appState.by), pid: monPid, party_slot: partySlot };
   appState.placingPid = monPid;
-  setStatus("ok", `Posicionamento ativo: ${displayNameFromPid(monPid, { owner: appState.by })}. Clique em um tile vazio no mapa.`);
+  setStatus("ok", `Posicionamento ativo: ${displayNameFromPid(identity, { owner: appState.by })}. Clique em um tile vazio no mapa.`);
   updateSidePanels();
 }
 
-async function placePokemonOnBoardAt(pid, row, col) {
-  const monPid = safeStr(pid);
+async function placePokemonOnBoardAt(pidLike, row, col) {
+  const monPid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
+  const partySlot = _getPartySlot(pidLike) || getPlacingPokemonPartySlot();
+  const identity = partySlot ? { pid: monPid, party_slot: partySlot } : { pid: monPid };
   const by = safeStr(appState.by);
   if (!monPid || !by) return;
 
@@ -7298,13 +7991,13 @@ async function placePokemonOnBoardAt(pid, row, col) {
     setStatus("err", "tile inválido ou pokémon não cabe na borda da arena");
     return;
   }
-  if (isPokemonKo(by, monPid)) {
+  if (isPokemonKo(by, identity)) {
     setStatus("err", "pokémon com HP 0 não pode ser posicionado");
     clearPokemonPlacingMode();
     updateSidePanels();
     return;
   }
-  if (isPokemonAlreadyOnBoard(by, monPid)) {
+  if (isPokemonAlreadyOnBoard(by, identity)) {
     setStatus("warn", "esse pokémon já está no campo");
     clearPokemonPlacingMode();
     updateSidePanels();
@@ -7312,7 +8005,7 @@ async function placePokemonOnBoardAt(pid, row, col) {
   }
 
   // Pré-validação de stacking com size-rules
-  const fakePiece = { id: "__placing__", pid: monPid, sizeCategory };
+  const fakePiece = { id: "__placing__", pid: monPid, party_slot: partySlot, sizeCategory };
   const preCheck = canPieceLandOn(fakePiece, r, c, appState.pieces || []);
   if (!preCheck.allowed) {
     setStatus("err", `tile ocupado: ${preCheck.reason}`);
@@ -7331,6 +8024,7 @@ async function placePokemonOnBoardAt(pid, row, col) {
       id: newId,
       owner: by,
       pid: monPid,
+      party_slot: partySlot || null,
       row: r,
       col: c,
       status: "active",
@@ -7347,11 +8041,11 @@ async function placePokemonOnBoardAt(pid, row, col) {
       const seen = Array.isArray(data?.seen) ? data.seen : [];
 
       // Revalida dentro da transaction com size-rules (evita corrida)
-      const txFake = { id: "__placing__", pid: monPid, sizeCategory };
+      const txFake = { id: "__placing__", pid: monPid, party_slot: partySlot, sizeCategory };
       const txCheck = canPieceLandOn(txFake, r, c, pieces);
       if (!txCheck.allowed) throw new Error(txCheck.reason);
 
-      const already = !!findBoardPieceForTrainer(by, monPid, { pieces });
+      const already = !!findBoardPieceForTrainer(by, identity, { pieces });
       if (already) throw new Error("esse pokémon já está no campo");
 
       const nextPieces = pieces.concat([newPiece]);
@@ -7373,8 +8067,9 @@ async function placePokemonOnBoardAt(pid, row, col) {
 
     // Optimistic UI (o snapshot vai confirmar logo em seguida)
     try {
-      appState.pieces = Array.isArray(appState.pieces) ? appState.pieces : [];
-      appState.pieces = appState.pieces.concat([newPiece]);
+      appState.piecesRaw = Array.isArray(appState.piecesRaw) ? appState.piecesRaw : [];
+      appState.piecesRaw = appState.piecesRaw.concat([newPiece]);
+      _refreshResolvedRoomPieces();
       requestArenaRefresh(true);
       // canvas: o loop de render já vai pegar no próximo frame
     } catch {}
@@ -7397,21 +8092,22 @@ function isTileOccupied(row, col) {
   return isTileFullyBlocked(row, col, appState.pieces || []);
 }
 
-function getPartyHp(ownerName, pid) {
+function getPartyHp(ownerName, pidLike) {
+  const pid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
   const ps = ((_partyStates && _partyStates[ownerName]) ? _partyStates[ownerName] : {})[pid] || {};
   return ps.hp != null ? Number(ps.hp) : 6;
 }
 
-function isPokemonKo(ownerName, pid) {
-  return getPartyHp(ownerName, pid) <= 0;
+function isPokemonKo(ownerName, pidLike) {
+  return getPartyHp(ownerName, pidLike) <= 0;
 }
 
-function isPokemonAlreadyOnBoard(ownerName, pid) {
-  return !!findBoardPieceForTrainer(ownerName, pid);
+function isPokemonAlreadyOnBoard(ownerName, pidLike) {
+  return !!findBoardPieceForTrainer(ownerName, pidLike);
 }
 
-function getActivePieceIdForPokemon(ownerName, pid) {
-  const found = findBoardPieceForTrainer(ownerName, pid);
+function getActivePieceIdForPokemon(ownerName, pidLike) {
+  const found = findBoardPieceForTrainer(ownerName, pidLike);
   return safeStr(found?.id);
 }
 
@@ -12642,6 +13338,8 @@ function _sheetLookupKeys(sh, fallbackPid) {
 }
 
 function _sheetMatchesPid(sh, pidLike, fallbackPid) {
+  const slotTarget = _getPartySlot(fallbackPid || pidLike);
+  if (slotTarget) return _getPartySlot(pidLike) === slotTarget;
   const targetKeys = _partyEntryLookupKeys(pidLike);
   if (!targetKeys.length) return false;
   const sheetKeys = _sheetLookupKeys(sh, fallbackPid);
@@ -12696,17 +13394,21 @@ function _getPartyStateForSheet(ownerName, sh, fallbackPid) {
 function _buildSelfSheetEntries(ownerName = safeStr(appState.by)) {
   const party = getPartyForTrainer(ownerName) || [];
   const partyPids = party.map((it) => safePidValue(it?.pid ?? it?.pokemon?.id ?? it)).filter(Boolean);
-  const seen = new Set();
   const entries = [];
-  for (const rawPid of partyPids) {
+  for (const partyEntry of party) {
+    const rawPid = safePidValue(partyEntry?.pid ?? partyEntry?.pokemon?.id ?? partyEntry);
     const basePid = safePidValue(rawPid);
-    if (!basePid || seen.has(basePid)) continue;
-    seen.add(basePid);
-    const resolved = _resolveSelfEffectiveSheet(basePid, ownerName);
+    if (!basePid) continue;
+    const partySlot = _getPartySlot(partyEntry);
+    const selectionId = partySlot || `${basePid}::${entries.length}`;
+    const resolved = _resolveSelfEffectiveSheet(partyEntry, ownerName);
     if (!resolved?.baseSheet) continue;
     entries.push({
+      _selection_id: selectionId,
       _base_pid: basePid,
       _party_pid_raw: rawPid,
+      _party_slot: partySlot,
+      _party_entry: partyEntry,
       baseSheet: resolved.baseSheet,
       effectiveSheet: resolved.effectiveSheet || resolved.baseSheet,
       megaSheets: Array.isArray(resolved.megaSheets) ? resolved.megaSheets : [],
@@ -12975,8 +13677,8 @@ function renderSheetsTab() {
   setSheetsLayoutState(visibleSheetEntries.length, true);
 
   // selecionado
-  if (!_sheetsSelectedPid || !visibleSheetEntries.some((entry) => entry._base_pid === _sheetsSelectedPid)) {
-    _sheetsSelectedPid = visibleSheetEntries[0]?._base_pid || null;
+  if (!_sheetsSelectedPid || !visibleSheetEntries.some((entry) => entry._selection_id === _sheetsSelectedPid)) {
+    _sheetsSelectedPid = visibleSheetEntries[0]?._selection_id || null;
   }
 
   // ---- render cards
@@ -12986,9 +13688,11 @@ function renderSheetsTab() {
     const baseSheet = entry.baseSheet || sh;
     const pkm = sh?.pokemon || {};
     const pid = entry._base_pid;
+    const partyIdentity = entry._party_entry || { pid, party_slot: entry._party_slot };
+    const ctx = _getEffectivePokemonContext(by, partyIdentity, { sheet: sh });
     const pidLabel = _sheetDisplayPid(sh, sh?._party_pid_raw) || "—";
-    const pname = safeStr(pkm.name) || "Pokémon";
-    const types = getResolvedTypesForTrainerPid(by, pid, { sheet: sh });
+    const pname = safeStr(ctx?.displayName || pkm.name) || "Pokémon";
+    const types = (ctx?.resolvedTypes?.length ? ctx.resolvedTypes : getResolvedTypesForTrainerPid(by, partyIdentity, { sheet: sh })) || [];
     const npLabel = sh.np ?? pkm.np ?? "—";
     const np = parseInt(npLabel || 0) || 0;
     const stats = sh.stats || {};
@@ -13005,7 +13709,7 @@ function renderSheetsTab() {
 
     const movesRaw = Array.isArray(sh.moves) ? sh.moves : (sh.moves ? Object.values(sh.moves) : []);
     const moves = (movesRaw || []).filter((m) => m && typeof m === "object");
-    const isSel = pid === _sheetsSelectedPid;
+    const isSel = entry._selection_id === _sheetsSelectedPid;
     const ps = _getPartyStateForSheet(by, baseSheet, pid);
     const statBoosts = ps.stat_boosts || {};
     const boostedStats = { ...stats };
@@ -13029,7 +13733,7 @@ function renderSheetsTab() {
       </div>
     `).join("");
 
-    const featuredMove = _getPreferredMovesForTrainerPid(by, pid || entry._party_pid_raw || pname, moves, 1)[0] || null;
+    const featuredMove = _getPreferredMovesForTrainerPid(by, partyIdentity || pid || entry._party_pid_raw || pname, moves, 1)[0] || null;
     let cardFooterBody = `
       <div class="card-featured">
         <div class="card-featured-note">Sem golpes cadastrados nesta ficha.</div>
@@ -13060,7 +13764,7 @@ function renderSheetsTab() {
     const tp = (types || []).map((t) => _typePill(t)).join("");
     const megaBadge = entry.activeMegaSlug ? `<span class="chip" style="border-color:rgba(251,191,36,.45);color:#fbbf24;">MEGA</span>` : "";
 
-    const sprite = getSpriteUrlForPiece({ owner: by, pid }, { type: "art", shiny: !!ps.shiny })
+    const sprite = getSpriteUrlForPiece({ owner: by, pid, party_slot: entry._party_slot }, { type: "art", shiny: !!ps.shiny })
       || _artUrlFromPidForSheets(pname || pid, ps.shiny)
       || _spriteUrlFromPidForSheets(pname || pid)
       || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
@@ -13069,7 +13773,7 @@ function renderSheetsTab() {
     card.className = `poke-card${isSel ? " selected" : ""}`;
     card.style.setProperty("--card-bg", _typeBg(types));
     card.addEventListener("click", () => {
-      _sheetsSelectedPid = pid;
+      _sheetsSelectedPid = entry._selection_id;
       renderSheetsTab();
       updateSidePanels();
     });
@@ -13097,7 +13801,7 @@ function renderSheetsTab() {
   }
 
   // ---- render detail
-  const activeEntry = visibleSheetEntries.find((entry) => entry._base_pid === _sheetsSelectedPid) || visibleSheetEntries[0];
+  const activeEntry = visibleSheetEntries.find((entry) => entry._selection_id === _sheetsSelectedPid) || visibleSheetEntries[0];
   if (!activeEntry) {
     _sheetsRenderedDetailPid = null;
     detailEl.innerHTML = `<div class="sheets-empty">Selecione um card.</div>`;
@@ -13109,8 +13813,8 @@ function renderSheetsTab() {
   const activePidLabel = _sheetDisplayPid(activeSheet, activeSheet?._party_pid_raw) || "—";
   const activeNp = parseInt(activeSheet?.np || activePokemon?.np || 0) || 0;
   if (detailHintEl) detailHintEl.textContent = `#${activePidLabel} • NP ${activeNp}`;
-  const shouldResetDetailScroll = _sheetsRenderedDetailPid !== activeEntry._base_pid;
-  _sheetsRenderedDetailPid = activeEntry._base_pid || null;
+  const shouldResetDetailScroll = _sheetsRenderedDetailPid !== activeEntry._selection_id;
+  _sheetsRenderedDetailPid = activeEntry._selection_id || null;
 
   detailEl.innerHTML = "";
   detailEl.appendChild(renderSheetsInspectorCard(document.createElement("div")));

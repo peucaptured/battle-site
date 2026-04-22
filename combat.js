@@ -719,6 +719,23 @@ export class CombatUI {
     return doc(db, "rooms", rid, "public_state", "party_states");
   }
 
+  async _publishRollLegacy(value, label = "d20") {
+    const db = this.getDb();
+    const rid = this.getRid();
+    const by = safeStr(this.getBy()) || "—";
+    if (!db || !rid) return;
+    try {
+      await addDoc(collection(db, "rooms", rid, "rolls"), {
+        by,
+        value: safeInt(value, 0),
+        label: safeStr(label) || "d20",
+        createdAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.warn("[CombatUI] falha ao publicar rolagem no HUD:", err);
+    }
+  }
+
   async _publishRoll(value, label = "d20") {
     const db = this.getDb();
     const rid = this.getRid();
@@ -1631,6 +1648,24 @@ export class CombatUI {
     const accHint = this._body.querySelector("#cb_acc_hint");
     const normalPanel = this._body.querySelector("#cb_normal_panel");
     const areaPanel = this._body.querySelector("#cb_area_panel");
+    if (areaPanel) {
+      areaPanel.innerHTML = `
+        <div class="muted" style="margin-bottom:8px;padding:8px;border-radius:12px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3)">
+          Ataque em Area: o rank e calculado automaticamente pelo golpe selecionado, incluindo STAB, tipo e modificadores de dano.
+        </div>
+        <label class="label">Golpe</label>
+        <select class="input" id="cb_area_move" style="margin-bottom:10px">
+          <option value="manual">Manual (sem golpe)</option>
+        </select>
+        <div class="muted" id="cb_area_hint" style="margin-bottom:10px"></div>
+        <label class="label">Mod. de Dano</label>
+        <input class="input" id="cb_area_dmg_mod" type="number" value="0" style="margin-bottom:10px" />
+        <button class="btn" id="cb_launch_area" style="width:100%">Lancar Area</button>
+      `;
+    }
+    const areaMoveSel = this._body.querySelector("#cb_area_move");
+    const areaHint = this._body.querySelector("#cb_area_hint");
+    const areaDmgInput = this._body.querySelector("#cb_area_dmg_mod");
 
     // Mode toggle
     let currentMode = "normal";
@@ -1667,6 +1702,64 @@ export class CombatUI {
       return getMoveType(moveName) || safeStr(mv?.meta?.type) || safeStr(mv?.type) || "";
     };
 
+    const isEffectMove = (mv) => {
+      const category = safeStr(mv?.meta?.category || mv?.category || "").toLowerCase();
+      return category.includes("status") || mv?.meta?.is_effect === true;
+    };
+
+    const buildMovePayload = (attackerPid, targetOpt, moveIdxValue, extraDmgMod = 0) => {
+      if (moveIdxValue === "manual") return null;
+      const sheet = this._getSheet(by, attackerPid);
+      const moves = sheet?.moves || [];
+      const idx = parseInt(moveIdxValue, 10);
+      if (!Number.isInteger(idx) || !moves[idx]) return null;
+
+      const mv = moves[idx];
+      const baseStats = sheet?.stats || this._getPokeStats(by, attackerPid) || {};
+      const effectiveStats = this._getEffectiveStats(by, attackerPid);
+      const stats = Object.keys(effectiveStats).length > 0 ? effectiveStats : baseStats;
+      const rank = safeInt(mv.rank);
+      const [based, statVal] = moveStatValue(mv.meta || {}, stats);
+      const moveName = safeStr(mv.name) || "Golpe";
+      const moveType = getMoveTypeResolved(moveName, mv);
+
+      const tOwner = safeStr(targetOpt?.dataset?.owner);
+      const tPid = safeStr(targetOpt?.dataset?.pid);
+      const tSheet = (tOwner && tPid) ? this._getSheet(tOwner, tPid) : null;
+      const resolvedTargetTypes = (tOwner && tPid) ? resolveTrainerPokemonTypes(tOwner, tPid, { sheet: tSheet }) : [];
+      const tgtTypes = resolvedTargetTypes.length > 0
+        ? resolvedTargetTypes
+        : (safeStr(targetOpt?.dataset?.types) ? safeStr(targetOpt.dataset.types).split(",").filter(Boolean) : []);
+
+      const typeBonus = moveType && tgtTypes.length > 0 ? getTypeDamageBonus(moveType, tgtTypes) : 0;
+      const atkTypes = resolveTrainerPokemonTypes(by, attackerPid, { sheet });
+      const stabBonus = moveType && atkTypes.some(t => normalizeType(t) === moveType) ? 2 : 0;
+      const baseModDano = safeInt(mv?.damage_mod ?? mv?.mod_dano ?? mv?.mod ?? 0);
+      const totalModDano = baseModDano + safeInt(extraDmgMod, 0);
+
+      return {
+        move: mv,
+        moveIdx: idx,
+        isEffect: isEffectMove(mv),
+        payload: {
+          name: moveName,
+          accuracy: safeInt(mv?.accuracy ?? mv?.acc ?? mv?.acerto ?? mv?.modificador ?? 0),
+          damage: Math.max(0, rank + statVal + typeBonus + stabBonus + totalModDano),
+          rank,
+          based_stat: based,
+          stat_value: statVal,
+          move_type: moveType || null,
+          type_bonus: typeBonus,
+          stab_bonus: stabBonus,
+          modDano: totalModDano,
+          baseModDano,
+          manual_dmg_mod: safeInt(extraDmgMod, 0),
+          move_idx: idx,
+          meta: mv.meta || {},
+        },
+      };
+    };
+
     // Populate moves when attacker pokemon changes
     const populateMoves = async () => {
       const pid = atkPokemonSel.value;
@@ -1679,7 +1772,11 @@ export class CombatUI {
         typeTableContainer.innerHTML = "";
       }
 
-      if (!pid) { moveSel.innerHTML = `<option value="manual">Manual (sem golpe)</option>`; return; }
+      if (!pid) {
+        moveSel.innerHTML = `<option value="manual">Manual (sem golpe)</option>`;
+        if (areaMoveSel) areaMoveSel.innerHTML = `<option value="manual">Manual (sem golpe)</option>`;
+        return;
+      }
 
       await this._loadSheets(by);
       const sheet = this._getSheet(by, pid);
@@ -1714,7 +1811,9 @@ export class CombatUI {
         opts += `<option value="${i}">${escHtml(name)}${stabTxt}. ${escHtml(modeLabel)}${aceiroTxt} D:${damage}${bonusTxt}</option>`;
       });
       moveSel.innerHTML = opts;
+      if (areaMoveSel) areaMoveSel.innerHTML = opts;
       updateAccuracy();
+      updateAreaHint();
     };
 
     const updateAccuracy = () => {
@@ -1746,14 +1845,39 @@ export class CombatUI {
         : `Acerto sugerido pelo golpe: ${acc}`;
     };
 
+    const updateAreaHint = () => {
+      if (!areaHint) return;
+      const pid = atkPokemonSel.value;
+      const targetOpt = targetSel.selectedOptions[0];
+      const moveInfo = buildMovePayload(pid, targetOpt, areaMoveSel?.value, safeInt(areaDmgInput?.value, 0));
+      if (!moveInfo) {
+        areaHint.textContent = "Selecione um golpe para calcular a área automaticamente.";
+        return;
+      }
+      const extraDmg = safeInt(areaDmgInput?.value, 0);
+      const extraTxt = extraDmg !== 0 ? ` (mod dano ${extraDmg > 0 ? "+" : ""}${extraDmg})` : "";
+      areaHint.textContent = `Rank automático: ${moveInfo.payload.damage}${moveInfo.isEffect ? " (Affliction)" : " (Dano)"}${extraTxt}.`;
+    };
+
     atkPokemonSel.addEventListener("change", populateMoves);
-    moveSel.addEventListener("change", updateAccuracy);
+    moveSel.addEventListener("change", () => {
+      if (areaMoveSel && areaMoveSel.value !== moveSel.value) areaMoveSel.value = moveSel.value;
+      updateAccuracy();
+      updateAreaHint();
+    });
+    areaMoveSel?.addEventListener("change", () => {
+      if (moveSel.value !== areaMoveSel.value) moveSel.value = areaMoveSel.value;
+      updateAccuracy();
+      updateAreaHint();
+    });
+    areaDmgInput?.addEventListener("input", updateAreaHint);
     // Pré-carrega ficha do dono do alvo quando o alvo muda, e re-popula golpes (recalcula bonus tipo)
     targetSel.addEventListener("change", async () => {
       const opt = targetSel.selectedOptions[0];
       const owner = opt?.dataset?.owner;
       if (owner && !this._sheetUnsubs.has(owner)) await this._loadSheets(owner);
       populateMoves();
+      updateAreaHint();
     });
     // Dispara o pré-carregamento do alvo inicial
     (async () => {
@@ -1762,6 +1886,8 @@ export class CombatUI {
       if (owner && !this._sheetUnsubs.has(owner)) await this._loadSheets(owner);
     })();
     populateMoves();
+    if (areaMoveSel && moveSel.value !== areaMoveSel.value) areaMoveSel.value = moveSel.value;
+    updateAreaHint();
 
     // Cancel
     this._body.querySelector("#cb_cancel").addEventListener("click", async () => {
@@ -1898,19 +2024,38 @@ export class CombatUI {
       const targetId = targetOpt.value;
       const tOwner = targetOpt.dataset.owner;
       const tPid = targetOpt.dataset.pid;
-      const lvl = safeInt(this._body.querySelector("#cb_area_level").value, 1);
-      const isEff = this._body.querySelector("#cb_area_is_effect").checked;
+      const attackerPid = atkPokemonSel.value;
+      const extraDmgMod = safeInt(areaDmgInput?.value, 0);
+
+      if (by && !this._sheetUnsubs.has(by)) await this._loadSheets(by);
+      if (tOwner && !this._sheetUnsubs.has(tOwner)) await this._loadSheets(tOwner);
+      if (isTrainerPiece(tPid)) this._loadTrainerRpgSheet(tOwner);
+
+      const moveInfo = buildMovePayload(attackerPid, targetOpt, areaMoveSel?.value, extraDmgMod);
+      if (!moveInfo) {
+        alert("Selecione um golpe para lançar a área.");
+        launchBtn.disabled = false; launchBtn.textContent = "Lancar Area"; launchBtn.style.opacity = "";
+        return;
+      }
+
+      const lvl = safeInt(moveInfo.payload.damage, 0);
+      const isEff = moveInfo.isEffect;
+      const extraTxt = extraDmgMod !== 0 ? ` Mod. dano ${extraDmgMod > 0 ? '+' : ''}${extraDmgMod}.` : "";
 
       const ref = this._battleRef(); if (!ref) return;
       await updateDoc(ref, {
         status: "aoe_defense",
         attacker: by,
+        attacker_pid: attackerPid,
         target_id: targetId,
         target_owner: tOwner,
         target_pid: tPid,
+        attack_move: moveInfo.payload,
+        attack_range: "Area (Dodge)",
         aoe_dc: lvl + 10,
         dmg_base: lvl,
         is_effect: isEff,
+        extra_dmg_mod: extraDmgMod,
         logs: [`${by} lançou Área (Rank ${lvl}). Defensor rola Dodge obrigatório (CD ${lvl + 10}).`],
       });
     });
@@ -1965,7 +2110,7 @@ export class CombatUI {
 
           let finalRank, msg;
           if (totalRoll >= dc) {
-            finalRank = Math.max(1, Math.floor(baseRank / 2));
+            finalRank = baseRank <= 0 ? 0 : Math.max(1, Math.floor(baseRank / 2));
             msg = `Sucesso no Dodge! (${totalRoll} vs ${dc}). Rank reduzido: ${baseRank} -> ${finalRank}.`;
           } else {
             finalRank = baseRank;
