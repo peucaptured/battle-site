@@ -863,11 +863,15 @@ async function tryLoadDexMapFromAssets() {
   return null;
 }
 
-let _pokemonFormManifestRaw = { available_slugs: [], gif_map: {} };
+let _pokemonFormManifestRaw = { available_slugs: [], art_map: {}, shiny_art_map: {}, gif_map: {} };
 let _pokemonFormManifestList = [];
 let _pokemonFormManifestSet = new Set();
 let _pokemonFormManifestGroups = new Map();
+let _pokemonFormManifestArtMap = new Map();
+let _pokemonFormManifestShinyArtMap = new Map();
 let _pokemonFormManifestGifMap = new Map();
+let _pokemonFormManifestArtBasenameSet = new Set();
+let _pokemonFormManifestShinyArtBasenameSet = new Set();
 
 async function tryLoadPokemonFormManifestFromAssets() {
   try {
@@ -1305,14 +1309,17 @@ function getSpriteFallbackUrlForPiece(p) {
   }
 
   const owner = safeStr(p?.owner);
-  const effectiveSlug = owner ? _getEffectivePokemonSlug(owner, pidStr) : "";
-  if (effectiveSlug) {
-    return `https://img.pokemondb.net/sprites/home/normal/${effectiveSlug}.png`;
+  const effectiveCtx = owner ? _getEffectivePokemonContext(owner, p) : null;
+  const effectiveSlug = _normalizePokemonFormSlug(effectiveCtx?.formSlug || (owner ? _getEffectivePokemonSlug(owner, pidStr) : ""));
+  const remoteArtSlug = _getRemoteArtSlugForSprite(effectiveSlug, { sex: effectiveCtx?.sex });
+  if (remoteArtSlug) {
+    return `https://img.pokemondb.net/sprites/home/normal/${remoteArtSlug}.png`;
   }
 
   const name = resolvePokemonNameFromPid(p?.pid);
-  const slug = name ? spriteSlugFromPokemonName(name) : "";
-  return slug ? `https://img.pokemondb.net/sprites/home/normal/${slug}.png` : "";
+  const slug = _normalizePokemonFormSlug(name ? spriteSlugFromPokemonName(name) : "");
+  const fallbackSlug = _getRemoteArtSlugForSprite(slug);
+  return fallbackSlug ? `https://img.pokemondb.net/sprites/home/normal/${fallbackSlug}.png` : "";
 }
 
 window.getTrainerMedia = getTrainerMedia;
@@ -3144,33 +3151,133 @@ function spriteUrlFromPokemonName(name) {
 
 // ── Local sprite repo ─────────────────────────────────────────────
 // Base paths relative to the site root for static artwork and field GIFs.
-const LOCAL_POKEMON_ART_BASE = "pokemon";
+const LOCAL_POKEMON_ART_BASE = "poke/home";
+const LOCAL_POKEMON_SHINY_ART_BASE = "poke/home-shiny";
 const LOCAL_BATTLE_GIF_BASE = "sprites";
 
-/**
- * Convert a PokemonDB-style slug to local folder name.
- * PokemonDB uses -alolan/-galarian/-hisuian/-paldean, but local folders use
- * the PokeAPI convention: -alola/-galar/-hisui/-paldea.
- */
-function _toLocalArtSlug(slug) {
-  if (!slug) return "";
-  return slug
-    .replace(/-alolan$/,  "-alola")
-    .replace(/-galarian$/, "-galar")
-    .replace(/-hisuian$/,  "-hisui")
-    .replace(/-paldean$/,  "-paldea");
+function _normalizeLocalArtBasename(value) {
+  return canonicalizePokemonSlug(
+    safeStr(value)
+      .toLowerCase()
+      .replace(/\.png$/i, "")
+  );
 }
 
-/**
- * Returns a local art URL for the given slug.
- * @param {string} slug   - pokemondb-style slug (e.g. "charizard", "muk-alolan")
- * @param {boolean} shiny
- */
-function localArtSpriteUrl(slug, shiny) {
-  if (!slug) return "";
-  const folder = _toLocalArtSlug(slug);
-  const file = shiny ? "official_artwork_male_shiny.png" : "official_artwork_male.png";
-  return `${LOCAL_POKEMON_ART_BASE}/${folder}/${file}`;
+function _appendUniqueSpriteSlugCandidate(out, seen, value) {
+  const normalized = _normalizePokemonFormSlug(value);
+  if (!normalized || seen.has(normalized)) return;
+  seen.add(normalized);
+  out.push(normalized);
+}
+
+function _appendUniqueArtBasenameCandidate(out, seen, value) {
+  const normalized = _normalizeLocalArtBasename(value);
+  if (!normalized || seen.has(normalized)) return;
+  seen.add(normalized);
+  out.push(normalized);
+}
+
+function _normalizePokemonSex(value) {
+  const normalized = safeStr(value)
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (!normalized) return "";
+  if (["f", "female", "femea"].includes(normalized)) return "female";
+  if (["m", "male", "macho"].includes(normalized)) return "male";
+  return "";
+}
+
+function _inferPokemonSexFromSlug(slug) {
+  const normalized = _normalizePokemonFormSlug(slug);
+  if (!normalized) return "";
+  if (/-female(?:-|$)/i.test(normalized) || /-f$/i.test(normalized)) return "female";
+  if (/-male(?:-|$)/i.test(normalized) || /-m$/i.test(normalized)) return "male";
+  return "";
+}
+
+function _buildRemoteArtSlugCandidates(slug, options = {}) {
+  const normalizedSlug = _normalizePokemonFormSlug(slug);
+  if (!normalizedSlug) return [];
+  const sex = _normalizePokemonSex(options?.sex) || _inferPokemonSexFromSlug(normalizedSlug);
+  const rootSlug = _inferCanonicalFormRoot(normalizedSlug) || normalizedSlug;
+  const defaultSlug = rootSlug ? _defaultFormSlugForRoot(rootSlug) : "";
+  const out = [];
+  const seen = new Set();
+  const maybeFemaleSlug = rootSlug ? `${rootSlug}-female` : "";
+  const maybeMaleSlug = rootSlug ? `${rootSlug}-male` : "";
+
+  if (sex === "female") _appendUniqueSpriteSlugCandidate(out, seen, maybeFemaleSlug);
+  _appendUniqueSpriteSlugCandidate(out, seen, normalizedSlug);
+  if (sex === "male") _appendUniqueSpriteSlugCandidate(out, seen, maybeMaleSlug);
+  _appendUniqueSpriteSlugCandidate(out, seen, rootSlug);
+  _appendUniqueSpriteSlugCandidate(out, seen, defaultSlug);
+  return out;
+}
+
+function _getRemoteArtSlugForSprite(slug, options = {}) {
+  const candidates = _buildRemoteArtSlugCandidates(slug, options);
+  return candidates[0] || "";
+}
+
+function _buildLocalArtBasenameCandidates(slug, options = {}) {
+  const normalizedSlug = _normalizePokemonFormSlug(slug);
+  if (!normalizedSlug) return [];
+  const sex = _normalizePokemonSex(options?.sex) || _inferPokemonSexFromSlug(normalizedSlug);
+  const rootSlug = _inferCanonicalFormRoot(normalizedSlug) || normalizedSlug;
+  const defaultSlug = rootSlug ? _defaultFormSlugForRoot(rootSlug) : "";
+  const out = [];
+  const seen = new Set();
+
+  const pushBasename = (value) => _appendUniqueArtBasenameCandidate(out, seen, value);
+  const pushSlug = (value) => _appendUniqueArtBasenameCandidate(out, seen, value);
+
+  pushSlug(normalizedSlug);
+  if (sex === "female" && rootSlug) {
+    pushBasename(`${rootSlug}-f`);
+    pushSlug(`${rootSlug}-female`);
+  }
+  if (sex === "male" && rootSlug) {
+    pushBasename(`${rootSlug}-m`);
+    pushSlug(`${rootSlug}-male`);
+  }
+  if (/-female(?:-|$)/i.test(normalizedSlug)) pushBasename(normalizedSlug.replace(/-female(?=-|$)/i, "-f"));
+  if (/-male(?:-|$)/i.test(normalizedSlug)) {
+    pushBasename(normalizedSlug.replace(/-male(?=-|$)/i, ""));
+    pushBasename(normalizedSlug.replace(/-male(?=-|$)/i, "-m"));
+  }
+  pushSlug(rootSlug);
+  pushSlug(defaultSlug);
+  return out;
+}
+
+function _getLocalArtManifestForVariant(shiny) {
+  return shiny
+    ? { map: _pokemonFormManifestShinyArtMap, basenameSet: _pokemonFormManifestShinyArtBasenameSet, basePath: LOCAL_POKEMON_SHINY_ART_BASE }
+    : { map: _pokemonFormManifestArtMap, basenameSet: _pokemonFormManifestArtBasenameSet, basePath: LOCAL_POKEMON_ART_BASE };
+}
+
+function _resolveLocalArtBasename(slug, shiny, options = {}) {
+  const normalizedSlug = _normalizePokemonFormSlug(slug);
+  if (!normalizedSlug) return "";
+  const manifest = _getLocalArtManifestForVariant(shiny);
+  const candidateSlugs = _buildRemoteArtSlugCandidates(normalizedSlug, options);
+  for (const candidateSlug of candidateSlugs) {
+    const mapped = _normalizeLocalArtBasename(manifest.map.get(candidateSlug));
+    if (mapped) return mapped;
+  }
+  for (const basename of _buildLocalArtBasenameCandidates(normalizedSlug, options)) {
+    if (manifest.basenameSet.has(basename)) return basename;
+  }
+  return "";
+}
+
+function localArtSpriteUrl(slug, shiny, options = {}) {
+  const basename = _resolveLocalArtBasename(slug, shiny, options);
+  if (!basename) return "";
+  const manifest = _getLocalArtManifestForVariant(shiny);
+  return `${manifest.basePath}/${basename}.png`;
 }
 
 function _normalizeBattleGifBasename(value) {
@@ -3186,10 +3293,7 @@ function _getBattleGifBasenameForSlug(slug) {
   const normalizedSlug = _normalizePokemonFormSlug(slug) || rawSlug;
   const rootSlug = rawSlug ? _inferCanonicalFormRoot(rawSlug) : "";
   const defaultSlug = rootSlug ? _defaultFormSlugForRoot(rootSlug) : "";
-  const isBareRoot = !!rawSlug && rawSlug === rootSlug;
-  const candidates = isBareRoot
-    ? [defaultSlug, normalizedSlug, rawSlug]
-    : [normalizedSlug, rawSlug, defaultSlug];
+  const candidates = [normalizedSlug, rawSlug, defaultSlug];
   for (const candidate of candidates) {
     if (!candidate) continue;
     const mapped = safeStr(_pokemonFormManifestGifMap.get(candidate));
@@ -3205,11 +3309,11 @@ function localBattleSpriteUrl(slug, shiny) {
   return `${LOCAL_BATTLE_GIF_BASE}/${basename}.gif`;
 }
 
-function localSpriteUrl(slug, type, shiny) {
+function localSpriteUrl(slug, type, shiny, options = {}) {
   if (!slug) return "";
   return type === "battle"
     ? localBattleSpriteUrl(slug, shiny)
-    : localArtSpriteUrl(slug, shiny);
+    : localArtSpriteUrl(slug, shiny, options);
 }
 
 /**
@@ -3217,12 +3321,14 @@ function localSpriteUrl(slug, type, shiny) {
  * For non-battle contexts (art): local official_artwork → pokemondb → pokeapi
  * For battle context: local showdown gif → pokemondb → pokeapi
  */
-function spriteUrlWithFallback(slug, type, shiny) {
+function spriteUrlWithFallback(slug, type, shiny, options = {}) {
   if (!slug) return "";
-  return localSpriteUrl(slug, type, shiny)
+  const normalizedSlug = _normalizePokemonFormSlug(slug);
+  const remoteArtSlug = _getRemoteArtSlugForSprite(normalizedSlug, options) || normalizedSlug;
+  return localSpriteUrl(normalizedSlug, type, shiny, options)
     || (type === "art"
-        ? `https://img.pokemondb.net/artwork/large/${slug}.jpg`
-        : `https://img.pokemondb.net/sprites/home/normal/${slug}.png`);
+        ? `https://img.pokemondb.net/artwork/large/${remoteArtSlug}.jpg`
+        : `https://img.pokemondb.net/sprites/home/normal/${normalizedSlug}.png`);
 }
 
 
@@ -3240,14 +3346,12 @@ function getSpriteUrlForPiece(p, opts) {
   }
 
   const owner = safeStr(p?.owner);
-  const effectiveSlug = owner ? _getEffectivePokemonSlug(owner, p) : "";
   const effectiveCtx = owner ? _getEffectivePokemonContext(owner, p) : null;
+  const effectiveSlug = _normalizePokemonFormSlug(effectiveCtx?.formSlug || (owner ? _getEffectivePokemonSlug(owner, p) : ""));
   if (effectiveSlug) {
-    return localSpriteUrl(effectiveSlug, type, shiny)
+    return localSpriteUrl(effectiveSlug, type, shiny, { sex: effectiveCtx?.sex })
       || (type === "art" ? safeStr(effectiveCtx?.image) : "")
-      || (type === "art"
-        ? `https://img.pokemondb.net/artwork/large/${effectiveSlug}.jpg`
-        : `https://img.pokemondb.net/sprites/home/normal/${effectiveSlug}.png`);
+      || spriteUrlWithFallback(effectiveSlug, type, shiny, { sex: effectiveCtx?.sex });
   }
 
   // 1) Prefer explicit spriteUrl if present (only for remote URLs)
@@ -3362,6 +3466,8 @@ function _getPartySlotIndex(entryLike, fallbackIndex = -1) {
 
 function _defaultFormSlugForRoot(rootSlug) {
   const root = canonicalizePokemonSlug(safeStr(rootSlug).toLowerCase());
+  if (!root) return "";
+  if (_pokemonFormManifestArtMap.has(root) || _pokemonFormManifestArtBasenameSet.has(root)) return root;
   return FORM_ROOT_DEFAULT_SLUGS[root] || root;
 }
 
@@ -3435,18 +3541,46 @@ function _rebuildPokemonFormManifestIndexes() {
   const manifestList = Array.isArray(_pokemonFormManifestRaw?.available_slugs)
     ? _pokemonFormManifestRaw.available_slugs
     : [];
+  const artMapEntries = (_pokemonFormManifestRaw?.art_map && typeof _pokemonFormManifestRaw.art_map === "object" && !Array.isArray(_pokemonFormManifestRaw.art_map))
+    ? Object.entries(_pokemonFormManifestRaw.art_map)
+    : [];
+  const shinyArtMapEntries = (_pokemonFormManifestRaw?.shiny_art_map && typeof _pokemonFormManifestRaw.shiny_art_map === "object" && !Array.isArray(_pokemonFormManifestRaw.shiny_art_map))
+    ? Object.entries(_pokemonFormManifestRaw.shiny_art_map)
+    : [];
   const gifMapEntries = (_pokemonFormManifestRaw?.gif_map && typeof _pokemonFormManifestRaw.gif_map === "object" && !Array.isArray(_pokemonFormManifestRaw.gif_map))
     ? Object.entries(_pokemonFormManifestRaw.gif_map)
     : [];
   _pokemonFormManifestList = Array.from(new Set(
     manifestList
+      .concat(artMapEntries.map(([slug]) => slug))
+      .concat(shinyArtMapEntries.map(([slug]) => slug))
       .concat(gifMapEntries.map(([slug]) => slug))
       .map((slug) => canonicalizePokemonSlug(safeStr(slug).toLowerCase()))
       .filter(Boolean)
   ));
   _pokemonFormManifestSet = new Set(_pokemonFormManifestList);
   _pokemonFormManifestGroups = new Map();
+  _pokemonFormManifestArtMap = new Map();
+  _pokemonFormManifestShinyArtMap = new Map();
   _pokemonFormManifestGifMap = new Map();
+  _pokemonFormManifestArtBasenameSet = new Set();
+  _pokemonFormManifestShinyArtBasenameSet = new Set();
+
+  for (const [slug, basename] of artMapEntries) {
+    const normalizedSlug = canonicalizePokemonSlug(safeStr(slug).toLowerCase());
+    const normalizedBasename = _normalizeLocalArtBasename(basename);
+    if (!normalizedSlug || !normalizedBasename) continue;
+    _pokemonFormManifestArtMap.set(normalizedSlug, normalizedBasename);
+    _pokemonFormManifestArtBasenameSet.add(normalizedBasename);
+  }
+
+  for (const [slug, basename] of shinyArtMapEntries) {
+    const normalizedSlug = canonicalizePokemonSlug(safeStr(slug).toLowerCase());
+    const normalizedBasename = _normalizeLocalArtBasename(basename);
+    if (!normalizedSlug || !normalizedBasename) continue;
+    _pokemonFormManifestShinyArtMap.set(normalizedSlug, normalizedBasename);
+    _pokemonFormManifestShinyArtBasenameSet.add(normalizedBasename);
+  }
 
   for (const [slug, basename] of gifMapEntries) {
     const normalizedSlug = canonicalizePokemonSlug(safeStr(slug).toLowerCase());
@@ -3470,13 +3604,15 @@ function _rebuildPokemonFormManifestIndexes() {
 function _setPokemonFormManifest(payload) {
   const next = (payload && typeof payload === "object" && !Array.isArray(payload))
     ? payload
-    : { available_slugs: [], gif_map: {} };
+    : { available_slugs: [], art_map: {}, shiny_art_map: {}, gif_map: {} };
   _pokemonFormManifestRaw = next;
   _rebuildPokemonFormManifestIndexes();
   window.pokemonFormManifest = {
     raw: _pokemonFormManifestRaw,
     available_slugs: _pokemonFormManifestList.slice(),
     groups: Object.fromEntries(Array.from(_pokemonFormManifestGroups.entries())),
+    art_map: Object.fromEntries(Array.from(_pokemonFormManifestArtMap.entries()).sort(([a], [b]) => a.localeCompare(b))),
+    shiny_art_map: Object.fromEntries(Array.from(_pokemonFormManifestShinyArtMap.entries()).sort(([a], [b]) => a.localeCompare(b))),
     gif_map: Object.fromEntries(Array.from(_pokemonFormManifestGifMap.entries()).sort(([a], [b]) => a.localeCompare(b))),
   };
   try { updateSidePanels(); } catch {}
@@ -3485,11 +3621,19 @@ function _setPokemonFormManifest(payload) {
   try { requestArenaRefresh(true); } catch {}
 }
 
-function _getPokemonFormOptionsForRoot(rootSlug) {
+function _shouldHideGenericFormSlug(slug, options = {}) {
+  const normalizedSlug = _normalizePokemonFormSlug(slug);
+  if (!normalizedSlug) return true;
+  if (/-mega(?:-|$)/i.test(normalizedSlug)) return true;
+  if (!options?.allowGmax && /-gmax(?:-|$)/i.test(normalizedSlug)) return true;
+  return false;
+}
+
+function _getPokemonFormOptionsForRoot(rootSlug, options = {}) {
   const root = canonicalizePokemonSlug(safeStr(rootSlug).toLowerCase());
   const slugs = _pokemonFormManifestGroups.get(root) || [];
   return slugs
-    .filter((slug) => slug && !/-mega(?:-|$)/i.test(slug))
+    .filter((slug) => !_shouldHideGenericFormSlug(slug, options))
     .map((slug) => ({
       form_slug: slug,
       root_slug: root,
@@ -3525,17 +3669,19 @@ function _folderFormSuffixLabel(speciesSlug, formSlug) {
   const species = canonicalizePokemonSlug(safeStr(speciesSlug).toLowerCase());
   const form = canonicalizePokemonSlug(safeStr(formSlug).toLowerCase());
   if (!species || !form) return "";
+  const defaultForm = _defaultFormSlugForRoot(species);
+  if (form === species || form === defaultForm) return "Normal";
   const prefix = `${species}-`;
-  if (form.startsWith(prefix)) return form.slice(prefix.length);
-  return form === species ? "base" : form;
+  if (form.startsWith(prefix)) return toTitleWords(form.slice(prefix.length).replace(/-/g, " "));
+  return _humanizePokemonFormSlug(form);
 }
 
-function _getPokemonFolderOptionsForSpecies(speciesSlug) {
+function _getPokemonFolderOptionsForSpecies(speciesSlug, options = {}) {
   const species = canonicalizePokemonSlug(safeStr(speciesSlug).toLowerCase());
   if (!species) return [];
   const matches = _pokemonFormManifestList.filter((slug) => slug === species || slug.startsWith(`${species}-`));
   return matches
-    .filter((slug) => slug && !/-mega(?:-|$)/i.test(slug))
+    .filter((slug) => !_shouldHideGenericFormSlug(slug, options))
     .map((slug) => ({
       form_slug: slug,
       root_slug: species,
@@ -3904,10 +4050,50 @@ function _getUserDataForTrainer(trainerName) {
   for (const uid of uidCandidates) {
     if (!uid) continue;
     const entry = appState.userProfiles?.get?.(uid);
+    const profile = entry?.profile;
+    if (profile && typeof profile === "object") return profile;
     const raw = entry?.raw;
     const data = raw?.data || raw;
     if (data && typeof data === "object") return data;
   }
+  return null;
+}
+
+function _extractUserFormsMap(source) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return null;
+  if (source.forms && typeof source.forms === "object" && !Array.isArray(source.forms)) {
+    return source.forms;
+  }
+  if (source.user_forms && typeof source.user_forms === "object" && !Array.isArray(source.user_forms)) {
+    return source.user_forms;
+  }
+  if (source.userForms && typeof source.userForms === "object" && !Array.isArray(source.userForms)) {
+    return source.userForms;
+  }
+  if (source.profile && typeof source.profile === "object" && !Array.isArray(source.profile)) {
+    const nestedProfile = _extractUserFormsMap(source.profile);
+    if (nestedProfile) return nestedProfile;
+  }
+  if (source.data && typeof source.data === "object" && !Array.isArray(source.data)) {
+    const nestedData = _extractUserFormsMap(source.data);
+    if (nestedData) return nestedData;
+  }
+  return null;
+}
+
+function _getUserFormsForTrainer(trainerName) {
+  const tn = safeStr(trainerName);
+  if (!tn) return null;
+
+  const fromUserData = _extractUserFormsMap(_getUserDataForTrainer(tn));
+  if (fromUserData) return fromUserData;
+
+  for (const uid of getTrainerCandidateIds(tn)) {
+    const entry = appState.userProfiles?.get?.(uid);
+    const mapped = _extractUserFormsMap(entry);
+    if (mapped) return mapped;
+  }
+
   return null;
 }
 
@@ -3942,6 +4128,17 @@ function _getHubPokemonMetaForTrainer(trainerName) {
     if (mapped) return mapped;
   }
 
+  return null;
+}
+
+function _getHubPokemonMetaEntry(hubMeta, pidLike) {
+  if (!hubMeta || typeof hubMeta !== "object") return null;
+  const targetKeys = _partyEntryLookupKeys(pidLike);
+  if (!targetKeys.length) return null;
+  for (const [rawKey, meta] of Object.entries(hubMeta)) {
+    if (!targetKeys.includes(pidKey(rawKey))) continue;
+    if (meta && typeof meta === "object" && !Array.isArray(meta)) return meta;
+  }
   return null;
 }
 
@@ -4102,12 +4299,21 @@ function _extractResolvedAbilitiesFromSource(source) {
 
 function _extractPokemonFormSlugFromSource(source) {
   if (!source || typeof source !== "object" || Array.isArray(source)) return "";
+  const nestedForm = (source?.form && typeof source.form === "object" && !Array.isArray(source.form))
+    ? source.form
+    : null;
   return _normalizePokemonFormSlug(
     source?.form_slug
     ?? source?.formSlug
     ?? source?.selected_form
     ?? source?.selectedForm
-    ?? source?.form
+    ?? nestedForm?.slug
+    ?? nestedForm?.form_slug
+    ?? nestedForm?.pokemon_api_name
+    ?? nestedForm?.pokemonApiName
+    ?? nestedForm?.species_api_name
+    ?? nestedForm?.speciesApiName
+    ?? (nestedForm ? "" : source?.form)
   );
 }
 
@@ -4135,19 +4341,72 @@ function _extractPokemonImageFromSource(source) {
   );
 }
 
+function _coerceBooleanFlag(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  const normalized = safeStr(value).trim().toLowerCase();
+  if (!normalized) return null;
+  if (["1", "true", "yes", "y", "sim", "s"].includes(normalized)) return true;
+  if (["0", "false", "no", "n", "nao", "não"].includes(normalized)) return false;
+  return null;
+}
+
+function _extractPokemonSexFromSource(source) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    return _inferPokemonSexFromSlug(source);
+  }
+  const direct = _normalizePokemonSex(
+    source?.sex
+    ?? source?.gender
+    ?? source?.pokemon?.sex
+    ?? source?.pokemon?.gender
+    ?? source?.form?.sex
+    ?? source?.form?.gender
+  );
+  if (direct) return direct;
+  const isFemale = _coerceBooleanFlag(source?.is_female ?? source?.isFemale ?? source?.female);
+  if (isFemale === true) return "female";
+  const isMale = _coerceBooleanFlag(source?.is_male ?? source?.isMale ?? source?.male);
+  if (isMale === true) return "male";
+  return _inferPokemonSexFromSlug(_extractPokemonFormSlugFromSource(source));
+}
+
+function _extractPokemonGmaxAllowedFromSource(source) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return null;
+  for (const value of [
+    source?.gmax_available,
+    source?.gmaxAvailable,
+    source?.gigantamax_available,
+    source?.gigantamaxAvailable,
+    source?.can_gmax,
+    source?.canGmax,
+    source?.pokemon?.gmax_available,
+    source?.pokemon?.gigantamax_available,
+    source?.pokemon?.can_gmax,
+  ]) {
+    const coerced = _coerceBooleanFlag(value);
+    if (coerced != null) return coerced;
+  }
+  return null;
+}
+
 function _buildPokemonFormSource(source, sourceKind = "") {
   if (!source || typeof source !== "object" || Array.isArray(source)) return null;
   const formSlug = _extractPokemonFormSlugFromSource(source);
   const displayName = _extractPokemonDisplayNameFromSource(source);
   const image = _extractPokemonImageFromSource(source);
+  const sex = _extractPokemonSexFromSource(source);
+  const gmaxAllowed = _extractPokemonGmaxAllowedFromSource(source);
   const resolvedTypes = _extractResolvedTypesFromSource(source);
   const resolvedAbilities = _extractResolvedAbilitiesFromSource(source);
   if (!(formSlug || displayName || image || resolvedTypes.length || resolvedAbilities.length)) return null;
   return {
     sourceKind,
     formSlug,
+    sex,
+    gmaxAllowed,
     displayName: displayName || (formSlug ? _humanizePokemonFormSlug(formSlug) : ""),
-    image: image || (formSlug ? spriteUrlWithFallback(formSlug, "art", false) : ""),
+    image: image || (formSlug ? spriteUrlWithFallback(formSlug, "art", false, { sex }) : ""),
     resolvedTypes,
     resolvedAbilities,
     raw: source,
@@ -4167,23 +4426,75 @@ function _getPokemonFormEntry(trainerName, pidLike) {
 }
 
 function _getPokemonFormSourceFromHubMeta(hubMeta, pidLike) {
-  if (!hubMeta || typeof hubMeta !== "object") return null;
+  return _buildPokemonFormSource(_getHubPokemonMetaEntry(hubMeta, pidLike), "hub");
+}
+
+function _getUserFormSourceForTrainerPid(trainerName, pidLike) {
+  const formsMap = _getUserFormsForTrainer(trainerName);
+  if (!formsMap || typeof formsMap !== "object") return null;
   const targetKeys = _partyEntryLookupKeys(pidLike);
   if (!targetKeys.length) return null;
-  for (const [rawKey, meta] of Object.entries(hubMeta)) {
+  for (const [rawKey, value] of Object.entries(formsMap)) {
     if (!targetKeys.includes(pidKey(rawKey))) continue;
-    const built = _buildPokemonFormSource(meta, "hub");
+    const source = (value && typeof value === "object" && !Array.isArray(value))
+      ? value
+      : { form_slug: value };
+    const built = _buildPokemonFormSource(source, "user");
     if (built) return built;
   }
   return null;
 }
 
+function _getPreferredPokemonSexForTrainerPid(trainerName, pidLike) {
+  const owner = safeStr(trainerName);
+  for (const source of [
+    _getPokemonFormEntry(owner, pidLike),
+    getPartySnapshotEntryForTrainerPid(owner, pidLike),
+    _getPartyEntryForTrainerPid(owner, pidLike),
+  ]) {
+    const sex = _extractPokemonSexFromSource(source);
+    if (sex) return sex;
+  }
+  const userFormSource = _getUserFormSourceForTrainerPid(owner, pidLike);
+  if (userFormSource?.sex) return userFormSource.sex;
+  return _extractPokemonSexFromSource(_getHubPokemonMetaEntry(_getHubPokemonMetaForTrainer(owner), pidLike));
+}
+
+function _canShowGmaxForTrainerPid(trainerName, pidLike, options = {}) {
+  const owner = safeStr(trainerName);
+  const piece = options?.piece || null;
+  const sheet = options?.sheet || null;
+  const selfResolved = options?.resolvedSheetEntry
+    || (_trainerLookupKey(owner) === _trainerLookupKey(appState.by)
+      ? _resolveSelfEffectiveSheet(pidLike, owner, { ignoreMega: true })
+      : null);
+  for (const source of [
+    _getPokemonFormEntry(owner, pidLike),
+    getPartySnapshotEntryForTrainerPid(owner, pidLike),
+    _getPartyEntryForTrainerPid(owner, pidLike),
+    piece,
+    _getHubPokemonMetaEntry(_getHubPokemonMetaForTrainer(owner), pidLike),
+    sheet?.pokemon,
+    sheet,
+    selfResolved?.baseSheet?.pokemon,
+    selfResolved?.baseSheet,
+    selfResolved?.effectiveSheet?.pokemon,
+    selfResolved?.effectiveSheet,
+  ]) {
+    const allowed = _extractPokemonGmaxAllowedFromSource(source);
+    if (allowed != null) return allowed;
+  }
+  return false;
+}
+
 function _getPreferredPokemonFormSource(trainerName, pidLike) {
   const owner = safeStr(trainerName);
+  const userFormSource = _getUserFormSourceForTrainerPid(owner, pidLike);
   for (const [kind, source] of [
     ["room", _getPokemonFormEntry(owner, pidLike)],
     ["snapshot", getPartySnapshotEntryForTrainerPid(owner, pidLike)],
     ["party", _getPartyEntryForTrainerPid(owner, pidLike)],
+    ["user", userFormSource?.raw],
   ]) {
     const built = _buildPokemonFormSource(source, kind);
     if (built) return built;
@@ -4200,6 +4511,8 @@ function _inferBasePokemonFormSlug(trainerName, pidLike, options = {}) {
     options?.source || null,
     getPartySnapshotEntryForTrainerPid(owner, pidLike),
     _getPartyEntryForTrainerPid(owner, pidLike),
+    _getUserFormSourceForTrainerPid(owner, pidLike)?.raw,
+    _getHubPokemonMetaEntry(_getHubPokemonMetaForTrainer(owner), pidLike),
     piece,
     sheet?.pokemon,
     sheet,
@@ -7564,6 +7877,11 @@ function _getEffectivePokemonContext(ownerName, pidLike, options = {}) {
   const piece = options?.piece || ((pidLike && typeof pidLike === "object" && !Array.isArray(pidLike) && safeStr(pidLike?.pid)) ? pidLike : null);
   const targetLike = piece || pidLike;
   const formSource = _getPreferredPokemonFormSource(owner, targetLike);
+  const sex = _normalizePokemonSex(
+    options?.sex
+    || formSource?.sex
+    || _getPreferredPokemonSexForTrainerPid(owner, targetLike)
+  );
   const preferredFormSlug = _normalizePokemonFormSlug(
     options?.preferredFormSlug
     || formSource?.formSlug
@@ -7596,7 +7914,7 @@ function _getEffectivePokemonContext(ownerName, pidLike, options = {}) {
       || _humanizePokemonFormSlug(formSlug);
   const image = (!activeMegaSlug && !matchedFormSheet ? safeStr(formSource?.image) : "")
     || safeStr(_extractPokemonImageFromSource(pokemon))
-    || (formSlug ? spriteUrlWithFallback(formSlug, "art", false) : "");
+    || (formSlug ? spriteUrlWithFallback(formSlug, "art", false, { sex }) : "");
   const resolvedTypes = activeMegaSlug
     ? _coerceResolvedTypes(pokemon?.types)
     : (matchedFormSheet ? _coerceResolvedTypes(pokemon?.types) : (formSource?.resolvedTypes || []));
@@ -7614,6 +7932,7 @@ function _getEffectivePokemonContext(ownerName, pidLike, options = {}) {
     activeMegaSlug,
     megaState,
     formSource,
+    sex,
     formSlug,
     displayName,
     image,
@@ -7668,6 +7987,7 @@ function getEffectivePokemonPresentationForTrainerPid(ownerName, pidLike, option
     pid: safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike),
     party_slot: safeStr(ctx?.partySlot),
     form_slug: safeStr(ctx?.formSlug),
+    sex: safeStr(ctx?.sex),
     display_name: safeStr(ctx?.displayName),
     image: safeStr(ctx?.image),
     resolved_types: Array.isArray(ctx?.resolvedTypes) ? ctx.resolvedTypes.slice() : [],
@@ -8433,8 +8753,11 @@ function _getPieceFormPickerState(piece) {
   const identity = partySlot ? { pid: piece?.pid, party_slot: partySlot } : piece;
   const formSource = _getPreferredPokemonFormSource(owner, identity);
   const sheet = isPieceMine(piece) ? getSheetForPiece(piece) : null;
+  const resolvedSheetEntry = isPieceMine(piece)
+    ? _resolveSelfEffectiveSheet(identity, owner, { ignoreMega: true })
+    : null;
   const baseSheet = isPieceMine(piece)
-    ? (_resolveSelfEffectiveSheet(identity, owner, { ignoreMega: true })?.baseSheet || sheet)
+    ? (resolvedSheetEntry?.baseSheet || sheet)
     : sheet;
   let currentFormSlug = _normalizePokemonFormSlug(
     formSource?.formSlug
@@ -8442,12 +8765,13 @@ function _getPieceFormPickerState(piece) {
     || _inferBasePokemonFormSlug(owner, identity, { piece, sheet: baseSheet, source: formSource?.raw })
   );
   const speciesSlug = _inferPokemonSpeciesSlug(owner, identity, { piece, sheet: baseSheet, source: formSource?.raw });
-  let options = _getPokemonFolderOptionsForSpecies(speciesSlug);
+  const allowGmax = _canShowGmaxForTrainerPid(owner, identity, { piece, sheet: baseSheet, resolvedSheetEntry });
+  let options = _getPokemonFolderOptionsForSpecies(speciesSlug, { allowGmax });
   const rootSlug = speciesSlug || _inferCanonicalFormRoot(currentFormSlug);
   if (currentFormSlug && !_pokemonFormManifestSet.has(currentFormSlug) && options.length) {
     currentFormSlug = _defaultFormSlugForRoot(rootSlug);
   }
-  if (currentFormSlug && !/-mega(?:-|$)/i.test(currentFormSlug) && !options.some((option) => option.form_slug === currentFormSlug)) {
+  if (currentFormSlug && !_shouldHideGenericFormSlug(currentFormSlug, { allowGmax }) && !options.some((option) => option.form_slug === currentFormSlug)) {
     options = _sortPokemonFormSlugs(options.map((option) => option.form_slug).concat([currentFormSlug]), rootSlug).map((slug) => ({
       form_slug: slug,
       root_slug: rootSlug,
@@ -8461,6 +8785,7 @@ function _getPieceFormPickerState(piece) {
     rootSlug,
     speciesSlug,
     currentFormSlug,
+    allowGmax,
     partySlot,
     identity,
     unresolved: !partySlot,
@@ -8471,6 +8796,7 @@ function _buildPokemonFormOverridePayload(ownerName, piece, formSlug) {
   const owner = safeStr(ownerName);
   const normalizedFormSlug = _normalizePokemonFormSlug(formSlug);
   const currentSource = _getPreferredPokemonFormSource(owner, piece);
+  const sex = _getPreferredPokemonSexForTrainerPid(owner, piece);
   const canUseSelfSheets = _trainerLookupKey(owner) === _trainerLookupKey(appState.by);
   const formSheet = canUseSelfSheets
     ? _resolveSelfEffectiveSheet(piece, owner, { preferredFormSlug: normalizedFormSlug, ignoreMega: true })?.baseSheet
@@ -8496,7 +8822,7 @@ function _buildPokemonFormOverridePayload(ownerName, piece, formSlug) {
       || _humanizePokemonFormSlug(normalizedFormSlug),
     image: safeStr(_extractPokemonImageFromSource(formSheet?.pokemon))
       || (currentSource?.formSlug === normalizedFormSlug ? safeStr(currentSource?.image) : "")
-      || spriteUrlWithFallback(normalizedFormSlug, "art", false),
+      || spriteUrlWithFallback(normalizedFormSlug, "art", false, { sex }),
     resolved_types: resolvedTypes,
     resolved_abilities: resolvedAbilities,
     updated_at: serverTimestamp(),

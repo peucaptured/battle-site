@@ -423,6 +423,106 @@ function displayName(pid) {
   return "???";
 }
 
+const SIZE_LABELS = Object.freeze({
+  tiny: "Miúdo",
+  small: "Pequeno",
+  medium: "Médio",
+  large: "Grande",
+  huge: "Enorme",
+  gargantuan: "Colossal",
+});
+
+function titleWords(raw) {
+  return safeStr(raw)
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function getEffectivePresentation(ownerName, pidLike, options = {}) {
+  try {
+    if (typeof window.getEffectivePokemonPresentationForTrainerPid === "function") {
+      const out = window.getEffectivePokemonPresentationForTrainerPid(ownerName, pidLike, options);
+      if (out && typeof out === "object") return out;
+    }
+  } catch {}
+  return null;
+}
+
+function effectiveSpriteUrl(ownerName, pidLike, opts = {}) {
+  try {
+    if (typeof window.getEffectiveSpriteUrlForTrainerPid === "function") {
+      const out = safeStr(window.getEffectiveSpriteUrlForTrainerPid(ownerName, pidLike, opts));
+      if (out) return out;
+    }
+  } catch {}
+  return spriteUrl(pidLike?.pid ?? pidLike, opts);
+}
+
+function pieceSizeLabel(piece) {
+  let sizeCategory = safeStr(piece?.sizeCategory).toLowerCase();
+  if (!sizeCategory) {
+    try {
+      if (typeof window.getPieceSizeCategory === "function") {
+        sizeCategory = safeStr(window.getPieceSizeCategory(piece)).toLowerCase();
+      }
+    } catch {}
+  }
+  return SIZE_LABELS[sizeCategory] || titleWords(sizeCategory);
+}
+
+function formLabelFromPresentation(presentation, fallbackName = "") {
+  const formSlug = safeStr(presentation?.form_slug).toLowerCase();
+  const display = safeStr(presentation?.display_name);
+  const baseName = safeStr(fallbackName);
+  if (!formSlug) {
+    return display && baseName && display.toLowerCase() !== baseName.toLowerCase() ? display : "";
+  }
+  if (!formSlug.includes("-")) return "";
+  let baseSlug = "";
+  try {
+    if (typeof window.spriteSlugFromPokemonName === "function") {
+      baseSlug = safeStr(window.spriteSlugFromPokemonName(baseName)).toLowerCase();
+    }
+  } catch {}
+  if (baseSlug && formSlug.startsWith(`${baseSlug}-`)) {
+    return titleWords(formSlug.slice(baseSlug.length + 1));
+  }
+  return titleWords(formSlug);
+}
+
+function pieceBattleIdentity(piece, sheet = null) {
+  const owner = safeStr(piece?.owner);
+  const baseName = safeStr(sheet?.pokemon?.name) || displayName(piece?.pid);
+  const presentation = owner ? getEffectivePresentation(owner, piece, { piece, sheet }) : null;
+  const name = safeStr(presentation?.display_name) || baseName;
+  const formLabel = formLabelFromPresentation(presentation, baseName);
+  const sizeLabel = pieceSizeLabel(piece);
+  return {
+    owner,
+    presentation,
+    name,
+    formLabel,
+    sizeLabel,
+  };
+}
+
+function pieceBattleLabel(piece, sheet = null) {
+  const info = pieceBattleIdentity(piece, sheet);
+  const form = safeStr(info.formLabel);
+  const name = safeStr(info.name) || displayName(piece?.pid);
+  if (!form) return name;
+  return name.toLowerCase().includes(form.toLowerCase()) ? name : `${name} (${form})`;
+}
+
+function pieceBattleMetaLine(piece, sheet = null, { includeOwner = true } = {}) {
+  const info = pieceBattleIdentity(piece, sheet);
+  const parts = [];
+  if (includeOwner && info.owner) parts.push(info.owner);
+  if (info.sizeLabel) parts.push(`Tamanho ${info.sizeLabel}`);
+  if (info.formLabel) parts.push(`Forma ${info.formLabel}`);
+  return parts.join(" • ");
+}
+
 // ─── CSS injection ────────────────────────────────────────────────
 let _cssInjected = false;
 function injectCSS() {
@@ -1393,7 +1493,7 @@ export class ArenaCombatUI {
     el.innerHTML = [
       `<div class="ac-ctx-title">${escHtml(title)}</div>`,
       ...list.map((piece) => {
-        const name = displayName(safeStr(piece.pid));
+        const name = pieceBattleLabel(piece);
         const owner = safeStr(piece.owner) || "sem dono";
         return `<div class="ac-ctx-item" data-piece-id="${escHtml(safeStr(piece.id))}"><span class="ac-ctx-icon">🎯</span>${escHtml(name)}<span class="ac-ctx-meta">${escHtml(owner)}</span></div>`;
       }),
@@ -1439,7 +1539,7 @@ export class ArenaCombatUI {
       const owner = safeStr(piece.owner);
       const isEnemy = owner && by && owner.toLowerCase() !== by.toLowerCase();
       const isMine  = owner && by && owner.toLowerCase() === by.toLowerCase();
-      const name = displayName(safeStr(piece.pid));
+      const name = pieceBattleLabel(piece);
 
       if (isEnemy && isPlayer && canStartCombat) {
         items.push({ icon: "⚔️", label: `Atacar ${name}`, action: () => { this._closeAll(); this._openAttackOverlay(piece, x, y); } });
@@ -1543,9 +1643,10 @@ export class ArenaCombatUI {
 
     const tPid = safeStr(targetPiece.pid);
     const tOwner = safeStr(targetPiece.owner);
-    const tName = displayName(tPid);
+    const tName = pieceBattleLabel(targetPiece);
+    const tMeta = pieceBattleMetaLine(targetPiece);
     const _tPs = ((this._partyStates && this._partyStates[tOwner]) ? this._partyStates[tOwner] : {})[tPid] || {};
-    const tSprite = spriteUrl(tPid, { type: "battle", shiny: !!_tPs.shiny });
+    const tSprite = effectiveSpriteUrl(tOwner, targetPiece, { type: "battle", shiny: !!_tPs.shiny });
 
     const el = document.createElement("div");
     el.className = "ac-overlay";
@@ -1555,7 +1656,7 @@ export class ArenaCombatUI {
         <img class="ac-overlay-sprite" src="${escHtml(tSprite)}" alt="${escHtml(tName)}" onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'" />
         <div>
           <div class="ac-overlay-name">${escHtml(tName)}</div>
-          <div class="ac-overlay-sub">${escHtml(tOwner)} • ${escHtml(tName)}</div>
+          <div class="ac-overlay-sub">${escHtml(tMeta || tOwner || tName)}</div>
         </div>
         <button class="ac-overlay-close" title="Fechar (Esc)">✕</button>
       </div>
@@ -1589,12 +1690,12 @@ export class ArenaCombatUI {
     let atkHtml = "";
     if (myPieces.length === 1) {
       const p = myPieces[0];
-      atkHtml = `<div style="font-size:11px;color:rgba(148,163,184,.7);margin-bottom:6px">Atacante: <strong style="color:rgba(226,232,240,.9)">${escHtml(displayName(safeStr(p.pid)))}</strong></div>`;
+      atkHtml = `<div style="font-size:11px;color:rgba(148,163,184,.7);margin-bottom:6px">Atacante: <strong style="color:rgba(226,232,240,.9)">${escHtml(pieceBattleLabel(p))}</strong></div>`;
     } else if (myPieces.length > 1) {
       atkHtml = `<select class="ac-search" id="ac-atk-select" style="margin-bottom:8px">
         ${myPieces.map(p => {
           const pid = safeStr(p.pid);
-          return `<option value="${escHtml(pid)}">${escHtml(displayName(pid))}</option>`;
+          return `<option value="${escHtml(pid)}">${escHtml(pieceBattleLabel(p))}</option>`;
         }).join("")}
       </select>`;
     }
@@ -1998,9 +2099,10 @@ export class ArenaCombatUI {
     const tPid = safeStr(targetPiece.pid);
     const _tOwnerRadial = safeStr(targetPiece.owner);
     const _tPsRadial = ((this._partyStates && this._partyStates[_tOwnerRadial]) ? this._partyStates[_tOwnerRadial] : {})[tPid] || {};
-    const tSprite = spriteUrl(tPid, { type: "battle", shiny: !!_tPsRadial.shiny });
+    const tLabel = pieceBattleLabel(targetPiece);
+    const tSprite = effectiveSpriteUrl(_tOwnerRadial, targetPiece, { type: "battle", shiny: !!_tPsRadial.shiny });
     el.innerHTML = `
-      <div class="ac-radial-center" title="${escHtml(displayName(tPid))}">
+      <div class="ac-radial-center" title="${escHtml(tLabel)}">
         <img src="${escHtml(tSprite)}" alt="" onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'" />
       </div>
     `;
@@ -2416,24 +2518,30 @@ export class ArenaCombatUI {
 
     const by = this.getBy();
     const pid = safeStr(piece.pid);
-    const pkm = sheet.pokemon || {};
-    const name = safeStr(pkm.name) || displayName(pid);
-    const np = safeInt(sheet.np || pkm.np || 0, 0);
-    const types = Array.isArray(pkm.types) ? pkm.types : [];
-    const abilities = Array.isArray(pkm.abilities) ? pkm.abilities : [];
     const owner = safeStr(piece.owner) || by;
+    const identity = pieceBattleIdentity(piece, sheet);
+    const effectiveSheet = identity.presentation?.effective_sheet || sheet;
+    const pkm = effectiveSheet?.pokemon || sheet.pokemon || {};
+    const name = safeStr(identity.name) || safeStr(pkm.name) || displayName(pid);
+    const np = safeInt(effectiveSheet?.np || sheet?.np || pkm.np || 0, 0);
+    const types = Array.isArray(identity.presentation?.resolved_types) && identity.presentation.resolved_types.length
+      ? identity.presentation.resolved_types
+      : (Array.isArray(pkm.types) ? pkm.types : []);
+    const abilities = Array.isArray(identity.presentation?.resolved_abilities) && identity.presentation.resolved_abilities.length
+      ? identity.presentation.resolved_abilities
+      : (Array.isArray(pkm.abilities) ? pkm.abilities : []);
     const st = this._getEffectiveStats(owner, pid);
     const stgr = safeInt(st.stgr), intel = safeInt(st.int), thg = safeInt(st.thg), dodge = safeInt(st.dodge);
     const parry = safeInt(st.parry), fort = safeInt(st.fort), will = safeInt(st.will);
 
-    const tData = this._partyStates[by] || {};
+    const tData = this._partyStates[owner] || {};
     const pData = tData[pid] || {};
     const hp = safeInt(pData.hp, 6);
     const hpMax = 6;
     const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
     const hpCol = hp >= 5 ? "rgba(34,197,94,1)" : hp >= 3 ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
 
-    const movesRaw = Array.isArray(sheet.moves) ? sheet.moves : (sheet.moves ? Object.values(sheet.moves) : []);
+    const movesRaw = Array.isArray(effectiveSheet?.moves) ? effectiveSheet.moves : (effectiveSheet?.moves ? Object.values(effectiveSheet.moves) : []);
     const moves = (typeof window.getPreferredMovesForTrainerPid === "function")
       ? window.getPreferredMovesForTrainerPid(owner, pid, movesRaw, 4)
       : movesRaw.filter((m) => m && typeof m === "object").slice(0, 4);
@@ -2448,8 +2556,12 @@ export class ArenaCombatUI {
       : `<div class="muted">Sem golpes nesta ficha.</div>`;
 
     const typeHtml = types.map((t) => `<span class="chip">${escHtml(safeStr(t))}</span>`).join("");
+    const metaHtml = [
+      identity.sizeLabel ? `<span class="chip">Tamanho ${escHtml(identity.sizeLabel)}</span>` : "",
+      identity.formLabel ? `<span class="chip">Forma ${escHtml(identity.formLabel)}</span>` : "",
+    ].filter(Boolean).join("");
     const abHtml = abilities.slice(0, 3).map((a) => `<span class="chip">${escHtml(safeStr(a))}</span>`).join("");
-    const art = spriteUrl(pid, { type: "art", shiny: !!pData.shiny });
+    const art = effectiveSpriteUrl(owner, piece, { type: "art", shiny: !!pData.shiny });
 
     root.innerHTML = `
       <div class="arena-sheet-card">
@@ -2457,7 +2569,8 @@ export class ArenaCombatUI {
           <img class="sheet-art" src="${escHtml(art)}" alt="${escHtml(name)}" />
           <div style="flex:1;min-width:0;">
             <div class="sheet-name">${escHtml(name)}</div>
-            <div class="sheet-sub">#${escHtml(pid)} • NP ${np}</div>
+            <div class="sheet-sub">#${escHtml(pid)} • NP ${np}${identity.sizeLabel ? ` • ${escHtml(identity.sizeLabel)}` : ""}</div>
+            ${metaHtml ? `<div class="chip-row">${metaHtml}</div>` : ""}
             <div class="chip-row">${typeHtml || `<span class="muted">Sem tipo</span>`}</div>
           </div>
         </div>

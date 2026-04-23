@@ -7,7 +7,9 @@ import json
 
 
 ROOT = Path(__file__).resolve().parent
-SPRITES_DIR = ROOT / "sprites"
+ART_DIR = ROOT / "poke" / "home"
+SHINY_ART_DIR = ROOT / "poke" / "home-shiny"
+GIF_DIR = ROOT / "sprites"
 OUTPUT_PATH = ROOT / "assets" / "pokemon_form_manifest.json"
 SLUG_MAP_PATH = ROOT / "assets" / "pokedex_map_slug_to_id.json"
 EXISTING_MANIFEST_PATH = OUTPUT_PATH
@@ -28,7 +30,7 @@ FORM_ROOT_DEFAULT_SLUGS = {
     "keldeo": "keldeo-ordinary",
     "landorus": "landorus-incarnate",
     "lycanroc": "lycanroc-midday",
-    "maushold": "maushold-family-of-three",
+    "maushold": "maushold-family-of-four",
     "meloetta": "meloetta-aria",
     "meowstic": "meowstic-male",
     "mimikyu": "mimikyu-disguised",
@@ -51,12 +53,13 @@ FORM_ROOT_DEFAULT_SLUGS = {
     "zygarde": "zygarde-50",
 }
 
-EXPLICIT_GIF_ALIASES = {
+EXPLICIT_SOURCE_ALIASES = {
     "basculegion-f": "basculegion-female",
     "darmanitan-galar": "darmanitan-galar-standard",
     "indeedee-f": "indeedee-female",
     "maushold-four": "maushold-family-of-four",
     "meowstic-f": "meowstic-female",
+    "pyroar-f": "pyroar-female",
 }
 
 TOKEN_REPLACEMENTS = {
@@ -89,10 +92,12 @@ def build_canonical_slug_index() -> dict[str, list[str]]:
     if EXISTING_MANIFEST_PATH.exists():
         existing = read_json(EXISTING_MANIFEST_PATH)
         canonical_slugs.update(existing.get("available_slugs", []))
+        canonical_slugs.update(existing.get("art_map", {}).keys())
+        canonical_slugs.update(existing.get("shiny_art_map", {}).keys())
         canonical_slugs.update(existing.get("gif_map", {}).keys())
 
     canonical_slugs.update(FORM_ROOT_DEFAULT_SLUGS.values())
-    canonical_slugs.update(EXPLICIT_GIF_ALIASES.values())
+    canonical_slugs.update(EXPLICIT_SOURCE_ALIASES.values())
 
     compact_index: dict[str, list[str]] = defaultdict(list)
     for slug in sorted(filter(None, canonical_slugs)):
@@ -100,18 +105,21 @@ def build_canonical_slug_index() -> dict[str, list[str]]:
     return compact_index
 
 
-def normalize_gif_name(gif_name: str) -> str:
-    slug = gif_name.strip().lower()
+def normalize_source_name(source_name: str) -> str:
+    slug = source_name.strip().lower()
     for src, dst in TOKEN_REPLACEMENTS.items():
         slug = slug.replace(src, dst)
     return slug
 
 
-def choose_canonical_slug(gif_basename: str, compact_index: dict[str, list[str]]) -> str:
-    normalized = normalize_gif_name(gif_basename)
+def choose_canonical_slug(source_basename: str, compact_index: dict[str, list[str]]) -> str:
+    normalized = normalize_source_name(source_basename)
 
-    if normalized in EXPLICIT_GIF_ALIASES:
-        return EXPLICIT_GIF_ALIASES[normalized]
+    if normalized in EXPLICIT_SOURCE_ALIASES:
+        return EXPLICIT_SOURCE_ALIASES[normalized]
+
+    if normalized in compact_index.get(compact_slug(normalized), []):
+        return normalized
 
     if normalized in FORM_ROOT_DEFAULT_SLUGS:
         return FORM_ROOT_DEFAULT_SLUGS[normalized]
@@ -124,28 +132,41 @@ def choose_canonical_slug(gif_basename: str, compact_index: dict[str, list[str]]
     return normalized
 
 
-def choose_gif_basename(canonical_slug: str, options: list[str]) -> str:
+def choose_source_basename(canonical_slug: str, options: list[str]) -> str:
     unique = sorted(set(options))
     if canonical_slug in unique:
         return canonical_slug
     return unique[0]
 
 
-def build_manifest() -> dict[str, object]:
-    compact_index = build_canonical_slug_index()
+def build_source_map(source_dir: Path, suffix: str, compact_index: dict[str, list[str]]) -> dict[str, str]:
     grouped: dict[str, list[str]] = defaultdict(list)
+    if not source_dir.exists():
+        return {}
 
-    for path in sorted(SPRITES_DIR.iterdir(), key=lambda item: item.name.lower()):
-        if not path.is_file() or path.suffix.lower() != ".gif":
+    for path in sorted(source_dir.iterdir(), key=lambda item: item.name.lower()):
+        if not path.is_file() or path.suffix.lower() != suffix:
             continue
         canonical_slug = choose_canonical_slug(path.stem, compact_index)
         grouped[canonical_slug].append(path.stem)
 
-    available_slugs = sorted(grouped)
-    gif_map = {slug: choose_gif_basename(slug, grouped[slug]) for slug in available_slugs}
+    return {
+        slug: choose_source_basename(slug, basenames)
+        for slug, basenames in sorted(grouped.items())
+    }
+
+
+def build_manifest() -> dict[str, object]:
+    compact_index = build_canonical_slug_index()
+    art_map = build_source_map(ART_DIR, ".png", compact_index)
+    shiny_art_map = build_source_map(SHINY_ART_DIR, ".png", compact_index)
+    gif_map = build_source_map(GIF_DIR, ".gif", compact_index)
+    available_slugs = sorted(set(art_map) | set(shiny_art_map) | set(gif_map))
     return {
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "available_slugs": available_slugs,
+        "art_map": art_map,
+        "shiny_art_map": shiny_art_map,
         "gif_map": gif_map,
     }
 
