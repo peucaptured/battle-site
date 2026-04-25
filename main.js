@@ -541,19 +541,35 @@ try {
   }
 }
 
+function clampPartyHp(rawHp, fallback = 6) {
+  const n = Number(rawHp);
+  const f = Number(fallback);
+  const value = Number.isFinite(n) ? n : (Number.isFinite(f) ? f : 6);
+  return Math.max(0, Math.min(6, Math.trunc(value)));
+}
+
 async function buildPartySnapshotFromFirestore(db, trainerName, userData, limitSheets = 120) {
   const tn = safeStr(trainerName);
   if (!tn || !db) return [];
 
   const partyRaw = (userData && Array.isArray(userData.party)) ? userData.party : [];
-  const partyEntries = _normalizePartyList(partyRaw);
-  const partyIds = partyEntries.map((entry) => entry.pid).filter(Boolean);
+  const hubPartyEntryIds = (userData && Array.isArray(userData.hub_party_entries))
+    ? userData.hub_party_entries.map((x) => safeStr(x)).filter(Boolean)
+    : [];
+  const captureRegistry = (userData && userData.hub_capture_registry && typeof userData.hub_capture_registry === "object")
+    ? userData.hub_capture_registry
+    : {};
+  const entryMeta = (userData && userData.hub_entry_meta && typeof userData.hub_entry_meta === "object")
+    ? userData.hub_entry_meta
+    : {};
+  let partyEntries = _normalizePartyList(partyRaw);
   const hubMeta = (userData && typeof userData.hub_pokemon_meta === "object" && userData.hub_pokemon_meta)
     ? userData.hub_pokemon_meta
     : {};
 
   // replica app.py: pega fichas mais recentes e casa por pokemon.id (primeira ocorrência, pois já está order desc)
   const byPid = new Map();
+  const byEntryId = new Map();
   try {
     const trainerId = safeStr(appState.selfTrainerId) || safeDocId(tn);
     const q = query(
@@ -567,15 +583,37 @@ async function buildPartySnapshotFromFirestore(db, trainerName, userData, limitS
       const sh = d.data() || {};
       const p = sh.pokemon || {};
       const pid = safeStr(p.id);
-      if (!pid || byPid.has(pid)) return;
-      byPid.set(pid, {
+      if (!pid) return;
+      const sheetEntry = {
         sheet_id: d.id,
         pokemon: { id: p.id, name: p.name, types: p.types },
         np: sh.np,
         updated_at: sh.updated_at,
-      });
+      };
+      if (!byPid.has(pid)) byPid.set(pid, sheetEntry);
+      byEntryId.set(`sheet:${d.id}`, sheetEntry);
     });
   } catch {}
+
+  if (hubPartyEntryIds.length) {
+    partyEntries = hubPartyEntryIds.map((entryId, index) => {
+      let pid = "";
+      if (entryId.startsWith("cap:")) {
+        pid = normalizePartyPid(captureRegistry?.[entryId]?.pid || partyRaw[index]);
+      } else if (entryId.startsWith("sheet:")) {
+        pid = normalizePartyPid(byEntryId.get(entryId)?.pokemon?.id || partyRaw[index]);
+      } else {
+        pid = normalizePartyPid(partyRaw[index]);
+      }
+      if (!pid) return null;
+      return _normalizePartyEntry({
+        pid,
+        entry_id: entryId,
+        party_slot: `slot_${index}`,
+        hp: clampPartyHp(entryMeta?.[entryId]?.hp, 6),
+      }, index);
+    }).filter(Boolean);
+  }
 
   return partyEntries.map((entry) => {
     const pid = entry.pid;
@@ -709,6 +747,7 @@ const appState = {
   role: "—",
   players: [],
   userProfiles: new Map(), // uid -> {profile, raw}
+  globalHpRevision: 0,
   // docs
   board: null, // public_state/state
   battle: null, // public_state/battle
@@ -997,7 +1036,10 @@ function ensureUserSubscriptions() {
         const data = snap.exists() ? (snap.data() || {}) : null;
         const cur = appState.userProfiles.get(uid) || {};
         cur.hubPokemonMeta = _extractHubPokemonMetaMap(data) || null;
+        cur.hubPokemonEntries = _extractHubPokemonEntriesMap(data) || null;
         appState.userProfiles.set(uid, cur);
+        appState.globalHpRevision = (Number(appState.globalHpRevision) || 0) + 1;
+        window.__globalHpRevision = appState.globalHpRevision;
         updateSidePanels();
         window.requestScoreboardRefresh?.();
         try { requestArenaRefresh(true); } catch {}
@@ -3464,6 +3506,17 @@ function _getPartySlotIndex(entryLike, fallbackIndex = -1) {
   return match ? Number(match[1]) : -1;
 }
 
+function _getEntryId(entryLike) {
+  if (!entryLike || typeof entryLike !== "object") return "";
+  return safeStr(
+    entryLike.entry_id
+    ?? entryLike.entryId
+    ?? entryLike.hub_entry_id
+    ?? entryLike.hubEntryId
+    ?? entryLike._entry_id
+  );
+}
+
 function _defaultFormSlugForRoot(rootSlug) {
   const root = canonicalizePokemonSlug(safeStr(rootSlug).toLowerCase());
   if (!root) return "";
@@ -3724,15 +3777,17 @@ function _normalizePartyEntry(entryLike, index = 0) {
   const pid = normalizePartyPid(entryLike?.pid ?? entryLike?.pokemon?.id ?? entryLike?.pokemon ?? entryLike);
   if (!pid) return null;
   const partySlot = _getPartySlot(entryLike, index);
+  const entryId = _getEntryId(entryLike);
   if (entryLike && typeof entryLike === "object") {
     return Object.assign({}, entryLike, {
       pid,
+      entry_id: entryId,
       party_slot: partySlot,
       _party_slot: partySlot,
       _party_slot_index: _getPartySlotIndex(partySlot, index),
     });
   }
-  return { pid, party_slot: partySlot, _party_slot: partySlot, _party_slot_index: _getPartySlotIndex(partySlot, index) };
+  return { pid, entry_id: entryId, party_slot: partySlot, _party_slot: partySlot, _party_slot_index: _getPartySlotIndex(partySlot, index) };
 }
 
 function _normalizePartyList(list) {
@@ -3885,6 +3940,9 @@ function _samePartySlot(a, b) {
 }
 
 function _matchesPartyIdentity(candidateLike, targetLike) {
+  const targetEntryId = _getEntryId(targetLike);
+  const candidateEntryId = _getEntryId(candidateLike);
+  if (targetEntryId && candidateEntryId) return targetEntryId === candidateEntryId;
   const targetSlot = _getPartySlot(targetLike);
   if (targetSlot) return _getPartySlot(candidateLike) === targetSlot;
   const targetKeys = _partyEntryLookupKeys(targetLike);
@@ -4115,6 +4173,25 @@ function _extractHubPokemonMetaMap(source) {
   return null;
 }
 
+function _extractHubPokemonEntriesMap(source) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return null;
+  if (source.hubPokemonEntries && typeof source.hubPokemonEntries === "object" && !Array.isArray(source.hubPokemonEntries)) {
+    return source.hubPokemonEntries;
+  }
+  if (source.entries && typeof source.entries === "object" && !Array.isArray(source.entries)) {
+    return source.entries;
+  }
+  if (source.pokemon_meta && typeof source.pokemon_meta === "object" && !Array.isArray(source.pokemon_meta)) {
+    const nestedMeta = _extractHubPokemonEntriesMap(source.pokemon_meta);
+    if (nestedMeta) return nestedMeta;
+  }
+  if (source.data && typeof source.data === "object" && !Array.isArray(source.data)) {
+    const nested = _extractHubPokemonEntriesMap(source.data);
+    if (nested) return nested;
+  }
+  return null;
+}
+
 function _getHubPokemonMetaForTrainer(trainerName) {
   const tn = safeStr(trainerName);
   if (!tn) return null;
@@ -4131,6 +4208,22 @@ function _getHubPokemonMetaForTrainer(trainerName) {
   return null;
 }
 
+function _getHubPokemonEntriesForTrainer(trainerName) {
+  const tn = safeStr(trainerName);
+  if (!tn) return null;
+
+  const fromUserData = _extractHubPokemonEntriesMap(_getUserDataForTrainer(tn));
+  if (fromUserData) return fromUserData;
+
+  for (const uid of getTrainerCandidateIds(tn)) {
+    const entry = appState.userProfiles?.get?.(uid);
+    const mapped = _extractHubPokemonEntriesMap(entry);
+    if (mapped) return mapped;
+  }
+
+  return null;
+}
+
 function _getHubPokemonMetaEntry(hubMeta, pidLike) {
   if (!hubMeta || typeof hubMeta !== "object") return null;
   const targetKeys = _partyEntryLookupKeys(pidLike);
@@ -4139,6 +4232,83 @@ function _getHubPokemonMetaEntry(hubMeta, pidLike) {
     if (!targetKeys.includes(pidKey(rawKey))) continue;
     if (meta && typeof meta === "object" && !Array.isArray(meta)) return meta;
   }
+  return null;
+}
+
+function _getUserEntryMetaHp(trainerName, entryId) {
+  const tn = safeStr(trainerName);
+  const eid = safeStr(entryId);
+  if (!tn || !eid) return null;
+  const data = _getUserDataForTrainer(tn);
+  const meta = data?.hub_entry_meta;
+  const hp = meta?.[eid]?.hp;
+  return hp == null ? null : clampPartyHp(hp, 6);
+}
+
+function _entryPidMatches(entryPayload, pidLike) {
+  if (!entryPayload || typeof entryPayload !== "object") return false;
+  const keys = _partyEntryLookupKeys(pidLike);
+  if (!keys.length) return false;
+  return keys.includes(pidKey(entryPayload.pid ?? entryPayload.pokemon?.id));
+}
+
+function _resolvePartyEntryIdentity(ownerName, pidLike) {
+  const pid = normalizePartyPid(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
+  let entryId = _getEntryId(pidLike);
+  let partySlot = _getPartySlot(pidLike);
+  let partyEntry = null;
+  const party = getPartyForTrainer(ownerName);
+
+  if (entryId) {
+    partyEntry = party.find((entry) => _getEntryId(entry) === entryId) || null;
+    if (!partySlot && partyEntry) partySlot = _getPartySlot(partyEntry);
+  }
+
+  if (!entryId && partySlot) {
+    partyEntry = party.find((entry) => _getPartySlot(entry) === partySlot) || null;
+    entryId = _getEntryId(partyEntry);
+  }
+
+  if (!entryId && pid) {
+    const matches = party.filter((entry) => _matchesPartyIdentity(entry, { pid }));
+    if (matches.length === 1) {
+      partyEntry = matches[0];
+      entryId = _getEntryId(partyEntry);
+      partySlot = partySlot || _getPartySlot(partyEntry);
+    }
+  }
+
+  return {
+    pid: pid || normalizePartyPid(partyEntry?.pid ?? partyEntry?.pokemon?.id ?? pidLike),
+    entryId: safeStr(entryId),
+    partySlot: safeStr(partySlot),
+    partyEntry,
+  };
+}
+
+function _findGlobalEntryByPidUnambiguous(ownerName, pidLike) {
+  const entries = _getHubPokemonEntriesForTrainer(ownerName);
+  if (!entries || typeof entries !== "object") return null;
+  const matches = [];
+  for (const [entryId, payload] of Object.entries(entries)) {
+    if (_entryPidMatches(payload, pidLike)) matches.push([safeStr(entryId), payload]);
+  }
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function _getGlobalEntryHp(ownerName, pidLike) {
+  const resolved = _resolvePartyEntryIdentity(ownerName, pidLike);
+  const entries = _getHubPokemonEntriesForTrainer(ownerName);
+  if (resolved.entryId && entries?.[resolved.entryId]?.hp != null) {
+    return clampPartyHp(entries[resolved.entryId].hp, 6);
+  }
+  if (resolved.entryId) {
+    const localHp = _getUserEntryMetaHp(ownerName, resolved.entryId);
+    if (localHp != null) return localHp;
+  }
+  if (resolved.partyEntry?.hp != null) return clampPartyHp(resolved.partyEntry.hp, 6);
+  const unambiguous = _findGlobalEntryByPidUnambiguous(ownerName, resolved.pid || pidLike);
+  if (unambiguous?.[1]?.hp != null) return clampPartyHp(unambiguous[1].hp, 6);
   return null;
 }
 
@@ -5127,15 +5297,15 @@ function renderPartyCard(it, ownerName) {
   const partySlot = _getPartySlot(it);
   const identity = partySlot ? { ...(it && typeof it === "object" ? it : {}), pid, party_slot: partySlot } : (it || pid);
   const name = displayNameFromPid(identity, { owner: ownerName }) || (pid.startsWith("EXT:") ? pid.slice(4) : `PID ${pid}`);
-  const _psPartyCard = _getPartyStateEntry(ownerName, pid) || {};
+  const _psPartyCard = _getPartyStateEntry(ownerName, identity) || {};
   const spriteUrl = getSpriteUrlForPiece({ owner: ownerName, pid, party_slot: partySlot }, { type: "art", shiny: !!_psPartyCard.shiny });
   const mine = safeStr(ownerName) && safeStr(ownerName) === safeStr(appState.by);
   const p = findBoardPieceForTrainer(ownerName, identity);
   const onMap = !!p?.id;
   const isExt = pid.startsWith("EXT:");
   const megaState = _getBattleMegaStateForTrainerPid(ownerName, identity);
-  const ps = _getPartyStateEntry(ownerName, pid) || {};
-  const hp = (ps.hp != null ? Number(ps.hp) : 6);
+  const ps = _getPartyStateEntry(ownerName, identity) || {};
+  const hp = getPartyHp(ownerName, identity);
   const maxHp = 6;
   const cond = Array.isArray(ps.cond) ? ps.cond : [];
   const hpUi = getHpUiState(hp);
@@ -5234,25 +5404,65 @@ async function updateStatBoost(ownerName, pid, stat, delta) {
 }
 // ────────────────────────────────────────────────────────────────────────────
 
-async function updatePartyStateHp(ownerName, pid, hp) {
-  const db = currentDb;
-  const rid = currentRid;
+function _trainerUidForGlobalHp(ownerName) {
   const trainer = safeStr(ownerName);
-  const monPid = safeStr(pid);
-  if (!db || !rid || !trainer || !monPid) return;
-  const newHp = Math.max(0, Math.min(6, Number(hp) || 0));
+  if (!trainer) return "";
+  const candidates = getTrainerCandidateIds(trainer);
+  for (const uid of candidates) {
+    const entry = appState.userProfiles?.get?.(uid);
+    if (entry?.hubPokemonEntries) return uid;
+  }
+  return safeDocId(trainer);
+}
 
-  const ref = doc(db, "rooms", rid, "public_state", "party_states");
+function _touchLocalGlobalHpCache(ownerName, entryId, pid, hp) {
+  const trainer = safeStr(ownerName);
+  const eid = safeStr(entryId);
+  if (!trainer || !eid) return;
+  const payload = { entry_id: eid, pid: safeStr(pid), hp: clampPartyHp(hp, 6) };
+  const candidates = getTrainerCandidateIds(trainer);
+  if (!candidates.includes(safeDocId(trainer))) candidates.push(safeDocId(trainer));
+  for (const uid of candidates) {
+    const cur = appState.userProfiles.get(uid) || {};
+    const entries = cur.hubPokemonEntries && typeof cur.hubPokemonEntries === "object" ? cur.hubPokemonEntries : {};
+    cur.hubPokemonEntries = { ...entries, [eid]: { ...(entries[eid] || {}), ...payload } };
+    appState.userProfiles.set(uid, cur);
+  }
+  appState.globalHpRevision = (Number(appState.globalHpRevision) || 0) + 1;
+  window.__globalHpRevision = appState.globalHpRevision;
+}
+
+async function updatePartyStateHp(ownerName, pidLike, hp) {
+  const db = currentDb;
+  const trainer = safeStr(ownerName);
+  if (!db || !trainer) return;
+  if (safeStr(appState.by) !== trainer) {
+    setStatus("warn", "apenas o dono do Pokemon pode alterar o HP");
+    return;
+  }
+  const resolved = _resolvePartyEntryIdentity(trainer, pidLike);
+  const monPid = safeStr(resolved.pid || pidLike?.pid || pidLike?.pokemon?.id || pidLike);
+  const entryId = safeStr(resolved.entryId);
+  if (!monPid || !entryId) {
+    setStatus("err", "HP global indisponivel: entry_id ausente para este Pokemon");
+    return;
+  }
+  const newHp = clampPartyHp(hp, 6);
+  const uid = _trainerUidForGlobalHp(trainer);
+  const ref = doc(db, "users", uid, "trainer_hub", "pokemon_meta");
   const patch = {
-    [trainer]: {
-      [monPid]: { hp: newHp },
+    entries: {
+      [entryId]: {
+        entry_id: entryId,
+        pid: monPid,
+        hp: newHp,
+        hpUpdatedAt: serverTimestamp(),
+      },
     },
-    updated_at: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   };
   await setDoc(ref, patch, { merge: true });
-  if (!_partyStates[trainer]) _partyStates[trainer] = {};
-  const cur = _partyStates[trainer][monPid] || {};
-  _partyStates[trainer][monPid] = { ...cur, hp: newHp };
+  _touchLocalGlobalHpCache(trainer, entryId, monPid, newHp);
   try { renderSheetsTab(); } catch {}
   try { updateSidePanels(); } catch {}
   try { window.requestScoreboardRefresh?.(); } catch {}
@@ -5510,12 +5720,12 @@ function renderPartyWindow() {
     const captureBall = getCaptureBallForTrainerPid(by, entry || pid);
     const captureBallStyle = _cssVarStyleAttr(getCaptureBallCssVarMap(captureBall));
     const captureBallLabel = safeStr(captureBall?.name || "Poké Ball") || "Poké Ball";
-    const hp = getPartyHp(by, pid);
+    const hp = getPartyHp(by, identity);
     const ko = hp <= 0;
     const onBoard = isPokemonAlreadyOnBoard(by, identity);
     const placing = (partySlot && placingSlot === partySlot) || (!partySlot && placingPid && placingPid === pid);
     const disabled = ko && !onBoard;
-    return `<button type="button" class="party-slot ${ko ? 'ko' : ''} ${placing ? 'placing' : ''}" data-slot="${idx}" data-pid="${escapeAttr(pid)}" data-party-slot="${escapeAttr(partySlot)}" data-capture-ball="${escapeAttr(captureBall?.api_name || DEFAULT_CAPTURE_BALL_API_NAME)}" title="${escapeAttr(captureBallLabel)}" style="${escapeAttr(captureBallStyle)}" ${disabled ? 'disabled' : ''}>
+    return `<button type="button" class="party-slot ${ko ? 'ko' : ''} ${placing ? 'placing' : ''}" data-slot="${idx}" data-pid="${escapeAttr(pid)}" data-entry-id="${escapeAttr(_getEntryId(entry))}" data-party-slot="${escapeAttr(partySlot)}" data-capture-ball="${escapeAttr(captureBall?.api_name || DEFAULT_CAPTURE_BALL_API_NAME)}" title="${escapeAttr(captureBallLabel)}" style="${escapeAttr(captureBallStyle)}" ${disabled ? 'disabled' : ''}>
       ${renderCaptureBallBackdropHtml(captureBall)}
       ${renderHeldItemBadgeHtml(heldItem, { className: "held-item-anchor-slot", size: "sm" })}
       ${sprite ? `<img class="party-slot-sprite" src="${escapeAttr(sprite)}" alt="${escapeAttr(pid)}" loading="lazy" onerror="this.style.display='none'"/>` : ''}
@@ -5528,8 +5738,9 @@ function renderPartyWindow() {
     const btn = ev.target?.closest?.(".party-slot[data-pid]");
     if (!btn) return;
     const pid = safeStr(btn.dataset.pid);
+    const entryId = safeStr(btn.dataset.entryId);
     const partySlot = _normalizePartySlot(btn.dataset.partySlot);
-    const identity = partySlot ? { pid, party_slot: partySlot } : { pid };
+    const identity = { pid, entry_id: entryId, party_slot: partySlot || "" };
     if (!pid) return;
 
     const ownerName = safeStr(appState.by);
@@ -6201,12 +6412,12 @@ function renderInspectorCard() {
   const canSeeIdentity = isMine || revealed;
   const ownerLabel = humanizeInternalLabel(owner) || owner || "-";
   const name = canSeeIdentity ? displayNameFromPiece(p, { allowHiddenIdentity: true, isMine }) : "???";
-  const heldItem = canSeeIdentity ? getHeldItemForTrainerPid(owner, pid) : null;
-  const _psInspector = _getPartyStateEntry(owner, pid) || {};
+  const heldItem = canSeeIdentity ? getHeldItemForTrainerPid(owner, p) : null;
+  const _psInspector = _getPartyStateEntry(owner, p) || {};
   const spriteUrl = getSpriteUrlForPiece(p, { type: "art", shiny: !!_psInspector.shiny });
   const spriteFallbackUrl = getSpriteFallbackUrlForPiece(p);
 
-  const hp = Number(getPartyHp(owner, pid) ?? 0);
+  const hp = Number(getPartyHp(owner, p) ?? 0);
   const hpMax = 6;
   const hpUi = getHpUiState(hp);
   const hpPct = hpUi.pct;
@@ -6386,7 +6597,7 @@ const sheetHasSpeed = isMine ? [
     if (!Number.isFinite(newHp)) return;
     // clicking active segment (= current hp) decrements by 1 (toggle off)
     const nextHp = newHp === hp ? Math.max(0, hp - 1) : newHp;
-    await updatePartyStateHp(owner, pid, nextHp);
+    await updatePartyStateHp(owner, p, nextHp);
   });
 
   _bindMegaControlButtons(wrap);
@@ -8390,7 +8601,8 @@ function clearPokemonPlacingMode() {
 function startPlacePokemon(pidLike, options = {}) {
   const monPid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
   const partySlot = _getPartySlot(options?.party_slot ?? options?.partySlot ?? pidLike);
-  const identity = partySlot ? { pid: monPid, party_slot: partySlot } : { pid: monPid };
+  const entryId = _getEntryId(pidLike);
+  const identity = { pid: monPid, party_slot: partySlot || "", entry_id: entryId || "" };
   if (!monPid) return;
   armedPokemonId = monPid;
   armedPokemonSlot = partySlot;
@@ -8410,7 +8622,7 @@ function startPlacePokemon(pidLike, options = {}) {
     setStatus("warn", "esse pokémon já está no campo");
     return;
   }
-  appState.placing = { mode: "pokemon", trainer: safeStr(appState.by), pid: monPid, party_slot: partySlot };
+  appState.placing = { mode: "pokemon", trainer: safeStr(appState.by), pid: monPid, party_slot: partySlot, entry_id: entryId || "" };
   appState.placingPid = monPid;
   setStatus("ok", `Posicionamento ativo: ${displayNameFromPid(identity, { owner: appState.by })}. Clique em um tile vazio no mapa.`);
   updateSidePanels();
@@ -8419,7 +8631,8 @@ function startPlacePokemon(pidLike, options = {}) {
 async function placePokemonOnBoardAt(pidLike, row, col) {
   const monPid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
   const partySlot = _getPartySlot(pidLike) || getPlacingPokemonPartySlot();
-  const identity = partySlot ? { pid: monPid, party_slot: partySlot } : { pid: monPid };
+  const entryId = _getEntryId(pidLike) || safeStr(appState.placing?.entry_id);
+  const identity = { pid: monPid, party_slot: partySlot || "", entry_id: entryId || "" };
   const by = safeStr(appState.by);
   if (!monPid || !by) return;
 
@@ -8446,7 +8659,7 @@ async function placePokemonOnBoardAt(pidLike, row, col) {
   }
 
   // Pré-validação de stacking com size-rules
-  const fakePiece = { id: "__placing__", pid: monPid, party_slot: partySlot, sizeCategory };
+  const fakePiece = { id: "__placing__", pid: monPid, entry_id: entryId || null, party_slot: partySlot, sizeCategory };
   const preCheck = canPieceLandOn(fakePiece, r, c, appState.pieces || []);
   if (!preCheck.allowed) {
     setStatus("err", `tile ocupado: ${preCheck.reason}`);
@@ -8465,6 +8678,7 @@ async function placePokemonOnBoardAt(pidLike, row, col) {
       id: newId,
       owner: by,
       pid: monPid,
+      entry_id: entryId || null,
       party_slot: partySlot || null,
       row: r,
       col: c,
@@ -8482,7 +8696,7 @@ async function placePokemonOnBoardAt(pidLike, row, col) {
       const seen = Array.isArray(data?.seen) ? data.seen : [];
 
       // Revalida dentro da transaction com size-rules (evita corrida)
-      const txFake = { id: "__placing__", pid: monPid, party_slot: partySlot, sizeCategory };
+      const txFake = { id: "__placing__", pid: monPid, entry_id: entryId || null, party_slot: partySlot, sizeCategory };
       const txCheck = canPieceLandOn(txFake, r, c, pieces);
       if (!txCheck.allowed) throw new Error(txCheck.reason);
 
@@ -8534,9 +8748,8 @@ function isTileOccupied(row, col) {
 }
 
 function getPartyHp(ownerName, pidLike) {
-  const pid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
-  const ps = ((_partyStates && _partyStates[ownerName]) ? _partyStates[ownerName] : {})[pid] || {};
-  return ps.hp != null ? Number(ps.hp) : 6;
+  const globalHp = _getGlobalEntryHp(ownerName, pidLike);
+  return globalHp == null ? 6 : clampPartyHp(globalHp, 6);
 }
 
 function isPokemonKo(ownerName, pidLike) {
@@ -9156,7 +9369,7 @@ function openPieceContextMenu(piece, x, y) {
   const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
   const budget = getPieceMovementBudget(piece);
   const freeMove = isPieceFreeMovementEnabled(id);
-  const hpValue = getPartyHp(safeStr(piece?.owner), safeStr(piece?.pid));
+  const hpValue = getPartyHp(safeStr(piece?.owner), piece);
   const movementText = `Deslocamento • ${budget.speed} SPD • ${budget.maxTiles % 1 ? "1/2" : budget.maxTiles} quad.`;
   if (pieceContextSummary) {
     pieceContextSummary.textContent = `${name} • ${ownerLabel} • HP ${hpValue}/6`;
@@ -9291,7 +9504,7 @@ handlePieceMenuAction = async function(action, pieceId) {
       return;
     }
     const delta = action === "hp-up" ? 1 : -1;
-    await updatePartyStateHp(owner, pid, getPartyHp(owner, pid) + delta);
+    await updatePartyStateHp(owner, piece, getPartyHp(owner, piece) + delta);
     return;
   }
   if (action === "mega") {
@@ -9856,6 +10069,8 @@ function renderArenaDom() {
     token.style.top = `${tokenTop}px`;
     token.style.width = `${tokenWidth}px`;
     token.style.height = `${tokenHeight}px`;
+    const tokenHpValue = safeStr(p?.kind) !== "trainer" ? getPartyHp(safeStr(p?.owner), p) : 6;
+    if (tokenHpValue <= 0) token.classList.add("hp-ko");
 
     if (spriteUrl) {
       const img = document.createElement("img");
@@ -9887,7 +10102,7 @@ function renderArenaDom() {
     }
     token.appendChild(labelEl);
     if (safeStr(p?.kind) !== "trainer") {
-      const hpUi = getHpUiState(getPartyHp(safeStr(p?.owner), safeStr(p?.pid)));
+      const hpUi = getHpUiState(tokenHpValue);
       const hpTrack = document.createElement("div");
       hpTrack.className = "token-hp";
       const hpFill = document.createElement("div");
@@ -12012,6 +12227,7 @@ drawTraps(ctx, ox, oy, tile);
     const isSel = safeStr(appState.selectedPieceId) && safeStr(appState.selectedPieceId) === id;
     const isMine = _by && owner === _by;
     const megaFx = getMegaEvolutionFxState(owner, p?.pid);
+    const pieceHpValue = safeStr(p?.kind) !== "trainer" ? getPartyHp(owner, p) : 6;
 
     const spritePlacement = buildPieceSpritePlacement(p, visiblePieces, { ox, oy, tile, sortY: _item.sortY });
     if (!spritePlacement) continue;
@@ -12119,6 +12335,7 @@ drawTraps(ctx, ox, oy, tile);
       applyPieceConditionFxToElement(entry.el, p);
       syncPieceEnteringClass(entry.el, id, frameNow);
       entry.el.classList.toggle("mega-evolving", !!megaFx);
+      entry.el.classList.toggle("hp-ko", pieceHpValue <= 0);
     } else {
       // fallback glyph
       ctx.fillStyle = "rgba(226,232,240,0.85)";
@@ -12151,7 +12368,7 @@ drawTraps(ctx, ox, oy, tile);
     }
 
     if (safeStr(p?.kind) !== "trainer") {
-      const hpUi = getHpUiState(getPartyHp(owner, safeStr(p?.pid)));
+      const hpUi = getHpUiState(pieceHpValue);
       const barHeight = sizeCategory === SIZE_CATEGORIES.tiny ? 3 : Math.max(4, Math.round(tile * 0.07));
       const barWidth = Math.max(12, Math.min(tile * tileW - 8, spriteW));
       const barX = x + Math.max(4, (tile * tileW - barWidth) / 2);
@@ -14495,8 +14712,19 @@ try {
 // ─── Expor globais para patches externos (panels-patch, combat-patch, etc.) ───
 // ES Modules não expõem nada no window por padrão — fazemos isso manualmente.
 window.appState           = appState;
+window.__globalHpRevision = appState.globalHpRevision || 0;
 window.updateSidePanels   = updateSidePanels;
 window.getPartyForTrainer = getPartyForTrainer;
+window.getPartyHp = getPartyHp;
+window.getGlobalHpSnapshot = () => {
+  const out = {};
+  try {
+    for (const [uid, profile] of appState.userProfiles.entries()) {
+      if (profile?.hubPokemonEntries) out[uid] = profile.hubPokemonEntries;
+    }
+  } catch {}
+  return out;
+};
 window.getHeldItemForTrainerPid = getHeldItemForTrainerPid;
 window.getResolvedTypesForTrainerPid = getResolvedTypesForTrainerPid;
 window.getResolvedAbilitiesForTrainerPid = getResolvedAbilitiesForTrainerPid;

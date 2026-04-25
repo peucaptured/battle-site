@@ -1236,6 +1236,12 @@ canvas#zone_draw_canvas{position:absolute;inset:0;width:100%;height:100%;display
       image-rendering:auto;
       filter: drop-shadow(0 4px 6px rgba(2,6,23,0.35));
     }
+    .spr-overlay-img.hp-ko,
+    .arena-dom .token.hp-ko .token-sprite,
+    .party-slot.ko .party-slot-sprite,
+    .pvp-party-card.pvp-fainted .pvp-sprite{
+      filter: grayscale(100%) opacity(.64) drop-shadow(0 3px 5px rgba(2,6,23,0.32)) !important;
+    }
       .arena-dom .token-label{
         display:none;
         position:absolute;

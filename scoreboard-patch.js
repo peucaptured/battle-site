@@ -513,7 +513,7 @@ function buildSlots(player) {
       );
       const wasSeen = seenList.some((seenPid) => normalizePartyPid(seenPid) === normalizePartyPid(pid));
       const revealed = piece ? (!!piece.revealed || wasSeen) : wasSeen;
-      const hp = ps.hp != null ? Number(ps.hp) : null;
+      const hp = typeof window.getPartyHp === "function" ? Number(window.getPartyHp(tn, identity)) : null;
       const ko = hp != null && hp <= 0;
       const spriteUrl = getTrainerPidSpriteUrl(tn, identity, { type: "art", shiny: !!ps.shiny }) || getSpriteUrl(pid, { type: "art", shiny: !!ps.shiny });
       const heldItem = typeof window.getHeldItemForTrainerPid === "function"
@@ -656,6 +656,8 @@ function computeHash() {
     JSON.stringify((as.pieces || []).map(p => `${p?.owner}:${p?.pid}:${p?.party_slot || ""}:${p?.revealed}:${p?.status}`)),
     JSON.stringify(as.board?.seen || []),
     JSON.stringify(_partyStates),
+    safeStr(window.__globalHpRevision || ""),
+    JSON.stringify(typeof window.getGlobalHpSnapshot === "function" ? window.getGlobalHpSnapshot() : null),
     safeStr(as.placingTrainer ? "pt" : ""),
     JSON.stringify(as.battle?.turn_state || null),
   ];
