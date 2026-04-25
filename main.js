@@ -481,7 +481,7 @@ function loadLoginCache() {
   }
 }
 
-function saveLoginCache(name, userData, uid, customToken) {
+function saveLoginCache(name, userData, uid, customToken, authUid = "") {
   try {
     localStorage.setItem(
       LOGIN_CACHE_KEY,
@@ -489,6 +489,7 @@ function saveLoginCache(name, userData, uid, customToken) {
         name,
         userData,
         uid: uid || null,
+        authUid: authUid || null,
         customToken: customToken || null,
         savedAt: Date.now(),
       })
@@ -498,6 +499,19 @@ function saveLoginCache(name, userData, uid, customToken) {
 
 function clearLoginCache() {
   try { localStorage.removeItem(LOGIN_CACHE_KEY); } catch {}
+}
+
+function getFirebaseAuthUid(auth = null) {
+  try {
+    const activeAuth = auth || (getApps().length ? getAuth(getApps()[0]) : null);
+    return safeStr(activeAuth?.currentUser?.uid || "");
+  } catch {
+    return "";
+  }
+}
+
+function getSelfFirebaseAuthUid(auth = null) {
+  return getFirebaseAuthUid(auth) || safeStr(appState.selfAuthUid || "");
 }
 
 async function sheetAuthenticateUser(name, password) {
@@ -651,6 +665,7 @@ async function ensureLoggedInIfNeeded(db, auth, typedName, typedPassword = "") {
     appState.selfPartySnapshot = null;
     appState.selfAuthStatus = null;
     appState.selfTrainerId = null;
+    appState.selfAuthUid = null;
     return { ok: true, name: "" };
   }
 
@@ -668,20 +683,34 @@ async function ensureLoggedInIfNeeded(db, auth, typedName, typedPassword = "") {
   if (cache && safeStr(cache.name) === tn && cache.userData) {
     // tenta restaurar Auth sem pedir senha
     const tok = safeStr(cache.customToken);
+    let cacheAuthOk = !auth;
     if (auth && tok) {
       try {
-        await signInWithCustomToken(auth, tok);
-        appState.selfTrainerId = safeStr(cache.uid || auth.currentUser?.uid || "");
+        const cred = await signInWithCustomToken(auth, tok);
+        const authUid = safeStr(cred?.user?.uid || getFirebaseAuthUid(auth));
+        appState.selfAuthUid = authUid || safeStr(cache.authUid || "");
+        appState.selfTrainerId = safeStr(cache.uid || authUid || "");
+        cacheAuthOk = !!authUid;
+        if (authUid && authUid !== safeStr(cache.authUid || "")) {
+          saveLoginCache(tn, cache.userData, appState.selfTrainerId, tok, authUid);
+        }
       } catch (e) {
         // token inválido/expirado -> força relogar
         clearLoginCache();
       }
+    } else if (auth) {
+      const currentUid = getFirebaseAuthUid(auth);
+      const cachedUid = safeStr(cache.authUid || cache.uid || "");
+      cacheAuthOk = !!currentUid && (!cachedUid || currentUid === cachedUid);
     }
   
     // se não conseguiu restaurar auth, cai pra prompt de senha abaixo
-    if (auth && !auth.currentUser) {
+    if (auth && !cacheAuthOk) {
       // continua fluxo normal (vai pedir senha)
     } else {
+      const authUid = getFirebaseAuthUid(auth);
+      appState.selfAuthUid = authUid || safeStr(cache.authUid || "");
+      appState.selfTrainerId = safeStr(appState.selfTrainerId || cache.uid || authUid || "");
       appState.selfUserData = cache.userData;
       appState.selfAuthStatus = "OK";
       if (db) appState.selfPartySnapshot = await buildPartySnapshotFromFirestore(db, tn, appState.selfUserData);
@@ -704,6 +733,7 @@ async function ensureLoggedInIfNeeded(db, auth, typedName, typedPassword = "") {
     appState.selfUserData = null;
     appState.selfPartySnapshot = null;
     appState.selfTrainerId = null;
+    appState.selfAuthUid = null;
     clearLoginCache();
     return { ok: false, status: result.status, message: result.message };
   }
@@ -714,19 +744,22 @@ async function ensureLoggedInIfNeeded(db, auth, typedName, typedPassword = "") {
     appState.selfUserData = null;
     appState.selfPartySnapshot = null;
     appState.selfTrainerId = null;
+    appState.selfAuthUid = null;
     clearLoginCache();
     return { ok: false, status: "ERROR", message: "endpoint não retornou customToken (Auth obrigatório para rules B)" };
   }
   
-  await signInWithCustomToken(auth, token);
-  appState.selfTrainerId = safeStr(result.uid || auth.currentUser?.uid || "");
+  const cred = await signInWithCustomToken(auth, token);
+  const authUid = safeStr(cred?.user?.uid || getFirebaseAuthUid(auth));
+  appState.selfAuthUid = authUid;
+  appState.selfTrainerId = safeStr(result.uid || authUid || "");
   
   // segue igual
   appState.selfUserData = result.data || {};
   if (db) appState.selfPartySnapshot = await buildPartySnapshotFromFirestore(db, tn, appState.selfUserData);
   
   // cache agora guarda uid+token também (pra não pedir senha toda hora)
-  saveLoginCache(tn, appState.selfUserData, appState.selfTrainerId, token);
+  saveLoginCache(tn, appState.selfUserData, appState.selfTrainerId, token, authUid);
   
   return { ok: true, name: tn };
 }
@@ -744,6 +777,8 @@ const appState = {
   selfPartySnapshot: null, // snapshot da party com ficha mais recente
   selfTrainerRpgSheet: null, // ficha RPG do treinador logado
   selfAuthStatus: null,    // "OK" | "NOT_FOUND" | "WRONG_PASS" | "ERROR"
+  selfTrainerId: null,
+  selfAuthUid: null,
   role: "—",
   players: [],
   userProfiles: new Map(), // uid -> {profile, raw}
@@ -971,6 +1006,7 @@ function ensureUserSubscriptions() {
     // Cloud Functions e sync HTTP usam chave lowercase — assina também essa variante
     addWanted(safeIdLower(by), by);
     addWanted(appState.selfTrainerId, by);
+    addWanted(appState.selfAuthUid, by);
   }
   for (const p of (appState.players || [])) {
     const tn = safeStr(p?.trainer_name);
@@ -1214,6 +1250,7 @@ function getTrainerCandidateIds(trainerName) {
 
   if (_trainerLookupKey(tn) === _trainerLookupKey(appState.by)) {
     ids.add(safeStr(appState.selfTrainerId));
+    ids.add(safeStr(appState.selfAuthUid));
   }
 
   const player = (appState.players || []).find((p) => safeStr(p?.trainer_name) === tn);
@@ -2593,6 +2630,8 @@ function cleanup() {
   appState.selfUserData = null;
   appState.selfPartySnapshot = null;
   appState.selfAuthStatus = null;
+  appState.selfTrainerId = null;
+  appState.selfAuthUid = null;
   appState.renderedLogKeys = new Set();
   appState.placing = null;
   appState.placingPid = null;
@@ -3928,6 +3967,8 @@ function _partyEntryLookupValues(entryLike) {
 function _partyEntryLookupKeys(entryLike) {
   const out = [];
   if (entryLike && typeof entryLike === "object") {
+    _pushPartyLookupKey(out, _getEntryId(entryLike));
+    _pushPartyLookupKey(out, _getPartySlot(entryLike));
     _pushPartyLookupKey(out, entryLike?.pid);
     _pushPartyLookupKey(out, entryLike?.pokemon?.id);
     _pushPartyLookupKey(out, entryLike?.pokemon?.name);
@@ -4106,6 +4147,7 @@ function _getUserDataForTrainer(trainerName) {
   const uidCandidates = new Set([safeDocId(tn), safeIdLower(tn)]);
   if (_trainerLookupKey(tn) === _trainerLookupKey(appState.by)) {
     uidCandidates.add(safeStr(appState.selfTrainerId));
+    uidCandidates.add(safeStr(appState.selfAuthUid));
   }
   for (const player of (appState.players || [])) {
     if (_trainerLookupKey(player?.trainer_name) !== _trainerLookupKey(tn)) continue;
@@ -5415,8 +5457,8 @@ async function updateStatBoost(ownerName, pid, stat, delta) {
 function _trainerUidForGlobalHp(ownerName) {
   const trainer = safeStr(ownerName);
   if (!trainer) return "";
-  if (_trainerLookupKey(trainer) === _trainerLookupKey(appState.by) && safeStr(appState.selfTrainerId)) {
-    return safeStr(appState.selfTrainerId);
+  if (_trainerLookupKey(trainer) === _trainerLookupKey(appState.by)) {
+    return getSelfFirebaseAuthUid() || safeStr(appState.selfTrainerId);
   }
   const candidates = getTrainerCandidateIds(trainer);
   for (const uid of candidates) {
@@ -5443,6 +5485,41 @@ function _touchLocalGlobalHpCache(ownerName, entryId, pid, hp) {
   window.__globalHpRevision = appState.globalHpRevision;
 }
 
+function _touchLocalRoomHpCache(ownerName, stateKey, hp) {
+  const trainer = safeStr(ownerName);
+  const key = safeStr(stateKey);
+  if (!trainer || !key) return;
+  const root = (_partyStates && typeof _partyStates === "object") ? _partyStates : {};
+  const bucket = root[trainer] && typeof root[trainer] === "object" ? root[trainer] : {};
+  root[trainer] = { ...bucket, [key]: { ...(bucket[key] || {}), hp: clampPartyHp(hp, 6) } };
+  _partyStates = root;
+  try { window._partyStates = _partyStates; } catch {}
+}
+
+function _roomPartyStateHpKey(resolved) {
+  return safeStr(resolved?.entryId || resolved?.partySlot || resolved?.pid);
+}
+
+async function _writeRoomPartyStateHp(ownerName, resolved, hp) {
+  const db = currentDb;
+  const rid = currentRid;
+  const trainer = safeStr(ownerName);
+  const stateKey = _roomPartyStateHpKey(resolved);
+  if (!db || !rid || !trainer || !stateKey) return false;
+
+  const payload = {
+    hp: clampPartyHp(hp, 6),
+  };
+  if (safeStr(resolved?.pid)) payload.pid = safeStr(resolved.pid);
+  if (safeStr(resolved?.entryId)) payload.entry_id = safeStr(resolved.entryId);
+  if (safeStr(resolved?.partySlot)) payload.party_slot = safeStr(resolved.partySlot);
+
+  const psRef = doc(db, "rooms", rid, "public_state", "party_states");
+  await setDoc(psRef, { [trainer]: { [stateKey]: payload } }, { merge: true });
+  _touchLocalRoomHpCache(trainer, stateKey, payload.hp);
+  return true;
+}
+
 async function updatePartyStateHp(ownerName, pidLike, hp) {
   const db = currentDb;
   const trainer = safeStr(ownerName);
@@ -5460,6 +5537,22 @@ async function updatePartyStateHp(ownerName, pidLike, hp) {
   }
   const newHp = clampPartyHp(hp, 6);
   const uid = _trainerUidForGlobalHp(trainer);
+  if (!uid) {
+    try {
+      if (await _writeRoomPartyStateHp(trainer, resolved, newHp)) {
+        setStatus("warn", `HP atualizado nesta sala: ${newHp}/6 (login Firebase sem UID global)`);
+        try { renderSheetsTab(); } catch {}
+        try { updateSidePanels(); } catch {}
+        try { window.requestScoreboardRefresh?.(); } catch {}
+        try { requestArenaRefresh(true); } catch {}
+        return;
+      }
+    } catch (fallbackErr) {
+      console.warn("[hp-room] falha ao salvar HP na sala:", fallbackErr);
+    }
+    setStatus("err", "HP global indisponivel: login Firebase sem UID");
+    return;
+  }
   const ref = doc(db, "users", uid, "trainer_hub", "pokemon_meta");
   const patch = {
     entries: {
@@ -5475,11 +5568,27 @@ async function updatePartyStateHp(ownerName, pidLike, hp) {
   try {
     await setDoc(ref, patch, { merge: true });
   } catch (e) {
+    try {
+      if (await _writeRoomPartyStateHp(trainer, resolved, newHp)) {
+        console.warn("[hp-global] falha ao salvar HP global; usando HP da sala:", e);
+        setStatus("warn", `HP atualizado nesta sala: ${newHp}/6 (global bloqueado pelas regras)`);
+        try { renderSheetsTab(); } catch {}
+        try { updateSidePanels(); } catch {}
+        try { window.requestScoreboardRefresh?.(); } catch {}
+        try { requestArenaRefresh(true); } catch {}
+        return;
+      }
+    } catch (fallbackErr) {
+      console.warn("[hp-room] falha ao salvar HP na sala:", fallbackErr);
+    }
     console.error("[hp-global] falha ao salvar HP:", e);
     setStatus("err", `falha ao salvar HP global: ${e?.message || e?.code || "erro desconhecido"}`);
     return;
   }
   _touchLocalGlobalHpCache(trainer, entryId, monPid, newHp);
+  try { await _writeRoomPartyStateHp(trainer, resolved, newHp); } catch (roomErr) {
+    console.warn("[hp-room] falha ao espelhar HP na sala:", roomErr);
+  }
   setStatus("ok", `HP atualizado: ${newHp}/6`);
   try { renderSheetsTab(); } catch {}
   try { updateSidePanels(); } catch {}
@@ -7926,17 +8035,20 @@ function _getPartyStateBucket(trainerName) {
   return _getTrainerBucket(_partyStates, trainerName);
 }
 
-function _getPartyStateEntry(trainerName, pidLike) {
+function _getRoomPartyStateEntry(trainerName, pidLike) {
   const targetKeys = _partyEntryLookupKeys(pidLike);
   if (!targetKeys.length) return null;
   const bucket = _getPartyStateBucket(trainerName);
-  let roomState = null;
   for (const [rawKey, entry] of Object.entries(bucket || {})) {
     if (targetKeys.includes(pidKey(rawKey))) {
-      roomState = entry || {};
-      break;
+      return entry || {};
     }
   }
+  return null;
+}
+
+function _getPartyStateEntry(trainerName, pidLike) {
+  const roomState = _getRoomPartyStateEntry(trainerName, pidLike);
   const globalHp = _getGlobalEntryHp(trainerName, pidLike);
   if (globalHp != null) return { ...(roomState || {}), hp: globalHp };
   return roomState;
@@ -8773,7 +8885,9 @@ function isTileOccupied(row, col) {
 
 function getPartyHp(ownerName, pidLike) {
   const globalHp = _getGlobalEntryHp(ownerName, pidLike);
-  return globalHp == null ? 6 : clampPartyHp(globalHp, 6);
+  if (globalHp != null) return clampPartyHp(globalHp, 6);
+  const roomHp = _getRoomPartyStateEntry(ownerName, pidLike)?.hp;
+  return roomHp == null ? 6 : clampPartyHp(roomHp, 6);
 }
 
 function isPokemonKo(ownerName, pidLike) {
@@ -13803,6 +13917,7 @@ function teardownSheetsRealtime() {
   _allSheetsLatest = [];
   _allSheetsCollections = _buildSheetCollections([]);
   _partyStates = {};
+  try { window._partyStates = _partyStates; } catch {}
   _partyStatesBootstrapped = false;
   _megaEvolutionFx.clear();
   _sheetsSelectedPid = null;
@@ -13882,6 +13997,7 @@ function ensureSheetsRealtime() {
         _partyStatesBootstrapped = true;
       }
       _partyStates = nextPartyStates;
+      try { window._partyStates = _partyStates; } catch {}
       try { autoLogPartyStatesDiff(nextPartyStates); } catch {}
       _trimMegaEvolutionFx();
       renderSheetsTab();
@@ -14753,6 +14869,7 @@ try {
 // ES Modules não expõem nada no window por padrão — fazemos isso manualmente.
 window.appState           = appState;
 window.__globalHpRevision = appState.globalHpRevision || 0;
+window._partyStates       = _partyStates;
 window.updateSidePanels   = updateSidePanels;
 window.getPartyForTrainer = getPartyForTrainer;
 window.getPartyHp = getPartyHp;
