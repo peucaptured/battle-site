@@ -970,6 +970,7 @@ function ensureUserSubscriptions() {
     addWanted(safeDocId(by), by);
     // Cloud Functions e sync HTTP usam chave lowercase — assina também essa variante
     addWanted(safeIdLower(by), by);
+    addWanted(appState.selfTrainerId, by);
   }
   for (const p of (appState.players || [])) {
     const tn = safeStr(p?.trainer_name);
@@ -1210,6 +1211,10 @@ function getTrainerCandidateIds(trainerName) {
 
   ids.add(safeDocId(tn));
   ids.add(safeIdLower(tn));
+
+  if (_trainerLookupKey(tn) === _trainerLookupKey(appState.by)) {
+    ids.add(safeStr(appState.selfTrainerId));
+  }
 
   const player = (appState.players || []).find((p) => safeStr(p?.trainer_name) === tn);
   if (player) {
@@ -4099,6 +4104,9 @@ function _getUserDataForTrainer(trainerName) {
   }
 
   const uidCandidates = new Set([safeDocId(tn), safeIdLower(tn)]);
+  if (_trainerLookupKey(tn) === _trainerLookupKey(appState.by)) {
+    uidCandidates.add(safeStr(appState.selfTrainerId));
+  }
   for (const player of (appState.players || [])) {
     if (_trainerLookupKey(player?.trainer_name) !== _trainerLookupKey(tn)) continue;
     uidCandidates.add(safeStr(player?.uid));
@@ -5407,6 +5415,9 @@ async function updateStatBoost(ownerName, pid, stat, delta) {
 function _trainerUidForGlobalHp(ownerName) {
   const trainer = safeStr(ownerName);
   if (!trainer) return "";
+  if (_trainerLookupKey(trainer) === _trainerLookupKey(appState.by) && safeStr(appState.selfTrainerId)) {
+    return safeStr(appState.selfTrainerId);
+  }
   const candidates = getTrainerCandidateIds(trainer);
   for (const uid of candidates) {
     const entry = appState.userProfiles?.get?.(uid);
@@ -5461,8 +5472,15 @@ async function updatePartyStateHp(ownerName, pidLike, hp) {
     },
     updatedAt: serverTimestamp(),
   };
-  await setDoc(ref, patch, { merge: true });
+  try {
+    await setDoc(ref, patch, { merge: true });
+  } catch (e) {
+    console.error("[hp-global] falha ao salvar HP:", e);
+    setStatus("err", `falha ao salvar HP global: ${e?.message || e?.code || "erro desconhecido"}`);
+    return;
+  }
   _touchLocalGlobalHpCache(trainer, entryId, monPid, newHp);
+  setStatus("ok", `HP atualizado: ${newHp}/6`);
   try { renderSheetsTab(); } catch {}
   try { updateSidePanels(); } catch {}
   try { window.requestScoreboardRefresh?.(); } catch {}
@@ -5567,7 +5585,7 @@ function renderArenaSheetPreview() {
   const sprite = getSpriteUrlForPiece(piece, { type: "art", shiny: !!spriteState.shiny })
     || getSpriteFallbackUrlForPiece(piece)
     || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
-  const hpUi = getHpUiState(spriteState.hp ?? 6);
+  const hpUi = getHpUiState(getPartyHp(owner, piece));
   const types = (ctx?.resolvedTypes?.length ? ctx.resolvedTypes : getResolvedTypesForTrainerPid(owner, piece, { piece, sheet })) || [];
   const typeHtml = (types || []).map((type) => {
     const color = getTypeColor(type);
@@ -5575,7 +5593,7 @@ function renderArenaSheetPreview() {
   }).join("");
   const moveBudget = getPieceMovementBudget(piece);
   const moveSummary = `Velocidade ${moveBudget.speed} • deslocamento ${moveBudget.maxTiles % 1 ? "1/2" : moveBudget.maxTiles} quadrado(s)`;
-  const stateBucket = sheet ? _getPartyStateForSheet(owner, sheet, pid) : spriteState;
+  const stateBucket = sheet ? _getPartyStateForSheet(owner, sheet, piece) : spriteState;
   const cond = Array.isArray(stateBucket?.cond) ? stateBucket.cond : [];
   const condHtml = cond.length
     ? `<div class="chip-row">${cond.slice(0, 4).map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>`
@@ -6672,7 +6690,7 @@ function renderSheetsInspectorCard(wrap) {
   if (thg <= 0 && cap > 0) thg = Math.round(cap / 2);
   if (dodge <= 0 && cap > 0 && thg > 0) dodge = Math.max(0, cap - thg);
 
-  const ps = _getPartyStateForSheet(by, baseSheet, pid);
+  const ps = _getPartyStateForSheet(by, baseSheet, partyIdentity);
   const hp = (ps.hp ?? 6);
   const cond = Array.isArray(ps.cond) ? ps.cond : [];
   const hpMax = 6;
@@ -7912,10 +7930,16 @@ function _getPartyStateEntry(trainerName, pidLike) {
   const targetKeys = _partyEntryLookupKeys(pidLike);
   if (!targetKeys.length) return null;
   const bucket = _getPartyStateBucket(trainerName);
+  let roomState = null;
   for (const [rawKey, entry] of Object.entries(bucket || {})) {
-    if (targetKeys.includes(pidKey(rawKey))) return entry || {};
+    if (targetKeys.includes(pidKey(rawKey))) {
+      roomState = entry || {};
+      break;
+    }
   }
-  return null;
+  const globalHp = _getGlobalEntryHp(trainerName, pidLike);
+  if (globalHp != null) return { ...(roomState || {}), hp: globalHp };
+  return roomState;
 }
 
 function _getBattleMegaStateForTrainerPid(trainerName, pidLike) {
@@ -9396,8 +9420,8 @@ function openPieceContextMenu(piece, x, y) {
       : movementText;
   }
   if (summaryBtn) summaryBtn.disabled = false;
-  if (hpDownBtn) hpDownBtn.disabled = hpValue <= 0;
-  if (hpUpBtn) hpUpBtn.disabled = hpValue >= 6;
+  if (hpDownBtn) hpDownBtn.disabled = !isMine || hpValue <= 0;
+  if (hpUpBtn) hpUpBtn.disabled = !isMine || hpValue >= 6;
 
   const megaState = getPieceMegaUiState(piece);
   if (megaBtn) {
@@ -9470,7 +9494,7 @@ handlePieceMenuAction = async function(action, pieceId) {
   }
 
   const mine = isPieceMine(piece);
-  if (!mine && ["move", "movement", "form", "mega", "conditions", "toggle", "remove"].includes(action)) {
+  if (!mine && ["move", "movement", "form", "mega", "conditions", "toggle", "remove", "hp-down", "hp-up"].includes(action)) {
     setStatus("err", "você só pode usar essas ações em peças suas");
     return;
   }
@@ -14254,10 +14278,26 @@ function _sheetDisplayPid(sh, fallbackPid) {
 
 function _getPartyStateForSheet(ownerName, sh, fallbackPid) {
   const stateBucket = _getPartyStateBucket(ownerName) || {};
-  for (const key of _sheetStateCandidates(sh, fallbackPid)) {
-    if (Object.prototype.hasOwnProperty.call(stateBucket, key)) return stateBucket[key] || {};
+  const fallbackKey = (fallbackPid && typeof fallbackPid === "object")
+    ? (fallbackPid.pid ?? fallbackPid.pokemon?.id ?? fallbackPid.name)
+    : fallbackPid;
+  let roomState = {};
+  for (const key of _sheetStateCandidates(sh, fallbackKey)) {
+    if (Object.prototype.hasOwnProperty.call(stateBucket, key)) {
+      roomState = stateBucket[key] || {};
+      break;
+    }
   }
-  return {};
+  const globalTarget = _getPartyEntryForTrainerPid(ownerName, fallbackPid)
+    || _getPartyEntryForTrainerPid(ownerName, fallbackKey)
+    || fallbackPid
+    || fallbackKey
+    || sh?.linked_pid
+    || sh?.pokemon?.id
+    || sh?.pokemon?.name;
+  const globalHp = _getGlobalEntryHp(ownerName, globalTarget);
+  if (globalHp != null) return { ...roomState, hp: globalHp };
+  return roomState;
 }
 
 function _buildSelfSheetEntries(ownerName = safeStr(appState.by)) {
@@ -14579,7 +14619,7 @@ function renderSheetsTab() {
     const movesRaw = Array.isArray(sh.moves) ? sh.moves : (sh.moves ? Object.values(sh.moves) : []);
     const moves = (movesRaw || []).filter((m) => m && typeof m === "object");
     const isSel = entry._selection_id === _sheetsSelectedPid;
-    const ps = _getPartyStateForSheet(by, baseSheet, pid);
+    const ps = _getPartyStateForSheet(by, baseSheet, partyIdentity);
     const statBoosts = ps.stat_boosts || {};
     const boostedStats = { ...stats };
     for (const [key, value] of Object.entries(statBoosts)) {
@@ -14716,6 +14756,7 @@ window.__globalHpRevision = appState.globalHpRevision || 0;
 window.updateSidePanels   = updateSidePanels;
 window.getPartyForTrainer = getPartyForTrainer;
 window.getPartyHp = getPartyHp;
+window.updatePartyStateHp = updatePartyStateHp;
 window.getGlobalHpSnapshot = () => {
   const out = {};
   try {

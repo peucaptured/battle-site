@@ -1,5 +1,6 @@
 /__pycache__
 /.claude
+/secrets
 encontros.txt
 encounter_generator.py
 progress.md
@@ -15,6 +16,7 @@ output/sheets-mini-cards-smoke-2.png
 output/sheets-mini-cards-smoke.png
 output/sheets-mini-cards-tab-smoke.png
 output/sheets-mini-cards-visual-smoke.png
+output/codex-http-*.log
 progress.md
 progress.md
 assets/pokedex_map_slug_to_id.json

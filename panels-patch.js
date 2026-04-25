@@ -698,7 +698,9 @@ function buildMonCard(pid, ownerName, options = {}) {
   } = options;
 
   const state = getPokemonState(ownerName, pid);
-  const hp = state.hp;
+  const hp = (typeof window.getPartyHp === "function")
+    ? Number(window.getPartyHp(ownerName, piece || pid))
+    : state.hp;
   const cond = state.cond;
   const isFainted = hp <= 0;
   
@@ -820,6 +822,10 @@ function buildMonCard(pid, ownerName, options = {}) {
   function updateHpFirestore(newHp) {
     newHp = Math.max(0, Math.min(6, newHp));
     try {
+      if (typeof window.updatePartyStateHp === "function") {
+        window.updatePartyStateHp(ownerName, piece || pid, newHp);
+        return;
+      }
       const db = window._combatDb || window.currentDb;
       const rid = window.currentRid || window.appState?.rid;
       if (!db || !rid) return;

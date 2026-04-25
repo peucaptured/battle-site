@@ -2536,7 +2536,9 @@ export class ArenaCombatUI {
 
     const tData = this._partyStates[owner] || {};
     const pData = tData[pid] || {};
-    const hp = safeInt(pData.hp, 6);
+    const hp = (typeof window.getPartyHp === "function")
+      ? safeInt(window.getPartyHp(owner, piece || { pid }), 6)
+      : safeInt(pData.hp, 6);
     const hpMax = 6;
     const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
     const hpCol = hp >= 5 ? "rgba(34,197,94,1)" : hp >= 3 ? "rgba(234,179,8,1)" : "rgba(239,68,68,1)";
