@@ -12,6 +12,7 @@ import {
   query,// Mantém window.currentRid e window.currentDb sincronizados com appState
   orderBy,
   limit,
+  getDoc,
   getDocs,
   runTransaction,
   writeBatch,
@@ -124,13 +125,14 @@ try {
 } catch {}
 
 function applyConnectionParamsFromUrl() {
+  const result = { rid: "", trainer: "", autoConnect: false, launchToken: "" };
   let params = null;
   try {
     params = new URLSearchParams(window.location.search || "");
   } catch {
     params = null;
   }
-  if (!params) return;
+  if (!params) return result;
 
   const urlRid = safeStr(
     params.get("rid") ||
@@ -144,16 +146,37 @@ function applyConnectionParamsFromUrl() {
     params.get("player") ||
     params.get("name")
   );
+  const autoConnectRaw = safeStr(
+    params.get("connect") ||
+    params.get("autoconnect") ||
+    params.get("autoConnect") ||
+    params.get("auto")
+  ).toLowerCase();
+  const autoConnect =
+    ["1", "true", "yes", "sim", "on"].includes(autoConnectRaw) ||
+    (params.has("connect") && !autoConnectRaw);
+  const launchToken = safeStr(params.get("launch") || params.get("launchToken") || params.get("battleLaunch"));
 
   if (urlRid && ridInput) ridInput.value = urlRid;
   if (urlTrainer && byInput) byInput.value = urlTrainer;
 
+  result.rid = urlRid;
+  result.trainer = urlTrainer;
+  result.autoConnect = autoConnect;
+  result.launchToken = launchToken;
+
   if (urlRid || urlTrainer) {
-    setStatus("warn", "dados da URL preenchidos; informe a senha e conecte");
+    setStatus(
+      "warn",
+      autoConnect
+        ? "dados da URL preenchidos; conectando automaticamente"
+        : "dados da URL preenchidos; informe a senha e conecte"
+    );
   }
+  return result;
 }
 
-applyConnectionParamsFromUrl();
+const initialConnectionParams = applyConnectionParamsFromUrl();
 
 const connectBtn = $("connect");
 const disconnectBtn = $("disconnect");
@@ -686,6 +709,53 @@ async function buildPartySnapshotFromFirestore(db, trainerName, userData, limitS
   });
 }
 
+async function tryLoginWithLaunchToken(db, auth, typedName) {
+  const launchToken = safeStr(initialConnectionParams?.launchToken);
+  const rid = safeStr(ridInput?.value || initialConnectionParams?.rid || "");
+  const tn = safeStr(typedName || initialConnectionParams?.trainer || byInput?.value || "");
+  if (!launchToken || !rid || !tn || !db || !auth) return null;
+
+  try {
+    const snap = await getDoc(doc(db, "rooms", rid, "public_state", `launch_${safeDocId(launchToken)}`));
+    if (!snap.exists()) {
+      console.warn("battle launch token nao encontrado");
+      return null;
+    }
+
+    const data = snap.data() || {};
+    const docTrainer = safeStr(data.trainer_name || data.trainer || data.name);
+    if (docTrainer && docTrainer !== tn) {
+      console.warn("battle launch token pertence a outro treinador");
+      return null;
+    }
+
+    const expiresAtMs = Number(data.expiresAtMs || data.expires_at_ms || 0);
+    if (Number.isFinite(expiresAtMs) && expiresAtMs > 0 && Date.now() > expiresAtMs) {
+      console.warn("battle launch token expirado");
+      return null;
+    }
+
+    const customToken = safeStr(data.customToken || data.custom_token);
+    if (!customToken) return null;
+
+    const cred = await signInWithCustomToken(auth, customToken);
+    const authUid = safeStr(cred?.user?.uid || getFirebaseAuthUid(auth));
+    const uid = safeStr(data.uid || authUid || safeDocId(tn));
+    const userData = data.userData && typeof data.userData === "object" ? data.userData : {};
+
+    appState.selfAuthUid = authUid || uid;
+    appState.selfTrainerId = uid;
+    appState.selfUserData = userData;
+    appState.selfAuthStatus = "OK_LAUNCH";
+    appState.selfPartySnapshot = await buildPartySnapshotFromFirestore(db, tn, userData);
+    saveLoginCache(tn, userData, uid, customToken, authUid || uid);
+    return { ok: true, name: tn };
+  } catch (e) {
+    console.warn("battle launch token falhou:", e);
+    return null;
+  }
+}
+
 // Faz login antes de conectar
 async function ensureLoggedInIfNeeded(db, auth, typedName, typedPassword = "") {
 
@@ -712,6 +782,9 @@ async function ensureLoggedInIfNeeded(db, auth, typedName, typedPassword = "") {
 
   // 1) cache (se o usuário já logou antes)
   const cache = loadLoginCache();
+  const launchLogin = await tryLoginWithLaunchToken(db, auth, tn);
+  if (launchLogin?.ok) return launchLogin;
+
   if (cache && safeStr(cache.name) === tn && cache.userData) {
     // tenta restaurar Auth sem pedir senha
     const tok = safeStr(cache.customToken);
@@ -2996,6 +3069,14 @@ if (rollsBanner) {
   }
 } // <- fecha o if (rollsBanner)
 }); 
+
+if (initialConnectionParams?.autoConnect && connectBtn && safeStr(ridInput?.value || "")) {
+  window.setTimeout(() => {
+    if (appState.connected) return;
+    setStatus("warn", "conectando pela URL...");
+    connectBtn.click();
+  }, 50);
+}
 
 // Keep badges updated when user edits inputs
 byInput?.addEventListener("input", () => {
