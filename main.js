@@ -123,6 +123,38 @@ try {
   if (cache?.name && byInput && !safeStr(byInput.value)) byInput.value = String(cache.name);
 } catch {}
 
+function applyConnectionParamsFromUrl() {
+  let params = null;
+  try {
+    params = new URLSearchParams(window.location.search || "");
+  } catch {
+    params = null;
+  }
+  if (!params) return;
+
+  const urlRid = safeStr(
+    params.get("rid") ||
+    params.get("room") ||
+    params.get("roomId") ||
+    params.get("sala")
+  );
+  const urlTrainer = safeStr(
+    params.get("trainer") ||
+    params.get("by") ||
+    params.get("player") ||
+    params.get("name")
+  );
+
+  if (urlRid && ridInput) ridInput.value = urlRid;
+  if (urlTrainer && byInput) byInput.value = urlTrainer;
+
+  if (urlRid || urlTrainer) {
+    setStatus("warn", "dados da URL preenchidos; informe a senha e conecte");
+  }
+}
+
+applyConnectionParamsFromUrl();
+
 const connectBtn = $("connect");
 const disconnectBtn = $("disconnect");
 const disconnectPanelBtn = $("disconnect_panel");
