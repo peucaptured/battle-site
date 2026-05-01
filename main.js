@@ -1738,8 +1738,8 @@ function ensureHudTabLayoutStyleOnce() {
   st.id = "hud_tab_layout_style";
   st.textContent = `
     .hud-center [role="tabpanel"].panel{
-      flex:0 0 clamp(460px, calc(var(--hud-viewport-height, 780px) - 12px), 840px) !important;
-      height:clamp(460px, calc(var(--hud-viewport-height, 780px) - 12px), 840px) !important;
+      flex:0 0 clamp(380px, calc(var(--hud-viewport-height, 780px) - 12px), 840px) !important;
+      height:clamp(380px, calc(var(--hud-viewport-height, 780px) - 12px), 840px) !important;
     }
     .hud-center [role="tabpanel"].panel .panel-inner{
       display:flex;
@@ -1759,6 +1759,18 @@ function ensureHudTabLayoutStyleOnce() {
       max-width:none;
       padding-left:10px;
       padding-right:10px;
+    }
+    @media (max-width: 1024px){
+      .hud-center [role="tabpanel"].panel{
+        flex:0 0 auto !important;
+        height:auto !important;
+        min-height:min(70vh, 720px) !important;
+      }
+    }
+    @media (max-width: 700px){
+      .hud-center [role="tabpanel"].panel{
+        min-height:min(72vh, 560px) !important;
+      }
     }
   `;
   document.head.appendChild(st);
