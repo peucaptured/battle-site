@@ -2659,6 +2659,37 @@ topRollBtn?.addEventListener("click", async () => {
   }
 });
 
+function tickMmActiveEffectsOnTurnPass(activeEffects, currentTurn, roundEnded) {
+  const currentOwner = safeStr(currentTurn?.owner);
+  const currentPid = safeStr(currentTurn?.pid);
+  const expired = [];
+  const next = [];
+
+  for (const effect of Array.isArray(activeEffects) ? activeEffects : []) {
+    if (!effect || typeof effect !== "object") continue;
+    const tickPolicy = safeStr(effect.tickPolicy || "owner_turn_end");
+    const remainingRaw = effect.remainingTurns;
+    const remaining = Number(remainingRaw);
+    const hasCounter = remainingRaw !== null && remainingRaw !== undefined && remainingRaw !== "" && Number.isFinite(remaining);
+    const ownerMatch = safeStr(effect.owner) === currentOwner && (!safeStr(effect.pid) || safeStr(effect.pid) === currentPid);
+    const shouldTick = tickPolicy === "round_end" ? !!roundEnded : ownerMatch;
+
+    if (!hasCounter || !shouldTick) {
+      next.push(effect);
+      continue;
+    }
+
+    const after = remaining - 1;
+    if (after <= 0) {
+      expired.push(effect);
+    } else {
+      next.push({ ...effect, remainingTurns: after });
+    }
+  }
+
+  return { active_effects: next, expired };
+}
+
 passTurnBtn?.addEventListener("click", async () => {
   if (!currentDb || !currentRid || !appState.connected) {
     setStatus("err", "conecte antes de passar o turno");
@@ -2719,6 +2750,10 @@ passTurnBtn?.addEventListener("click", async () => {
       };
       if (roundEnded && nextOrder.length) {
         _updatePayload.preprep = { phase: "asking", responses: {}, data: {} };
+      }
+      const tickedEffects = tickMmActiveEffectsOnTurnPass(battleData?.active_effects, cur, roundEnded);
+      if (tickedEffects.expired.length || tickedEffects.active_effects.length !== (Array.isArray(battleData?.active_effects) ? battleData.active_effects.length : 0)) {
+        _updatePayload.active_effects = tickedEffects.active_effects;
       }
 
       tx.set(
@@ -6653,6 +6688,452 @@ function closePieceActionModal() {
   ensurePieceActionModal().close();
 }
 
+const MM3E_ROLL_TEST_CATALOG_VERSION = "mm3e-core-attributes-defenses-skills-v1";
+
+const MM3E_ROLL_TEST_ABILITIES = Object.freeze([
+  { key: "stgr", label: "Stgr", aliases: ["stgr", "strg", "str", "strength", "forca"], boostKeys: ["stgr", "str", "strength"] },
+  { key: "stamina", label: "Stamina", aliases: ["stamina", "sta", "vigor"], boostKeys: ["stamina", "sta"] },
+  { key: "agility", label: "Agility", aliases: ["agility", "agl", "agilidade"], boostKeys: ["agility", "agl"] },
+  { key: "dexterity", label: "Dexterity", aliases: ["dexterity", "dex", "destreza"], boostKeys: ["dexterity", "dex"] },
+  { key: "fighting", label: "Fighting", aliases: ["fighting", "fgt", "luta"], boostKeys: ["fighting", "fgt"] },
+  { key: "int", label: "Int", aliases: ["int", "intellect", "intel", "intelligence", "intelecto", "inteligencia"], boostKeys: ["int", "intellect", "intel"] },
+  { key: "awareness", label: "Awareness", aliases: ["awareness", "awe", "prontidao"], boostKeys: ["awareness", "awe"] },
+  { key: "presence", label: "Presence", aliases: ["presence", "pre", "presenca"], boostKeys: ["presence", "pre"] },
+]);
+
+const MM3E_ROLL_TEST_DEFENSES = Object.freeze([
+  { key: "dodge", label: "Dodge", aliases: ["dodge", "esquiva"], boostKeys: ["dodge"] },
+  { key: "parry", label: "Parry", aliases: ["parry", "aparar"], boostKeys: ["parry"] },
+  { key: "fort", label: "Fort", aliases: ["fort", "fortitude"], boostKeys: ["fort", "fortitude"] },
+  { key: "will", label: "Will", aliases: ["will", "vontade"], boostKeys: ["will"] },
+  { key: "thg", label: "Thg", aliases: ["thg", "toughness", "resistencia"], boostKeys: ["thg", "toughness"] },
+]);
+
+const MM3E_ROLL_TEST_SKILLS = Object.freeze([
+  { key: "acrobatics", label: "Acrobatics", aliases: ["acrobatics", "acrobacia"] },
+  { key: "athletics", label: "Athletics", aliases: ["athletics", "atletismo"] },
+  { key: "close-combat", label: "Close Combat", aliases: ["close combat", "combate corpo a corpo"] },
+  { key: "deception", label: "Deception", aliases: ["deception", "enganacao"] },
+  { key: "expertise", label: "Expertise", aliases: ["expertise", "especialidade"] },
+  { key: "insight", label: "Insight", aliases: ["insight", "intuicao"] },
+  { key: "intimidation", label: "Intimidation", aliases: ["intimidation", "intimidacao"] },
+  { key: "investigation", label: "Investigation", aliases: ["investigation", "investigacao"] },
+  { key: "perception", label: "Perception", aliases: ["perception", "percepcao"] },
+  { key: "persuasion", label: "Persuasion", aliases: ["persuasion", "persuasao"] },
+  { key: "ranged-combat", label: "Ranged Combat", aliases: ["ranged combat", "combate a distancia"] },
+  { key: "sleight-of-hand", label: "Sleight of Hand", aliases: ["sleight of hand", "prestidigitacao"] },
+  { key: "stealth", label: "Stealth", aliases: ["stealth", "furtividade"] },
+  { key: "technology", label: "Technology", aliases: ["technology", "tecnologia"] },
+  { key: "treatment", label: "Treatment", aliases: ["treatment", "tratamento"] },
+  { key: "vehicles", label: "Vehicles", aliases: ["vehicles", "veiculos"] },
+]);
+
+function normalizeRollTestKey(value) {
+  return safeStr(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function compactRollTestKey(value) {
+  return normalizeRollTestKey(value).replace(/\s+/g, "");
+}
+
+function signedRollTestValue(value) {
+  const n = safeInt(value, 0);
+  return n >= 0 ? `+${n}` : `${n}`;
+}
+
+function parseRollTestNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+  const text = safeStr(value);
+  if (!text) return null;
+  const match = text.replace(",", ".").match(/[+-]?\d+/);
+  return match ? parseInt(match[0], 10) : null;
+}
+
+function makeRollTestAliasSet(aliases) {
+  const out = new Set();
+  (Array.isArray(aliases) ? aliases : []).forEach((alias) => {
+    const normalized = normalizeRollTestKey(alias);
+    const compact = compactRollTestKey(alias);
+    if (normalized) out.add(normalized);
+    if (compact) out.add(compact);
+  });
+  return out;
+}
+
+function readRollTestStat(sources, aliases) {
+  const wanted = makeRollTestAliasSet(aliases);
+  for (const source of (Array.isArray(sources) ? sources : [])) {
+    if (!source || typeof source !== "object" || Array.isArray(source)) continue;
+    for (const [rawKey, rawValue] of Object.entries(source)) {
+      const keyA = normalizeRollTestKey(rawKey);
+      const keyB = compactRollTestKey(rawKey);
+      if (!wanted.has(keyA) && !wanted.has(keyB)) continue;
+      const parsed = parseRollTestNumber(rawValue);
+      if (parsed != null) return { value: parsed, sourceKey: rawKey };
+    }
+  }
+  return { value: 0, sourceKey: "" };
+}
+
+function readRollTestBoost(boosts, keys) {
+  if (!boosts || typeof boosts !== "object" || Array.isArray(boosts)) return 0;
+  const wanted = makeRollTestAliasSet(keys);
+  for (const [rawKey, rawValue] of Object.entries(boosts)) {
+    const keyA = normalizeRollTestKey(rawKey);
+    const keyB = compactRollTestKey(rawKey);
+    if (!wanted.has(keyA) && !wanted.has(keyB)) continue;
+    return safeInt(rawValue, 0);
+  }
+  return 0;
+}
+
+function rollTestSkillValueFromObject(item) {
+  for (const key of ["total", "bonus", "modifier", "mod", "value", "ranks", "rank", "score"]) {
+    const parsed = parseRollTestNumber(item?.[key]);
+    if (parsed != null) return parsed;
+  }
+  return 0;
+}
+
+function parseRollTestSkillLine(line) {
+  const text = safeStr(line);
+  if (!text) return null;
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  const match = cleaned.match(/^(.*?)(?:\s*(?:\(|\[)?\s*(?:R|Rank|Ranks|Bonus|Mod)?\s*([+-]?\d+)\s*(?:\)|\])?)$/i);
+  if (match) {
+    const name = safeStr(match[1]).replace(/[:\-–]+$/, "").trim();
+    if (name) return { name, value: safeInt(match[2], 0), raw: line };
+  }
+  return { name: cleaned, value: 0, raw: line };
+}
+
+function parseRollTestSkills(rawSkills) {
+  const out = [];
+  const pushSkill = (name, value, raw) => {
+    const clean = safeStr(name);
+    if (!clean) return;
+    out.push({ name: clean, value: safeInt(value, 0), raw });
+  };
+
+  const visit = (item) => {
+    if (item == null) return;
+    if (typeof item === "string") {
+      item.split(/\r?\n+|;/).forEach((line) => {
+        const parsed = parseRollTestSkillLine(line);
+        if (parsed) pushSkill(parsed.name, parsed.value, parsed.raw);
+      });
+      return;
+    }
+    if (Array.isArray(item)) {
+      item.forEach(visit);
+      return;
+    }
+    if (typeof item === "object") {
+      const named = safeStr(item.name || item.label || item.skill || item.text);
+      if (named) {
+        pushSkill(named, rollTestSkillValueFromObject(item), item);
+        return;
+      }
+      for (const [key, value] of Object.entries(item)) {
+        if (value && typeof value === "object" && !Array.isArray(value)) pushSkill(key, rollTestSkillValueFromObject(value), value);
+        else pushSkill(key, parseRollTestNumber(value) ?? 0, value);
+      }
+    }
+  };
+
+  visit(rawSkills);
+  const byName = new Map();
+  out.forEach((entry) => {
+    const key = normalizeRollTestKey(entry.name);
+    const current = byName.get(key);
+    if (!current || safeInt(entry.value, 0) > safeInt(current.value, 0)) byName.set(key, entry);
+  });
+  return Array.from(byName.values()).sort((a, b) => safeStr(a.name).localeCompare(safeStr(b.name)));
+}
+
+function findRollTestSkillMatch(parsedSkills, catalogEntry) {
+  const wanted = makeRollTestAliasSet([catalogEntry.label, catalogEntry.key].concat(catalogEntry.aliases || []));
+  return (parsedSkills || []).find((skill) => {
+    const keyA = normalizeRollTestKey(skill.name);
+    const keyB = compactRollTestKey(skill.name);
+    return wanted.has(keyA) || wanted.has(keyB);
+  }) || null;
+}
+
+function buildPieceRollTestState(piece) {
+  const owner = safeStr(piece?.owner);
+  const sheet = isPieceMine(piece) ? getSheetForPiece(piece) : null;
+  const pkm = sheet?.pokemon || {};
+  const name = safeStr(_getEffectivePokemonContext(owner, piece, { piece, sheet })?.displayName)
+    || displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine: isPieceMine(piece) })
+    || safeStr(pkm.name)
+    || safeStr(piece?.pid)
+    || "Pokemon";
+  const statsSources = [sheet?.stats, pkm?.stats, sheet, piece?.stats, piece];
+  const stateBucket = sheet ? _getPartyStateForSheet(owner, sheet, piece) : (_getPartyStateEntry(owner, piece) || {});
+  const boosts = (stateBucket?.stat_boosts && typeof stateBucket.stat_boosts === "object") ? stateBucket.stat_boosts : {};
+  const np = safeInt(sheet?.np ?? pkm?.np, 0);
+  const cap = Math.max(0, np * 2);
+  const choices = [];
+
+  const makeStatChoice = (entry, group, overrideBase = null) => {
+    const read = overrideBase == null ? readRollTestStat(statsSources, [entry.key, entry.label].concat(entry.aliases || [])) : { value: safeInt(overrideBase, 0), sourceKey: entry.key };
+    const boost = readRollTestBoost(boosts, [entry.key, entry.label].concat(entry.boostKeys || []));
+    choices.push({
+      key: `${group}:${entry.key}`,
+      statKey: entry.key,
+      label: entry.label,
+      group,
+      base: safeInt(read.value, 0),
+      boost,
+      value: safeInt(read.value, 0) + boost,
+      sourceKey: safeStr(read.sourceKey),
+    });
+  };
+
+  MM3E_ROLL_TEST_ABILITIES.forEach((entry) => makeStatChoice(entry, "Atributos"));
+
+  const rawDodge = readRollTestStat(statsSources, ["dodge", "esquiva"]).value;
+  const rawThg = readRollTestStat(statsSources, ["thg", "toughness", "resistencia"]).value;
+  const derivedThg = rawThg <= 0 && cap > 0 ? Math.round(cap / 2) : rawThg;
+  const derivedDodge = rawDodge <= 0 && cap > 0 && derivedThg > 0 ? Math.max(0, cap - derivedThg) : rawDodge;
+  MM3E_ROLL_TEST_DEFENSES.forEach((entry) => {
+    if (entry.key === "dodge") makeStatChoice(entry, "Defesas", derivedDodge);
+    else if (entry.key === "thg") makeStatChoice(entry, "Defesas", derivedThg);
+    else makeStatChoice(entry, "Defesas");
+  });
+
+  const parsedSkills = parseRollTestSkills(sheet?.skills || piece?.skills || []);
+  const catalogSkillKeys = new Set();
+  MM3E_ROLL_TEST_SKILLS.forEach((entry) => {
+    const match = findRollTestSkillMatch(parsedSkills, entry);
+    catalogSkillKeys.add(normalizeRollTestKey(entry.label));
+    (entry.aliases || []).forEach((alias) => catalogSkillKeys.add(normalizeRollTestKey(alias)));
+    choices.push({
+      key: `skill:${entry.key}`,
+      statKey: entry.key,
+      label: entry.label,
+      group: "Skills M&M 3e",
+      base: safeInt(match?.value, 0),
+      boost: 0,
+      value: safeInt(match?.value, 0),
+      sourceKey: match ? safeStr(match.name) : "",
+    });
+  });
+
+  parsedSkills.forEach((skill, idx) => {
+    const normalized = normalizeRollTestKey(skill.name);
+    if (!normalized || catalogSkillKeys.has(normalized)) return;
+    choices.push({
+      key: `sheet-skill:${idx}:${normalized}`,
+      statKey: normalized,
+      label: skill.name,
+      group: "Skills da ficha",
+      base: safeInt(skill.value, 0),
+      boost: 0,
+      value: safeInt(skill.value, 0),
+      sourceKey: skill.name,
+    });
+  });
+
+  return {
+    owner,
+    pieceId: safeStr(piece?.id),
+    pid: safeStr(piece?.pid),
+    name,
+    sheet,
+    sheetId: safeStr(sheet?._sheet_id || sheet?.sheet_id || sheet?.id),
+    catalogVersion: MM3E_ROLL_TEST_CATALOG_VERSION,
+    choices,
+  };
+}
+
+function renderRollTestOptions(choices, selectedKey = "") {
+  const groups = [];
+  const byGroup = new Map();
+  (choices || []).forEach((choice) => {
+    const group = safeStr(choice.group) || "Outros";
+    if (!byGroup.has(group)) {
+      byGroup.set(group, []);
+      groups.push(group);
+    }
+    byGroup.get(group).push(choice);
+  });
+  return groups.map((group) => {
+    const options = byGroup.get(group).map((choice) => {
+      const selected = choice.key === selectedKey ? " selected" : "";
+      return `<option value="${escapeAttr(choice.key)}"${selected}>${escapeHtml(choice.label)} (${signedRollTestValue(choice.value)})</option>`;
+    }).join("");
+    return `<optgroup label="${escapeAttr(group)}">${options}</optgroup>`;
+  }).join("");
+}
+
+function findRollTestChoice(state, key) {
+  return (state?.choices || []).find((choice) => safeStr(choice.key) === safeStr(key)) || state?.choices?.[0] || null;
+}
+
+async function rollPieceTest(pieceId, choiceKey) {
+  if (!currentDb || !currentRid || !appState.connected) {
+    setStatus("err", "conecte antes de rolar teste");
+    return null;
+  }
+  const piece = (appState.pieces || []).find((p) => safeStr(p?.id) === safeStr(pieceId)) || null;
+  if (!piece) {
+    setStatus("warn", "peca nao encontrada para rolar teste");
+    return null;
+  }
+  if (!isPieceMine(piece) || isTrainerPiece(piece)) {
+    setStatus("err", "voce so pode rolar teste dos seus Pokemon");
+    return null;
+  }
+
+  const state = buildPieceRollTestState(piece);
+  const choice = findRollTestChoice(state, choiceKey);
+  if (!choice) {
+    setStatus("warn", "escolha um atributo ou skill para rolar");
+    return null;
+  }
+
+  const by = safeStr(appState.by || byInput?.value || "Anon") || "Anon";
+  const natural = Math.floor(Math.random() * 20) + 1;
+  const modifier = safeInt(choice.value, 0);
+  const total = natural + modifier;
+  const label = `${choice.label} ${signedRollTestValue(modifier)} = ${total}`;
+  const result = {
+    by,
+    trainer: by,
+    owner: state.owner,
+    pieceId: state.pieceId,
+    pid: state.pid,
+    pokemon: state.name,
+    statKey: choice.statKey,
+    statLabel: choice.label,
+    statGroup: choice.group,
+    modifier,
+    natural,
+    value: natural,
+    total,
+    label,
+    catalogVersion: state.catalogVersion,
+    sheetId: state.sheetId,
+  };
+
+  await addDoc(collection(currentDb, "rooms", currentRid, "rolls"), {
+    ...result,
+    kind: "test",
+    createdAt: serverTimestamp(),
+    audit: {
+      flow: "Rolar Teste",
+      catalogVersion: state.catalogVersion,
+      source: choice.sourceKey ? "sheet" : "catalog-default",
+      sourceKey: choice.sourceKey || null,
+      base: safeInt(choice.base, 0),
+      boost: safeInt(choice.boost, 0),
+    },
+  });
+
+  const logText = `${state.name} rolou teste de ${choice.label}: d20 ${natural} ${signedRollTestValue(modifier)} = ${total}.`;
+  try {
+    await sendAction("ADD_LOG", by, {
+      text: logText,
+      kind: "dice",
+      rollTest: result,
+    });
+  } catch {}
+  setStatus("ok", `teste rolado: ${choice.label} ${total}`);
+  return result;
+}
+
+function openPieceRollTestModal(piece) {
+  if (!piece || !safeStr(piece?.id)) return;
+  if (!isPieceMine(piece) || isTrainerPiece(piece)) {
+    setStatus("err", "voce so pode rolar teste dos seus Pokemon");
+    return;
+  }
+  const refs = ensurePieceActionModal();
+  const state = buildPieceRollTestState(piece);
+  const firstKey = state.choices[0]?.key || "";
+  refs.title.textContent = `Rolar Teste - ${state.name}`;
+  refs.content.innerHTML = `
+    <div class="inspector roll-test-panel" data-roll-test-piece="${escapeAttr(state.pieceId)}">
+      <div class="section-title" style="margin-top:0;">Escolha o atributo, defesa ou skill</div>
+      <div class="muted" style="margin-bottom:10px;">
+        Catalogo M&M 3e: atributos, defesas e todas as skills basicas. Skills extras da ficha aparecem no final.
+      </div>
+      <label style="display:block;font-weight:900;font-size:.78rem;margin-bottom:6px;">Teste</label>
+      <select id="roll_test_select" class="input" style="width:100%;max-width:100%;margin-bottom:10px;">
+        ${renderRollTestOptions(state.choices, firstKey)}
+      </select>
+      <div id="roll_test_preview" class="card" style="margin:0 0 10px;padding:10px;"></div>
+      <div class="row" style="justify-content:flex-end;gap:8px;">
+        <button type="button" class="btn ghost" id="roll_test_cancel">Cancelar</button>
+        <button type="button" class="btn" id="roll_test_confirm">Rolar Teste</button>
+      </div>
+      <div id="roll_test_result" style="margin-top:10px;"></div>
+    </div>
+  `;
+  refs.backdrop.style.display = "";
+
+  const panel = refs.content.querySelector(".roll-test-panel");
+  const select = refs.content.querySelector("#roll_test_select");
+  const preview = refs.content.querySelector("#roll_test_preview");
+  const resultEl = refs.content.querySelector("#roll_test_result");
+  const rollBtn = refs.content.querySelector("#roll_test_confirm");
+  const cancelBtn = refs.content.querySelector("#roll_test_cancel");
+
+  const refreshPreview = () => {
+    const freshPiece = (appState.pieces || []).find((p) => safeStr(p?.id) === state.pieceId) || piece;
+    const freshState = buildPieceRollTestState(freshPiece);
+    const choice = findRollTestChoice(freshState, select?.value);
+    if (!choice || !preview) return;
+    preview.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div>
+          <div style="font-weight:900;">${escapeHtml(choice.label)}</div>
+          <div class="muted">${escapeHtml(choice.group)}${choice.sourceKey ? ` - ficha: ${escapeHtml(choice.sourceKey)}` : " - catalogo/base"}</div>
+        </div>
+        <div class="stat-box" style="margin:0;min-width:96px;">
+          <div class="stat-label">Bonus</div>
+          <div class="stat-val">${signedRollTestValue(choice.value)}</div>
+        </div>
+      </div>
+    `;
+  };
+
+  select?.addEventListener("change", refreshPreview);
+  cancelBtn?.addEventListener("click", () => refs.close());
+  rollBtn?.addEventListener("click", async () => {
+    const prevDisabled = rollBtn.disabled;
+    const prevText = rollBtn.textContent;
+    rollBtn.disabled = true;
+    rollBtn.textContent = "Rolando...";
+    try {
+      const roll = await rollPieceTest(panel?.dataset?.rollTestPiece || state.pieceId, select?.value || firstKey);
+      if (roll && resultEl) {
+        resultEl.innerHTML = `
+          <div class="card" style="padding:10px;border-color:rgba(56,189,248,.35);">
+            <div style="font-weight:900;">${escapeHtml(roll.pokemon)} - ${escapeHtml(roll.statLabel)}</div>
+            <div class="stat-val" style="font-size:1.45rem;">d20 ${roll.natural} ${signedRollTestValue(roll.modifier)} = ${roll.total}</div>
+          </div>
+        `;
+      }
+    } catch (e) {
+      setStatus("err", `erro ao rolar teste: ${e?.message || e}`);
+    } finally {
+      rollBtn.disabled = prevDisabled;
+      rollBtn.textContent = prevText || "Rolar Teste";
+      refreshPreview();
+    }
+  });
+  refreshPreview();
+}
+
 async function openPieceConditionsModal(piece) {
   const refs = ensurePieceActionModal();
   const isMine = isPieceMine(piece);
@@ -6882,6 +7363,7 @@ const sheetHasSpeed = isMine ? [
 
         <div class="inspector-actions">
           <button type="button" class="btn primary" data-ins-act="move">Mover</button>
+          <button type="button" class="btn secondary" data-ins-act="roll-test" ${isMine && !isTrainerPiece(p) ? "" : "disabled"}>Rolar Teste</button>
           <button type="button" class="btn ${freeMove ? "primary" : "secondary"}" data-ins-act="free" ${isMine ? "" : "disabled"}>🧭 Deslocamento livre ${freeMove ? "ON" : "OFF"}</button>
           <button type="button" class="btn ${mvBudget.dash ? "primary" : "secondary"}" data-ins-act="dash" ${isMine ? "" : "disabled"}>${mvBudget.dash ? "⚡ Standard gasta (x2)" : "⚡ Abrir mão da Standard (x2)"}</button>
           <button type="button" class="btn ${condsOpen ? "primary" : "secondary"}" data-ins-act="toggle-conds">🧷 Condições</button>
@@ -6898,6 +7380,10 @@ const sheetHasSpeed = isMine ? [
       ? "deslocamento livre ativo: clique em qualquer lugar da arena para reposicionar o pokémon"
       : "Mover: clique no tile de destino na arena");
     // nada além disso: o click no tile já move a seleção atual
+  });
+  wrap.querySelector('[data-ins-act="roll-test"]')?.addEventListener("click", () => {
+    if (!isMine || isTrainerPiece(p)) return;
+    openPieceRollTestModal(p);
   });
   wrap.querySelector('[data-ins-act="free"]')?.addEventListener("click", () => {
     if (!isMine) return;
@@ -9852,6 +10338,7 @@ function openPieceContextMenu(piece, x, y) {
   const moveBtn = pieceContextMenu.querySelector('[data-menu-act="move"]');
   const movementBtn = pieceContextMenu.querySelector('[data-menu-act="movement"]');
   const summaryBtn = pieceContextMenu.querySelector('[data-menu-act="summary"]');
+  const rollTestBtn = pieceContextMenu.querySelector('[data-menu-act="roll-test"]');
   const hpDownBtn = pieceContextMenu.querySelector('[data-menu-act="hp-down"]');
   const hpUpBtn = pieceContextMenu.querySelector('[data-menu-act="hp-up"]');
   const megaBtn = pieceContextMenu.querySelector('[data-menu-act="mega"]');
@@ -9870,6 +10357,7 @@ function openPieceContextMenu(piece, x, y) {
       : movementText;
   }
   if (summaryBtn) summaryBtn.disabled = false;
+  if (rollTestBtn) rollTestBtn.disabled = !isMine || isTrainerPiece(piece);
   if (hpDownBtn) hpDownBtn.disabled = !isMine || hpValue <= 0;
   if (hpUpBtn) hpUpBtn.disabled = !isMine || hpValue >= 6;
 
@@ -9944,7 +10432,7 @@ handlePieceMenuAction = async function(action, pieceId) {
   }
 
   const mine = isPieceMine(piece);
-  if (!mine && ["move", "movement", "form", "mega", "conditions", "toggle", "remove", "hp-down", "hp-up"].includes(action)) {
+  if (!mine && ["move", "movement", "form", "mega", "conditions", "toggle", "remove", "hp-down", "hp-up", "roll-test"].includes(action)) {
     setStatus("err", "você só pode usar essas ações em peças suas");
     return;
   }
@@ -9968,6 +10456,10 @@ handlePieceMenuAction = async function(action, pieceId) {
     selectPiece(id);
     renderArenaSheetPreview();
     requestArenaRefresh(true);
+    return;
+  }
+  if (action === "roll-test") {
+    openPieceRollTestModal(piece);
     return;
   }
   if (action === "hp-down" || action === "hp-up") {
@@ -9999,6 +10491,9 @@ handlePieceMenuAction = async function(action, pieceId) {
 };
 
 window.handlePieceMenuAction = handlePieceMenuAction;
+window.openPieceRollTestModal = openPieceRollTestModal;
+window.rollPieceTest = rollPieceTest;
+window.buildPieceRollTestState = buildPieceRollTestState;
 
 pieceContextMenu?.addEventListener("click", async (ev) => {
   const btn = ev.target?.closest?.("[data-menu-act]");
@@ -15285,6 +15780,9 @@ window.updateSidePanels   = updateSidePanels;
 window.getPartyForTrainer = getPartyForTrainer;
 window.getPartyHp = getPartyHp;
 window.updatePartyStateHp = updatePartyStateHp;
+window.updateStatBoost = updateStatBoost;
+window.setPieceConditions = setPieceConditions;
+window.tickMmActiveEffectsOnTurnPass = tickMmActiveEffectsOnTurnPass;
 window.getGlobalHpSnapshot = () => {
   const out = {};
   try {

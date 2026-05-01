@@ -27,6 +27,12 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
 import { getMoveType, getTypeDamageBonus, normalizeType } from "./type-data.js";
+import { getPowerRuleForMove, isSelfPowerRule, hasResolvableImmediateEffects } from "./mm-power-catalog.js?v=20260501mm5";
+import {
+  buildResistanceQueue,
+  resolveMmImmediatePower,
+  resolveMmPowerResistance,
+} from "./mm-combat-resolver.js?v=20260501mm5";
 
 // ─── helpers ──────────────────────────────────────────────────────
 function safeStr(x) { return (x == null ? "" : String(x)).trim(); }
@@ -1006,6 +1012,34 @@ const CSS_TEXT = `
 .arena-sheet-card .muted { opacity: .75; font-size: 10px; }
 .arena-sheet-card .trainer-rpg-list { display:flex; flex-direction:column; gap:4px; margin-top:4px; }
 .arena-sheet-card .trainer-rpg-line { font-size: 10px; line-height: 1.35; color: rgba(226,232,240,.92); }
+.ac-resolution-toast {
+  position: absolute;
+  right: 14px;
+  bottom: 18px;
+  width: min(320px, calc(100vw - 28px));
+  z-index: 70;
+  border: 1px solid rgba(56,189,248,.34);
+  border-radius: 12px;
+  background: rgba(2,6,23,.94);
+  box-shadow: 0 18px 45px rgba(0,0,0,.34);
+  padding: 12px;
+  color: rgba(226,232,240,.94);
+}
+.ac-resolution-title { font-size: 12px; font-weight: 950; color: #38bdf8; margin-bottom: 4px; }
+.ac-resolution-summary { font-size: 12px; line-height: 1.35; }
+.ac-resolution-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
+.ac-mini-btn {
+  border: 1px solid rgba(148,163,184,.28);
+  background: rgba(15,23,42,.86);
+  color: rgba(226,232,240,.92);
+  border-radius: 8px;
+  padding: 6px 9px;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+.ac-mini-btn:hover { border-color: rgba(56,189,248,.48); color:#fff; }
+.ac-mini-btn:disabled { opacity:.45; cursor:wait; }
 `;
 
 // localStorage keys
@@ -1833,19 +1867,26 @@ export class ArenaCombatUI {
     });
 
     container.querySelectorAll(".ac-move-item[data-idx]").forEach(el => {
-      el.addEventListener("click", () => {
+      el.addEventListener("click", async () => {
         const idx = parseInt(el.dataset.idx);
         const mv = moves[idx];
         if (!mv) return;
+        const powerRule = await getPowerRuleForMove({ ...mv, _move_idx: idx });
+        if (isSelfPowerRule(powerRule) || (hasResolvableImmediateEffects(powerRule) && safeStr(powerRule?.targeting?.mode) === "self")) {
+          await this._executeImmediatePower(getAtkPid(), mv, stats, { moveIdx: idx, powerRule });
+          return;
+        }
         if (getRange() === "area") {
           this._launchAreaAttack(getAtkPid(), targetPiece, mv, stats, {
             moveIdx: idx,
+            powerRule,
           });
           return;
         }
         this._executeAttack(getAtkPid(), targetPiece, mv, stats, getRange(), {
           sneakAttack: getSneakAttack(),
           moveIdx: idx,
+          powerRule,
         });
       });
     });
@@ -2147,18 +2188,25 @@ export class ArenaCombatUI {
           <span class="ac-slot-sub">${escHtml(slotModeLabel)} • R${ctx.rank}</span>
         `;
         slot.title = `${safeStr(mv.name)} - ${safeStr(slotModeInfo?.label || `Acerto ${slotAcc}`)}, Rank ${ctx.rank}, Dano ${ctx.totalDmg}`;
-        slot.addEventListener("click", () => {
+        slot.addEventListener("click", async () => {
           this._closeRadial();
           this._closeOverlay();
+          const powerRule = await getPowerRuleForMove({ ...mv, _move_idx: moveIdx });
+          if (isSelfPowerRule(powerRule) || (hasResolvableImmediateEffects(powerRule) && safeStr(powerRule?.targeting?.mode) === "self")) {
+            await this._executeImmediatePower(getAtkPid(), mv, stats, { moveIdx, powerRule });
+            return;
+          }
           if (currentRange === "area") {
             this._launchAreaAttack(getAtkPid(), targetPiece, mv, stats, {
               moveIdx,
+              powerRule,
             });
             return;
           }
           this._executeAttack(getAtkPid(), targetPiece, mv, stats, currentRange, {
             sneakAttack: getSneakAttack(),
             moveIdx,
+            powerRule,
           });
         });
       } else if (i === totalSlots - 2) {
@@ -2230,6 +2278,252 @@ export class ArenaCombatUI {
     };
   }
 
+  _findPieceByOwnerPid(ownerName, pidLike) {
+    const owner = safeStr(ownerName);
+    const pid = safeStr(pidLike);
+    const pieces = this.getPieces() || [];
+    return pieces.find((piece) => (
+      safeStr(piece?.owner) === owner
+      && (
+        safeStr(piece?.pid) === pid
+        || safeStr(piece?.id) === pid
+        || safeStr(piece?.party_slot) === pid
+        || safeStr(piece?.entry_id) === pid
+      )
+    )) || null;
+  }
+
+  _partyStateFor(ownerName, pidLike) {
+    const owner = safeStr(ownerName);
+    const pid = safeStr(pidLike);
+    const bucket = this._partyStates?.[owner] || {};
+    if (bucket[pid]) return bucket[pid] || {};
+    if (/^\d+$/.test(pid) && bucket[String(Number(pid))]) return bucket[String(Number(pid))] || {};
+    return {};
+  }
+
+  _combatantSnapshot(ownerName, pidLike, piece = null) {
+    const owner = safeStr(ownerName);
+    const pid = safeStr(pidLike || piece?.pid);
+    const resolvedPiece = piece || this._findPieceByOwnerPid(owner, pid);
+    const pData = this._partyStateFor(owner, pid);
+    const hp = (typeof window.getPartyHp === "function")
+      ? safeInt(window.getPartyHp(owner, resolvedPiece || { pid }), 6)
+      : safeInt(pData.hp, 6);
+    const mmConditions = (resolvedPiece?.mm_conditions && typeof resolvedPiece.mm_conditions === "object")
+      ? resolvedPiece.mm_conditions
+      : { deg1: [], deg2: [], deg3: [] };
+    const pokemonConditions = Array.isArray(resolvedPiece?.pokemon_conditions) ? resolvedPiece.pokemon_conditions : [];
+    return {
+      owner,
+      pid,
+      pieceId: safeStr(resolvedPiece?.id),
+      hp,
+      conditions: mmConditions,
+      pokemonConditions,
+      statBoosts: (pData.stat_boosts && typeof pData.stat_boosts === "object") ? pData.stat_boosts : {},
+    };
+  }
+
+  async _executeImmediatePower(atkPid, move, stats, opts = {}) {
+    this._closeAll();
+    const by = this.getBy();
+    if (by) await this._loadSheets(by);
+
+    const atkStats = Object.keys(stats || {}).length > 0 ? stats : this._getEffectiveStats(by, atkPid);
+    const atkSheet = this._getSheet(by, atkPid);
+    const moveIdx = resolveMoveIndex(atkSheet?.moves || [], move, opts.moveIdx);
+    const ctx = this._calcMoveContext(move, atkStats, by, atkPid, by, atkPid, {
+      moveIdx,
+      atkSheet,
+    });
+    const powerRule = opts.powerRule || await getPowerRuleForMove({ ...move, _move_idx: moveIdx });
+    const actorPiece = this._findPieceByOwnerPid(by, atkPid);
+    const actor = this._combatantSnapshot(by, atkPid, actorPiece);
+    const resolution = resolveMmImmediatePower({
+      powerRule,
+      actor,
+      target: actor,
+      rank: Math.max(1, ctx.totalDmg || ctx.rank || safeInt(move?.rank, 1)),
+    });
+
+    await this._applyMmPatches(resolution.patches);
+    const resolutionId = await this._persistMmResolution(resolution, { applied: true });
+    this._showResolutionToast(resolution, resolutionId);
+
+    const logs = [
+      `${by} usou ${safeStr(move?.name) || "Power"} (${safeStr(powerRule?.id)}).`,
+      resolution.summary,
+    ];
+    if (resolution.requiresAdjudication) logs.push("Há efeito(s) marcados para revisão do mestre.");
+    await this._writeBattle({
+      status: "idle",
+      attacker: by,
+      attacker_pid: atkPid,
+      target_owner: by,
+      target_pid: atkPid,
+      target_id: safeStr(actorPiece?.id),
+      power_rule: powerRule,
+      last_resolution_id: resolutionId || null,
+      pending_review: !!resolution.requiresAdjudication,
+      pendingFor: null,
+      prompt: null,
+      logs,
+    });
+
+    if (actorPiece) this._showFloat(actorPiece, resolution.summary, resolution.requiresAdjudication ? "pending" : "stage");
+  }
+
+  async _finalizeMmResistance({ battle, prompt, roll, defType, targetPiece }) {
+    const powerRule = battle?.power_rule || battle?.attack_move?.power_rule || await getPowerRuleForMove(battle?.attack_move || {});
+    const tOwner = safeStr(battle?.target_owner);
+    const tPid = safeStr(battle?.target_pid);
+    const target = this._combatantSnapshot(tOwner, tPid, targetPiece);
+    const aOwner = safeStr(battle?.attacker);
+    const aPid = safeStr(battle?.attacker_pid);
+    const actor = this._combatantSnapshot(aOwner, aPid, this._findPieceByOwnerPid(aOwner, aPid));
+    const stats = this._getEffectiveStats(tOwner, tPid);
+    const resolution = resolveMmPowerResistance({
+      powerRule,
+      target,
+      d20: roll,
+      stats,
+      rank: safeInt(battle?.dmg_base, safeInt(prompt?.options?.rank, 0)),
+      critBonus: safeInt(battle?.crit_bonus),
+      fallbackIsEffect: !!(battle?.is_effect || prompt?.options?.isEffect),
+      fallbackResistance: defType || "thg",
+      actor,
+    });
+
+    await this._applyMmPatches(resolution.patches);
+    const resolutionId = await this._persistMmResolution(resolution, { applied: true });
+    this._showResolutionToast(resolution, resolutionId);
+    return { resolution, resolutionId };
+  }
+
+  async _applyMmPatches(patches = []) {
+    const activeEffects = [];
+    const removeActiveEffectIds = [];
+    for (const patch of patches || []) {
+      if (!patch || patch.kind === "adjudication") continue;
+      if (patch.kind === "hp") {
+        const piece = patch.pieceId ? (this.getPieces() || []).find(p => safeStr(p?.id) === safeStr(patch.pieceId)) : null;
+        if (typeof window.updatePartyStateHp === "function") {
+          await window.updatePartyStateHp(patch.owner, piece || { pid: patch.pid }, patch.after);
+        }
+      } else if (patch.kind === "conditions") {
+        if (typeof window.setPieceConditions === "function" && patch.pieceId) {
+          await window.setPieceConditions(patch.pieceId, patch.after?.mm_conditions, patch.after?.pokemon_conditions);
+        }
+      } else if (patch.kind === "stat_boost") {
+        if (typeof window.updateStatBoost === "function") {
+          const delta = safeInt(patch.delta, safeInt(patch.after) - safeInt(patch.before));
+          if (delta) await window.updateStatBoost(patch.owner, patch.pid, patch.stat, delta);
+        }
+      } else if (patch.kind === "active_effect") {
+        activeEffects.push({
+          ...patch,
+          id: safeStr(patch.id) || `ae_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+          createdAt: patch.createdAt || Date.now(),
+        });
+      } else if (patch.kind === "active_effect_remove") {
+        const id = safeStr(patch.activeEffectId);
+        if (id) removeActiveEffectIds.push(id);
+      }
+    }
+    if (activeEffects.length) {
+      await this._writeBattle({ active_effects: arrayUnion(...activeEffects) });
+    }
+    if (removeActiveEffectIds.length) {
+      await this._removeMmActiveEffects(removeActiveEffectIds);
+    }
+  }
+
+  async _removeMmActiveEffects(ids = []) {
+    const db = this.getDb();
+    const rid = this.getRid();
+    const idSet = new Set((ids || []).map(safeStr).filter(Boolean));
+    if (!db || !rid || !idSet.size) return;
+    const ref = doc(db, "rooms", rid, "public_state", "battle");
+    try {
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        const data = snap.exists() ? snap.data() : {};
+        const active = Array.isArray(data.active_effects) ? data.active_effects : [];
+        const next = active.filter((effect) => !idSet.has(safeStr(effect?.id)));
+        const nextRev = (safeInt(data.rev) || 0) + 1;
+        tx.set(ref, { active_effects: next, rev: nextRev }, { merge: true });
+      });
+    } catch (err) {
+      console.warn("[arena-combat] active effect remove failed:", err);
+    }
+  }
+
+  async _persistMmResolution(resolution, extra = {}) {
+    const db = this.getDb();
+    const rid = this.getRid();
+    if (!db || !rid || !resolution) return "";
+    try {
+      const docRef = await addDoc(collection(db, "rooms", rid, "combat_resolutions"), {
+        ...resolution,
+        ...extra,
+        by: safeStr(this.getBy()),
+        createdAt: serverTimestamp(),
+      });
+      return docRef.id;
+    } catch (err) {
+      console.warn("[arena-combat] combat_resolutions write failed:", err);
+      return "";
+    }
+  }
+
+  _showResolutionToast(resolution, resolutionId = "") {
+    if (!resolution) return;
+    const el = document.createElement("div");
+    el.className = "ac-resolution-toast";
+    el.innerHTML = `
+      <div class="ac-resolution-title">Resolução M&M</div>
+      <div class="ac-resolution-summary">${escHtml(resolution.summary || "Resolvido.")}</div>
+      <div class="ac-resolution-actions">
+        ${resolutionId ? `<button class="ac-mini-btn" data-act="undo">Desfazer</button>` : ""}
+        <button class="ac-mini-btn" data-act="close">OK</button>
+      </div>
+    `;
+    this._overlayRoot.appendChild(el);
+    el.querySelector('[data-act="close"]')?.addEventListener("click", () => el.remove());
+    el.querySelector('[data-act="undo"]')?.addEventListener("click", async () => {
+      const btn = el.querySelector('[data-act="undo"]');
+      if (btn) { btn.disabled = true; btn.textContent = "Desfazendo..."; }
+      await this._undoMmResolution(resolutionId);
+      el.remove();
+    });
+    setTimeout(() => { try { el.remove(); } catch {} }, 12000);
+  }
+
+  async _undoMmResolution(resolutionId) {
+    const db = this.getDb();
+    const rid = this.getRid();
+    const id = safeStr(resolutionId);
+    if (!db || !rid || !id) return;
+    const ref = doc(db, "rooms", rid, "combat_resolutions", id);
+    try {
+      const snap = await getDoc(ref);
+      if (!snap.exists()) return;
+      const data = snap.data() || {};
+      if (data.undoneAt) return;
+      await this._applyMmPatches(data.undoPatches || []);
+      await updateDoc(ref, {
+        undoneAt: serverTimestamp(),
+        undoneBy: safeStr(this.getBy()),
+      });
+      await this._writeBattle({
+        logs: arrayUnion(`↩ Resolução ${id} desfeita por ${safeStr(this.getBy()) || "jogador"}.`),
+      });
+    } catch (err) {
+      console.warn("[arena-combat] undo failed:", err);
+    }
+  }
+
   async _launchAreaAttack(atkPid, targetPiece, move, stats, opts = {}) {
     const extraAttackMods = opts.askExtraMods === false
       ? { acc: 0, dmg: 0 }
@@ -2259,7 +2553,9 @@ export class ArenaCombatUI {
     const resolved = this._buildResolvedMovePayload(move, ctx, extraAttackMods);
     const totalDmg = resolved.totalDmg;
     const aoeDc = totalDmg + 10;
-    const isEffect = this._isEffectMove(move);
+    const powerRule = opts.powerRule || await getPowerRuleForMove({ ...move, _move_idx: ctx.moveIdx });
+    const firstEffectType = safeStr(powerRule?.effects?.[0]?.type);
+    const isEffect = this._isEffectMove(move) || (!!firstEffectType && firstEffectType !== "damage");
     const extraModsTxt = describeExtraAttackMods(0, resolved.extraDmgMod);
 
     this._lastMove = {
@@ -2286,6 +2582,7 @@ export class ArenaCombatUI {
       target_owner: tOwner,
       target_pid: tPid,
       attack_move: resolved.movePayload,
+      power_rule: powerRule,
       attack_range: "Área (Dodge)",
       aoe_dc: aoeDc,
       dmg_base: totalDmg,
@@ -2340,7 +2637,9 @@ export class ArenaCombatUI {
     const resolved = this._buildResolvedMovePayload(move, ctx, extraAttackMods);
     const atkMod = resolved.atkMod;
     const totalDmg = resolved.totalDmg;
-    const isEffect = this._isEffectMove(move);
+    const powerRule = opts.powerRule || await getPowerRuleForMove({ ...move, _move_idx: ctx.moveIdx });
+    const firstEffectType = safeStr(powerRule?.effects?.[0]?.type);
+    const isEffect = this._isEffectMove(move) || (!!firstEffectType && firstEffectType !== "damage");
 
     const roll = d20Roll();
     this._publishRoll(roll, `Ataque • ${displayName(atkPid)}`);
@@ -2379,8 +2678,13 @@ export class ArenaCombatUI {
     const resultMsg = hit ? "ACERTOU! ✅" : "ERROU! ❌";
 
     if (hit) {
-      const dcBase = isEffect ? 10 : 15;
-      const dcTotal = dcBase + totalDmg + critBonus;
+      const resistanceQueue = buildResistanceQueue(powerRule, {
+        rank: totalDmg,
+        critBonus,
+        fallbackIsEffect: isEffect,
+        fallbackResistance: isEffect ? "fort" : "thg",
+      });
+      const dcTotal = safeInt(resistanceQueue?.[0]?.dc, (isEffect ? 10 : 15) + totalDmg + critBonus);
       const logs = [
         `${by} rolou ${roll}+${atkModStr}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${critTxt}${sneakTxt}... ${resultMsg}`,
       ];
@@ -2395,6 +2699,8 @@ export class ArenaCombatUI {
         target_owner: tOwner,
         target_pid: tPid,
         attack_move: movePayload,
+        power_rule: powerRule,
+        resistance_queue: resistanceQueue,
         attack_range: atkRange,
         atk_mod: atkMod,
         aceiro_bonus: aceiroBonus,
@@ -2411,7 +2717,7 @@ export class ArenaCombatUI {
         pendingFor: tOwner,
         prompt: {
           type: "ROLL_RESIST",
-          options: { dc: dcTotal, isEffect, rank: totalDmg, critBonus },
+          options: { dc: dcTotal, isEffect, rank: totalDmg, critBonus, powerRule, resistanceQueue },
         },
         logs,
       });
@@ -2431,6 +2737,7 @@ export class ArenaCombatUI {
         target_owner: tOwner,
         target_pid: tPid,
         attack_move: movePayload,
+        power_rule: powerRule,
         attack_range: atkRange,
         atk_mod: atkMod,
         aceiro_bonus: aceiroBonus,
@@ -2803,13 +3110,21 @@ export class ArenaCombatUI {
           if (targetPiece) this._showFloat(targetPiece, `🛡️ ${msg}`, "resist");
 
           const isEff = !!battle.is_effect;
-          const newDc = (isEff ? 10 : 15) + finalRank + safeInt(battle.crit_bonus);
+          const powerRule = battle?.power_rule || battle?.attack_move?.power_rule || await getPowerRuleForMove(battle?.attack_move || {});
+          const resistanceQueue = buildResistanceQueue(powerRule, {
+            rank: finalRank,
+            critBonus: safeInt(battle.crit_bonus),
+            fallbackIsEffect: isEff,
+            fallbackResistance: isEff ? "fort" : "thg",
+          });
+          const newDc = safeInt(resistanceQueue?.[0]?.dc, (isEff ? 10 : 15) + finalRank + safeInt(battle.crit_bonus));
 
           await this._writeBattle({
             status: "waiting_defense",
             dmg_base: finalRank,
             pendingFor: by,
-            prompt: { type: "ROLL_RESIST", options: { dc: newDc, isEffect: isEff, isAoe: false } },
+            resistance_queue: resistanceQueue,
+            prompt: { type: "ROLL_RESIST", options: { dc: newDc, isEffect: isEff, isAoe: false, powerRule, resistanceQueue } },
             logs: arrayUnion(`${msg}. Agora escolha como resistir (CD ${newDc}).`),
           });
           this._closePrompt();
@@ -2835,11 +3150,24 @@ export class ArenaCombatUI {
             }
           }
 
+          const { resolution, resolutionId } = await this._finalizeMmResistance({
+            battle,
+            prompt,
+            roll,
+            defType,
+            targetPiece,
+          });
+          const reviewMsg = resolution?.requiresAdjudication
+            ? `${resolution.summary}. RevisÃ£o do mestre necessÃ¡ria.`
+            : resolution.summary;
+
           await this._writeBattle({
             status: "idle",
+            last_resolution_id: resolutionId || null,
+            pending_review: !!resolution?.requiresAdjudication,
             pendingFor: null,
             prompt: null,
-            logs: arrayUnion(finalMsg),
+            logs: arrayUnion(finalMsg, reviewMsg),
           });
           this._closePrompt();
         }

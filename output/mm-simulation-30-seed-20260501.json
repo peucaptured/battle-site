@@ -1,0 +1,6587 @@
+{
+  "schema": "MmSimulationAudit",
+  "schemaVersion": 1,
+  "seed": 20260501,
+  "generatedAt": "2026-05-01T21:55:39.994Z",
+  "catalog": {
+    "source": "C:\\Users\\joaop\\Documents\\mapa 2\\Ga-AlDex\\golpes_pokemon_MM_reescritos.xlsx",
+    "moveCount": 1069,
+    "errorCount": 0
+  },
+  "summary": {
+    "pass": 30,
+    "gap": 0,
+    "fail": 0,
+    "checks": 129,
+    "failedChecks": 0,
+    "gapChecks": 0
+  },
+  "cases": [
+    {
+      "index": 1,
+      "id": "move:power-whip:351",
+      "name": "Power Whip",
+      "sourceRow": 351,
+      "scenario": {
+        "mode": "resistance",
+        "shouldFail": false,
+        "rank": 7,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 5,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "1",
+          "pieceId": "piece_Target_1",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "1",
+          "pieceId": "piece_Actor_1",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "damage"
+      ],
+      "modifiers": [
+        "Unreliable",
+        "unreliable"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "automatic",
+        "automatic": 1,
+        "tracked": 0,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 1,
+        "issues": [
+          {
+            "severity": "info",
+            "code": "unreliable_50_percent",
+            "effectId": "e0",
+            "message": "Unreliable usa chance fixa de 50% nesta mesa."
+          }
+        ],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "damage",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "resistance",
+        "summary": "Power Whip: sem efeito aplicado",
+        "requiresAdjudication": false,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "damage",
+            "label": "Damage",
+            "resistance": "thg",
+            "d20": 20,
+            "statVal": 40,
+            "total": 60,
+            "dc": 27,
+            "degree": 0,
+            "success": true,
+            "unreliable": {
+              "roll": 25,
+              "threshold": 50,
+              "success": true
+            }
+          }
+        ],
+        "patchKinds": [
+          "unreliable_check"
+        ],
+        "patches": [
+          {
+            "kind": "unreliable_check",
+            "effectId": "e0",
+            "effectType": "damage",
+            "label": "Damage",
+            "owner": "Target",
+            "pid": "1",
+            "pieceId": "piece_Target_1",
+            "roll": 25,
+            "threshold": 50,
+            "success": true,
+            "raw": "Damage (Rank = ) [Custom 0/r: Stgr Based] [Close] [Custom 0/r: Bônus de dano +5 (pode exceder PL)] [Flaw: Unreliable]"
+          }
+        ],
+        "adjudications": []
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 6,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "resistance_queue_count",
+            "message": "M&M espera um teste de resistencia para cada efeito resistido estruturado.",
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Damage."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "thg",
+            "actual": "thg"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 27,
+            "actual": 27
+          },
+          {
+            "status": "pass",
+            "code": "unreliable_50_percent",
+            "message": "Unreliable nesta mesa deve rolar chance fixa de 50%.",
+            "effectId": "e0",
+            "rolls": [
+              25
+            ]
+          },
+          {
+            "status": "pass",
+            "code": "success_no_direct_patch",
+            "message": "damage resistido com sucesso nao deve aplicar patch direto.",
+            "effectId": "e0",
+            "actualKinds": []
+          }
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "id": "move:endure-alternative:446",
+      "name": "Endure (Alternative)",
+      "sourceRow": 446,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 6,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "2",
+          "pieceId": "piece_Target_2",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "2",
+          "pieceId": "piece_Actor_2",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "protection"
+      ],
+      "modifiers": [
+        "Reaction",
+        "Limited",
+        "reaction",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "needs_review",
+        "automatic": 0,
+        "tracked": 1,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 1,
+        "issues": [
+          {
+            "severity": "warning",
+            "code": "reaction_needs_trigger",
+            "effectId": "e0",
+            "message": "Reaction exige gatilho/evento antes da resolucao automatica."
+          }
+        ],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "protection",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Endure (Alternative): 1 efeito(s) ativo(s)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "protection",
+            "rank": 6,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhg_tpd27t",
+            "owner": "Actor",
+            "pid": "2",
+            "pieceId": "piece_Actor_2",
+            "effectId": "e0",
+            "effectType": "protection",
+            "label": "Protection",
+            "rank": 6,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": true,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Protection (Rank = ) (Impervious) [Reaction: quando sofreria dano] (Limited: 1 uso/combate; Custom: não cai abaixo de 1 HP)"
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "rule_validation",
+            "requiresAdjudication": true,
+            "effectId": "e0",
+            "code": "reaction_needs_trigger",
+            "severity": "warning",
+            "message": "Reaction exige gatilho/evento antes da resolucao automatica."
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 2,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "reaction_needs_trigger",
+            "message": "Modificador/falha que altera timing ou uso deve aparecer como revisao de regra.",
+            "effectId": "e0"
+          },
+          {
+            "status": "pass",
+            "code": "requires_adjudication_flag",
+            "message": "Poder com escolha, Reaction, Unreliable, Fades ou efeito adjudicavel deve marcar requiresAdjudication."
+          }
+        ]
+      }
+    },
+    {
+      "index": 3,
+      "id": "move:confusion-alternativo-escudo-telecinetico-deflect:688",
+      "name": "Confusion (Alternativo - Escudo Telecinético (Deflect))",
+      "sourceRow": 688,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 4,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "3",
+          "pieceId": "piece_Target_3",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "3",
+          "pieceId": "piece_Actor_3",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "deflect"
+      ],
+      "modifiers": [
+        "Affects Others",
+        "Limited (apenas ataques ranged)",
+        "Fades",
+        "fades",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "needs_review",
+        "automatic": 0,
+        "tracked": 0,
+        "choices": 1,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "deflect",
+            "kind": "active",
+            "automation": "choice",
+            "requiresDecision": true,
+            "choices": [
+              "protectedTarget",
+              "defenseRoll"
+            ]
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Confusion (Alternativo - Escudo Telecinético (Deflect)): 1 efeito(s) ativo(s), 1 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "deflect",
+            "rank": 4,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhh_ssdfiy",
+            "owner": "Actor",
+            "pid": "3",
+            "pieceId": "piece_Actor_3",
+            "effectId": "e0",
+            "effectType": "deflect",
+            "label": "Deflect",
+            "rank": 4,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": true,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Deflect (Rank = ) [Affects Others] [Reflect] [Flaw: Limited (apenas ataques ranged)] [Flaw: Fades] [Custom 0/r: Intelect Based]"
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhh_ssdfiy",
+            "owner": "Actor",
+            "pid": "3",
+            "pieceId": "piece_Actor_3",
+            "effectId": "e0",
+            "effectType": "deflect",
+            "label": "Deflect",
+            "rank": 4,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": true,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Deflect (Rank = ) [Affects Others] [Reflect] [Flaw: Limited (apenas ataques ranged)] [Flaw: Fades] [Custom 0/r: Intelect Based]"
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 1,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "requires_adjudication_flag",
+            "message": "Poder com escolha, Reaction, Unreliable, Fades ou efeito adjudicavel deve marcar requiresAdjudication."
+          }
+        ]
+      }
+    },
+    {
+      "index": 4,
+      "id": "move:swagger:73",
+      "name": "Swagger",
+      "sourceRow": 73,
+      "scenario": {
+        "mode": "resistance",
+        "shouldFail": true,
+        "rank": 8,
+        "d20": 4,
+        "stats": {
+          "thg": 0,
+          "fort": 0,
+          "will": 0,
+          "dodge": 0,
+          "parry": 0,
+          "stgr": 0,
+          "int": 0,
+          "speed": 0
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "4",
+          "pieceId": "piece_Target_4",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "4",
+          "pieceId": "piece_Actor_4",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "affliction",
+        "enhanced_trait"
+      ],
+      "modifiers": [
+        "Secondary Effect",
+        "Limited",
+        "secondaryEffect",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "automatic",
+        "automatic": 3,
+        "tracked": 0,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "affliction",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e1",
+            "type": "enhanced_trait",
+            "kind": "support",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e2",
+            "type": "affliction",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "resistance",
+        "summary": "Swagger: 2 condicao(oes), 1 ajuste(s) de trait, 1 efeito(s) ativo(s), 1 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "affliction",
+            "label": "Affliction",
+            "resistance": "will",
+            "d20": 4,
+            "statVal": 0,
+            "total": 4,
+            "dc": 11,
+            "degree": 2,
+            "success": false,
+            "unreliable": null
+          },
+          {
+            "effectId": "e2",
+            "type": "affliction",
+            "label": "Affliction",
+            "resistance": "will",
+            "d20": 4,
+            "statVal": 0,
+            "total": 4,
+            "dc": 11,
+            "degree": 2,
+            "success": false,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "conditions",
+          "active_effect",
+          "conditions",
+          "stat_boost"
+        ],
+        "patches": [
+          {
+            "kind": "conditions",
+            "pieceId": "piece_Target_4",
+            "owner": "Target",
+            "pid": "4",
+            "before": {
+              "mm_conditions": {
+                "deg1": [],
+                "deg2": [],
+                "deg3": []
+              },
+              "pokemon_conditions": []
+            },
+            "after": {
+              "mm_conditions": {
+                "deg1": [],
+                "deg2": [
+                  "defenseless"
+                ],
+                "deg3": []
+              },
+              "pokemon_conditions": []
+            },
+            "source": {
+              "effectId": "e0",
+              "type": "affliction"
+            }
+          },
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhh_xlwqjp",
+            "owner": "Target",
+            "pid": "4",
+            "pieceId": "piece_Target_4",
+            "effectId": "e0:secondary",
+            "effectType": "secondary_effect",
+            "label": "Affliction - Secondary Effect",
+            "rank": 1,
+            "duration": "round",
+            "remainingTurns": 1,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": true,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "adjudication",
+            "requiresAdjudication": true,
+            "raw": "Affliction 1 (Vulnerable, Defenseless, Compelled; Resisted by Will) Linked Damage 1 (Secondary Effect; Limited: entra no aflição)",
+            "trigger": "next_turn",
+            "linkedSource": {
+              "effectId": "e0",
+              "type": "affliction"
+            }
+          },
+          {
+            "kind": "conditions",
+            "pieceId": "piece_Target_4",
+            "owner": "Target",
+            "pid": "4",
+            "before": {
+              "mm_conditions": {
+                "deg1": [],
+                "deg2": [
+                  "defenseless"
+                ],
+                "deg3": []
+              },
+              "pokemon_conditions": []
+            },
+            "after": {
+              "mm_conditions": {
+                "deg1": [],
+                "deg2": [
+                  "defenseless"
+                ],
+                "deg3": []
+              },
+              "pokemon_conditions": []
+            },
+            "source": {
+              "effectId": "e2",
+              "type": "affliction"
+            }
+          },
+          {
+            "kind": "stat_boost",
+            "owner": "Actor",
+            "pid": "4",
+            "stat": "stgr",
+            "before": 1,
+            "after": 9,
+            "delta": 8,
+            "source": {
+              "effectId": "e1",
+              "type": "enhanced_trait"
+            }
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhh_xlwqjp",
+            "owner": "Target",
+            "pid": "4",
+            "pieceId": "piece_Target_4",
+            "effectId": "e0:secondary",
+            "effectType": "secondary_effect",
+            "label": "Affliction - Secondary Effect",
+            "rank": 1,
+            "duration": "round",
+            "remainingTurns": 1,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": true,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "adjudication",
+            "requiresAdjudication": true,
+            "raw": "Affliction 1 (Vulnerable, Defenseless, Compelled; Resisted by Will) Linked Damage 1 (Secondary Effect; Limited: entra no aflição)",
+            "trigger": "next_turn",
+            "linkedSource": {
+              "effectId": "e0",
+              "type": "affliction"
+            }
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 11,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "resistance_queue_count",
+            "message": "M&M espera um teste de resistencia para cada efeito resistido estruturado.",
+            "expected": 2,
+            "actual": 2
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Affliction."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "will",
+            "actual": "will"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 11,
+            "actual": 11
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Affliction."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "will",
+            "actual": "will"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 11,
+            "actual": 11
+          },
+          {
+            "status": "pass",
+            "code": "affliction_condition_patch",
+            "message": "Affliction falho deve aplicar condicao por grau.",
+            "effectId": "e0",
+            "degree": 2
+          },
+          {
+            "status": "pass",
+            "code": "secondary_effect_tracking",
+            "message": "Secondary Effect deve criar efeito ativo para repetir no proximo turno.",
+            "effectId": "e0"
+          },
+          {
+            "status": "pass",
+            "code": "enhanced_trait_patch",
+            "message": "Enhanced Trait deve aplicar boost estruturado.",
+            "effectId": "e1",
+            "traits": [
+              "stgr"
+            ]
+          },
+          {
+            "status": "pass",
+            "code": "affliction_condition_patch",
+            "message": "Affliction falho deve aplicar condicao por grau.",
+            "effectId": "e2",
+            "degree": 2
+          }
+        ]
+      }
+    },
+    {
+      "index": 5,
+      "id": "move:leitura-de-mente:135",
+      "name": "Leitura de Mente",
+      "sourceRow": 135,
+      "scenario": {
+        "mode": "resistance",
+        "shouldFail": true,
+        "rank": 7,
+        "d20": 7,
+        "stats": {
+          "thg": 0,
+          "fort": 0,
+          "will": 0,
+          "dodge": 0,
+          "parry": 0,
+          "stgr": 0,
+          "int": 0,
+          "speed": 0
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "5",
+          "pieceId": "piece_Target_5",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "5",
+          "pieceId": "piece_Actor_5",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "mind_reading"
+      ],
+      "modifiers": [],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "needs_review",
+        "automatic": 0,
+        "tracked": 0,
+        "choices": 1,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "mind_reading",
+            "kind": "resistance",
+            "automation": "choice",
+            "requiresDecision": true,
+            "choices": [
+              "surfaceThoughts",
+              "deepThoughts",
+              "mentalControl"
+            ]
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "resistance",
+        "summary": "Leitura de Mente: 1 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "mind_reading",
+            "label": "Mind Reading",
+            "resistance": "will",
+            "d20": 7,
+            "statVal": 0,
+            "total": 7,
+            "dc": 17,
+            "degree": 2,
+            "success": false,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "mm_decision"
+        ],
+        "patches": [
+          {
+            "kind": "mm_decision",
+            "effectId": "e0",
+            "effectType": "mind_reading",
+            "label": "Mind Reading",
+            "reason": "Mind Reading teve graus de sucesso; escolha o nivel de informacao acessado.",
+            "choices": [
+              "surfaceThoughts",
+              "deepThoughts",
+              "mentalControl"
+            ],
+            "requiresAdjudication": true,
+            "owner": "Target",
+            "pid": "5",
+            "pieceId": "piece_Target_5",
+            "raw": "Mind Reading (Rank = )",
+            "degree": 2,
+            "rank": 7,
+            "dc": 17
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "mm_decision",
+            "effectId": "e0",
+            "effectType": "mind_reading",
+            "label": "Mind Reading",
+            "reason": "Mind Reading teve graus de sucesso; escolha o nivel de informacao acessado.",
+            "choices": [
+              "surfaceThoughts",
+              "deepThoughts",
+              "mentalControl"
+            ],
+            "requiresAdjudication": true,
+            "owner": "Target",
+            "pid": "5",
+            "pieceId": "piece_Target_5",
+            "raw": "Mind Reading (Rank = )",
+            "degree": 2,
+            "rank": 7,
+            "dc": 17
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 6,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "resistance_queue_count",
+            "message": "M&M espera um teste de resistencia para cada efeito resistido estruturado.",
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Mind Reading."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "will",
+            "actual": "will"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 17,
+            "actual": 17
+          },
+          {
+            "status": "pass",
+            "code": "mind_reading_decision",
+            "message": "mind_reading exige escolha/adjudicacao depois do teste resistido.",
+            "effectId": "e0",
+            "choices": [
+              "surfaceThoughts",
+              "deepThoughts",
+              "mentalControl"
+            ]
+          },
+          {
+            "status": "pass",
+            "code": "requires_adjudication_flag",
+            "message": "Poder com escolha, Reaction, Unreliable, Fades ou efeito adjudicavel deve marcar requiresAdjudication."
+          }
+        ]
+      }
+    },
+    {
+      "index": 6,
+      "id": "synthetic:luck-control:forced-reroll",
+      "name": "Synthetic Luck Control - Forced Reroll",
+      "sourceRow": null,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 7,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "6",
+          "pieceId": "piece_Target_6",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "6",
+          "pieceId": "piece_Actor_6",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "luck_control"
+      ],
+      "modifiers": [
+        "Reaction",
+        "Limited (apenas efeitos de sorte aprovados pelo mestre)",
+        "reaction",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "needs_review",
+        "automatic": 0,
+        "tracked": 0,
+        "choices": 1,
+        "adjudication": 0,
+        "issueCount": 1,
+        "issues": [
+          {
+            "severity": "warning",
+            "code": "reaction_needs_trigger",
+            "effectId": "e0",
+            "message": "Reaction exige gatilho/evento antes da resolucao automatica."
+          }
+        ],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "luck_control",
+            "kind": "reaction",
+            "automation": "choice",
+            "requiresDecision": true,
+            "choices": [
+              "rerollTarget",
+              "forceReroll",
+              "negateLuck",
+              "transferLuck"
+            ]
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Synthetic Luck Control - Forced Reroll: 1 efeito(s) ativo(s), 1 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "luck_control",
+            "rank": 2,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhi_g453o7",
+            "owner": "Actor",
+            "pid": "6",
+            "pieceId": "piece_Actor_6",
+            "effectId": "e0",
+            "effectType": "luck_control",
+            "label": "Luck Control",
+            "rank": 2,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": true,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Luck Control 2 (Force reroll) [Reaction] [Limited: apenas efeitos de sorte aprovados pelo mestre]"
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhi_g453o7",
+            "owner": "Actor",
+            "pid": "6",
+            "pieceId": "piece_Actor_6",
+            "effectId": "e0",
+            "effectType": "luck_control",
+            "label": "Luck Control",
+            "rank": 2,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": true,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Luck Control 2 (Force reroll) [Reaction] [Limited: apenas efeitos de sorte aprovados pelo mestre]"
+          },
+          {
+            "kind": "rule_validation",
+            "requiresAdjudication": true,
+            "effectId": "e0",
+            "code": "reaction_needs_trigger",
+            "severity": "warning",
+            "message": "Reaction exige gatilho/evento antes da resolucao automatica."
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 2,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "reaction_needs_trigger",
+            "message": "Modificador/falha que altera timing ou uso deve aparecer como revisao de regra.",
+            "effectId": "e0"
+          },
+          {
+            "status": "pass",
+            "code": "requires_adjudication_flag",
+            "message": "Poder com escolha, Reaction, Unreliable, Fades ou efeito adjudicavel deve marcar requiresAdjudication."
+          }
+        ]
+      }
+    },
+    {
+      "index": 7,
+      "id": "move:vine-whip-alternativo-desarmar-puxar-item-bolas:535",
+      "name": "Vine Whip (Alternativo - Desarmar (puxar item/bolas))",
+      "sourceRow": 535,
+      "scenario": {
+        "mode": "resistance",
+        "shouldFail": true,
+        "rank": 5,
+        "d20": 6,
+        "stats": {
+          "thg": 0,
+          "fort": 0,
+          "will": 0,
+          "dodge": 0,
+          "parry": 0,
+          "stgr": 0,
+          "int": 0,
+          "speed": 0
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "7",
+          "pieceId": "piece_Target_7",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "7",
+          "pieceId": "piece_Actor_7",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "move_object",
+        "feature"
+      ],
+      "modifiers": [
+        "Limited (apenas desarmar/puxar objeto pequeno)",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "needs_review",
+        "automatic": 0,
+        "tracked": 0,
+        "choices": 2,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "move_object",
+            "kind": "resistance",
+            "automation": "choice",
+            "requiresDecision": true,
+            "choices": [
+              "direction",
+              "distance",
+              "collision"
+            ]
+          },
+          {
+            "effectId": "e1",
+            "type": "feature",
+            "kind": "meta",
+            "automation": "adjudication",
+            "requiresDecision": true,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "resistance",
+        "summary": "Vine Whip (Alternativo - Desarmar (puxar item/bolas)): 2 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "move_object",
+            "label": "Move Object",
+            "resistance": "dodge",
+            "d20": 6,
+            "statVal": 0,
+            "total": 6,
+            "dc": 11,
+            "degree": 1,
+            "success": false,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "mm_decision",
+          "mm_decision"
+        ],
+        "patches": [
+          {
+            "kind": "mm_decision",
+            "effectId": "e0",
+            "effectType": "move_object",
+            "label": "Move Object",
+            "reason": "Move Object resistido teve efeito; escolha direcao, distancia e colisao antes de mover a peca.",
+            "choices": [
+              "direction",
+              "distance",
+              "collision"
+            ],
+            "requiresAdjudication": true,
+            "owner": "Target",
+            "pid": "7",
+            "pieceId": "piece_Target_7",
+            "raw": "Move Object 1 [Custom 0/r: Stgr Based] [Close] [Flaw: Limited (apenas desarmar/puxar objeto pequeno)]",
+            "degree": 1,
+            "rank": 1,
+            "dc": 11
+          },
+          {
+            "kind": "mm_decision",
+            "effectId": "e1",
+            "effectType": "feature",
+            "label": "Feature",
+            "reason": "Efeito nao resistido registrado para revisao.",
+            "choices": [],
+            "requiresAdjudication": true,
+            "owner": "Target",
+            "pid": "7",
+            "pieceId": "piece_Target_7",
+            "raw": "Linked Feature 1 (desarma)"
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "mm_decision",
+            "effectId": "e0",
+            "effectType": "move_object",
+            "label": "Move Object",
+            "reason": "Move Object resistido teve efeito; escolha direcao, distancia e colisao antes de mover a peca.",
+            "choices": [
+              "direction",
+              "distance",
+              "collision"
+            ],
+            "requiresAdjudication": true,
+            "owner": "Target",
+            "pid": "7",
+            "pieceId": "piece_Target_7",
+            "raw": "Move Object 1 [Custom 0/r: Stgr Based] [Close] [Flaw: Limited (apenas desarmar/puxar objeto pequeno)]",
+            "degree": 1,
+            "rank": 1,
+            "dc": 11
+          },
+          {
+            "kind": "mm_decision",
+            "effectId": "e1",
+            "effectType": "feature",
+            "label": "Feature",
+            "reason": "Efeito nao resistido registrado para revisao.",
+            "choices": [],
+            "requiresAdjudication": true,
+            "owner": "Target",
+            "pid": "7",
+            "pieceId": "piece_Target_7",
+            "raw": "Linked Feature 1 (desarma)"
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 7,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "resistance_queue_count",
+            "message": "M&M espera um teste de resistencia para cada efeito resistido estruturado.",
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Move Object."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "dodge",
+            "actual": "dodge"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 11,
+            "actual": 11
+          },
+          {
+            "status": "pass",
+            "code": "move_object_decision",
+            "message": "move_object exige escolha/adjudicacao depois do teste resistido.",
+            "effectId": "e0",
+            "choices": [
+              "direction",
+              "distance",
+              "collision"
+            ]
+          },
+          {
+            "status": "pass",
+            "code": "adjudication_effect_review",
+            "message": "feature deve ficar marcado para revisao.",
+            "effectId": "e1"
+          },
+          {
+            "status": "pass",
+            "code": "requires_adjudication_flag",
+            "message": "Poder com escolha, Reaction, Unreliable, Fades ou efeito adjudicavel deve marcar requiresAdjudication."
+          }
+        ]
+      }
+    },
+    {
+      "index": 8,
+      "id": "move:moonlight-alternativo-contest-combo-sunny-day-moonlight-halo-ironico:605",
+      "name": "Moonlight (Alternativo - Contest Combo: Sunny Day → Moonlight (Halo Irônico))",
+      "sourceRow": 605,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 6,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "8",
+          "pieceId": "piece_Target_8",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "8",
+          "pieceId": "piece_Actor_8",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "enhanced_trait",
+        "feature",
+        "illusion"
+      ],
+      "modifiers": [
+        "Limited (apenas em Contest)",
+        "limited",
+        "Limited (apenas lua/halo cenográfico)"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "needs_review",
+        "automatic": 1,
+        "tracked": 0,
+        "choices": 2,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "enhanced_trait",
+            "kind": "support",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e1",
+            "type": "feature",
+            "kind": "meta",
+            "automation": "adjudication",
+            "requiresDecision": true,
+            "choices": []
+          },
+          {
+            "effectId": "e2",
+            "type": "illusion",
+            "kind": "field",
+            "automation": "choice",
+            "requiresDecision": true,
+            "choices": [
+              "subject",
+              "area",
+              "senses"
+            ]
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Moonlight (Alternativo - Contest Combo: Sunny Day → Moonlight (Halo Irônico)): 1 efeito(s) ativo(s), 3 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "enhanced_trait",
+            "rank": 2,
+            "automatic": true,
+            "unreliable": null
+          },
+          {
+            "effectId": "e1",
+            "type": "feature",
+            "rank": 1,
+            "automatic": true,
+            "unreliable": null
+          },
+          {
+            "effectId": "e2",
+            "type": "illusion",
+            "rank": 1,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "adjudication",
+          "mm_decision",
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "adjudication",
+            "effectId": "e0",
+            "effectType": "enhanced_trait",
+            "label": "Enhanced Trait",
+            "reason": "Enhanced Trait sem trait estruturado.",
+            "owner": "Actor",
+            "pid": "8",
+            "raw": "Enhanced Trait 2 (Performance) [Flaw: Limited (apenas em Contest)]"
+          },
+          {
+            "kind": "mm_decision",
+            "effectId": "e1",
+            "effectType": "feature",
+            "label": "Feature",
+            "reason": "Efeito imediato ainda exige adjudicacao.",
+            "choices": [],
+            "requiresAdjudication": true,
+            "owner": "Actor",
+            "pid": "8",
+            "pieceId": "piece_Actor_8",
+            "raw": "Feature 1 (Contest Combo: dobra o Apelo se usado após Sunny Day) [Flaw: Limited (apenas em Contest)]"
+          },
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhi_504816",
+            "owner": "Actor",
+            "pid": "8",
+            "pieceId": "piece_Actor_8",
+            "effectId": "e2",
+            "effectType": "illusion",
+            "label": "Illusion",
+            "rank": 1,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "round_end",
+            "scope": "field",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Illusion 1 (Visual) [Flaw: Limited (apenas lua/halo cenográfico)]"
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "adjudication",
+            "effectId": "e0",
+            "effectType": "enhanced_trait",
+            "label": "Enhanced Trait",
+            "reason": "Enhanced Trait sem trait estruturado.",
+            "owner": "Actor",
+            "pid": "8",
+            "raw": "Enhanced Trait 2 (Performance) [Flaw: Limited (apenas em Contest)]"
+          },
+          {
+            "kind": "mm_decision",
+            "effectId": "e1",
+            "effectType": "feature",
+            "label": "Feature",
+            "reason": "Efeito imediato ainda exige adjudicacao.",
+            "choices": [],
+            "requiresAdjudication": true,
+            "owner": "Actor",
+            "pid": "8",
+            "pieceId": "piece_Actor_8",
+            "raw": "Feature 1 (Contest Combo: dobra o Apelo se usado após Sunny Day) [Flaw: Limited (apenas em Contest)]"
+          },
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhi_504816",
+            "owner": "Actor",
+            "pid": "8",
+            "pieceId": "piece_Actor_8",
+            "effectId": "e2",
+            "effectType": "illusion",
+            "label": "Illusion",
+            "rank": 1,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "round_end",
+            "scope": "field",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Illusion 1 (Visual) [Flaw: Limited (apenas lua/halo cenográfico)]"
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 1,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "requires_adjudication_flag",
+            "message": "Poder com escolha, Reaction, Unreliable, Fades ou efeito adjudicavel deve marcar requiresAdjudication."
+          }
+        ]
+      }
+    },
+    {
+      "index": 9,
+      "id": "move:whirlpool-combo-rain-dance-whirlpool-vortice-ampliado:640",
+      "name": "Whirlpool (Combo - Rain Dance → Whirlpool (Vórtice Ampliado))",
+      "sourceRow": 640,
+      "scenario": {
+        "mode": "resistance",
+        "shouldFail": true,
+        "rank": 4,
+        "d20": 6,
+        "stats": {
+          "thg": 0,
+          "fort": 0,
+          "will": 0,
+          "dodge": 0,
+          "parry": 0,
+          "stgr": 0,
+          "int": 0,
+          "speed": 0
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "9",
+          "pieceId": "piece_Target_9",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "9",
+          "pieceId": "piece_Actor_9",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "damage",
+        "affliction",
+        "nullify"
+      ],
+      "modifiers": [
+        "Cumulative",
+        "Increased Range 1",
+        "Area: Burst",
+        "Limited (apenas dentro do vórtice)",
+        "limited",
+        "Increased Duration 3 (Sustained)",
+        "Limited (apenas impedir troca/fuga)"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "needs_review",
+        "automatic": 3,
+        "tracked": 0,
+        "choices": 1,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "damage",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e1",
+            "type": "affliction",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e2",
+            "type": "nullify",
+            "kind": "resistance",
+            "automation": "choice",
+            "requiresDecision": true,
+            "choices": [
+              "effectToNullify"
+            ]
+          },
+          {
+            "effectId": "e3",
+            "type": "damage",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "resistance",
+        "summary": "Whirlpool (Combo - Rain Dance → Whirlpool (Vórtice Ampliado)): 3 HP perdido, 1 condicao(oes), 1 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "damage",
+            "label": "Damage",
+            "resistance": "thg",
+            "d20": 6,
+            "statVal": 0,
+            "total": 6,
+            "dc": 19,
+            "degree": 3,
+            "success": false,
+            "unreliable": null
+          },
+          {
+            "effectId": "e1",
+            "type": "affliction",
+            "label": "Affliction",
+            "resistance": "dodge",
+            "d20": 6,
+            "statVal": 0,
+            "total": 6,
+            "dc": 11,
+            "degree": 1,
+            "success": false,
+            "unreliable": null
+          },
+          {
+            "effectId": "e2",
+            "type": "nullify",
+            "label": "Nullify",
+            "resistance": "dodge",
+            "d20": 6,
+            "statVal": 0,
+            "total": 6,
+            "dc": 12,
+            "degree": 2,
+            "success": false,
+            "unreliable": null
+          },
+          {
+            "effectId": "e3",
+            "type": "damage",
+            "label": "Damage",
+            "resistance": "fort",
+            "d20": 6,
+            "statVal": 0,
+            "total": 6,
+            "dc": 16,
+            "degree": 2,
+            "success": false,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "hp",
+          "conditions",
+          "mm_decision",
+          "hp"
+        ],
+        "patches": [
+          {
+            "kind": "hp",
+            "owner": "Target",
+            "pid": "9",
+            "pieceId": "piece_Target_9",
+            "before": 6,
+            "after": 3,
+            "delta": -3,
+            "source": {
+              "effectId": "e0",
+              "type": "damage"
+            }
+          },
+          {
+            "kind": "conditions",
+            "pieceId": "piece_Target_9",
+            "owner": "Target",
+            "pid": "9",
+            "before": {
+              "mm_conditions": {
+                "deg1": [],
+                "deg2": [],
+                "deg3": []
+              },
+              "pokemon_conditions": []
+            },
+            "after": {
+              "mm_conditions": {
+                "deg1": [
+                  "hindered"
+                ],
+                "deg2": [],
+                "deg3": []
+              },
+              "pokemon_conditions": []
+            },
+            "source": {
+              "effectId": "e1",
+              "type": "affliction"
+            }
+          },
+          {
+            "kind": "mm_decision",
+            "effectId": "e2",
+            "effectType": "nullify",
+            "label": "Nullify",
+            "reason": "Nullify teve sucesso; escolha o efeito ativo/poder alvo para cancelar.",
+            "choices": [
+              "effectToNullify"
+            ],
+            "requiresAdjudication": true,
+            "owner": "Target",
+            "pid": "9",
+            "pieceId": "piece_Target_9",
+            "raw": "Linked Nullify 2 (Teleport) (Resisted by Dodge) [Flaw: Limited (apenas impedir troca/fuga)] [Extra: Increased Duration 3 (Sustained)]",
+            "degree": 2,
+            "rank": 2,
+            "dc": 12
+          },
+          {
+            "kind": "hp",
+            "owner": "Target",
+            "pid": "9",
+            "pieceId": "piece_Target_9",
+            "before": 3,
+            "after": 1,
+            "delta": -2,
+            "source": {
+              "effectId": "e3",
+              "type": "damage"
+            }
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "mm_decision",
+            "effectId": "e2",
+            "effectType": "nullify",
+            "label": "Nullify",
+            "reason": "Nullify teve sucesso; escolha o efeito ativo/poder alvo para cancelar.",
+            "choices": [
+              "effectToNullify"
+            ],
+            "requiresAdjudication": true,
+            "owner": "Target",
+            "pid": "9",
+            "pieceId": "piece_Target_9",
+            "raw": "Linked Nullify 2 (Teleport) (Resisted by Dodge) [Flaw: Limited (apenas impedir troca/fuga)] [Extra: Increased Duration 3 (Sustained)]",
+            "degree": 2,
+            "rank": 2,
+            "dc": 12
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 20,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "resistance_queue_count",
+            "message": "M&M espera um teste de resistencia para cada efeito resistido estruturado.",
+            "expected": 4,
+            "actual": 4
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Damage."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "thg",
+            "actual": "thg"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 19,
+            "actual": 19
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Affliction."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "dodge",
+            "actual": "dodge"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 11,
+            "actual": 11
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Nullify."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "dodge",
+            "actual": "dodge"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 12,
+            "actual": 12
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Damage."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "fort",
+            "actual": "fort"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 16,
+            "actual": 16
+          },
+          {
+            "status": "pass",
+            "code": "damage_hp_patch",
+            "message": "Damage falho deve aplicar perda de HP.",
+            "effectId": "e0"
+          },
+          {
+            "status": "pass",
+            "code": "damage_degree",
+            "message": "Perda de HP deve seguir grau de falha, com clamp no HP minimo.",
+            "expectedAfter": 3,
+            "actualAfter": 3,
+            "degree": 3
+          },
+          {
+            "status": "pass",
+            "code": "affliction_condition_patch",
+            "message": "Affliction falho deve aplicar condicao por grau.",
+            "effectId": "e1",
+            "degree": 1
+          },
+          {
+            "status": "pass",
+            "code": "nullify_decision",
+            "message": "nullify exige escolha/adjudicacao depois do teste resistido.",
+            "effectId": "e2",
+            "choices": [
+              "effectToNullify"
+            ]
+          },
+          {
+            "status": "pass",
+            "code": "damage_hp_patch",
+            "message": "Damage falho deve aplicar perda de HP.",
+            "effectId": "e3"
+          },
+          {
+            "status": "pass",
+            "code": "damage_degree",
+            "message": "Perda de HP deve seguir grau de falha, com clamp no HP minimo.",
+            "expectedAfter": 4,
+            "actualAfter": 1,
+            "degree": 2
+          },
+          {
+            "status": "pass",
+            "code": "requires_adjudication_flag",
+            "message": "Poder com escolha, Reaction, Unreliable, Fades ou efeito adjudicavel deve marcar requiresAdjudication."
+          }
+        ]
+      }
+    },
+    {
+      "index": 10,
+      "id": "move:rapid-spin-alternativo-counter-shield-bloquear-rajadas:554",
+      "name": "Rapid Spin (Alternativo - Counter Shield (Bloquear Rajadas))",
+      "sourceRow": 554,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 3,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "10",
+          "pieceId": "piece_Target_10",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "10",
+          "pieceId": "piece_Actor_10",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "deflect",
+        "enhanced_trait"
+      ],
+      "modifiers": [
+        "Reaction",
+        "Limited (apenas projéteis e ataques à distância)",
+        "reaction",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "needs_review",
+        "automatic": 1,
+        "tracked": 0,
+        "choices": 1,
+        "adjudication": 0,
+        "issueCount": 1,
+        "issues": [
+          {
+            "severity": "warning",
+            "code": "reaction_needs_trigger",
+            "effectId": "e0",
+            "message": "Reaction exige gatilho/evento antes da resolucao automatica."
+          }
+        ],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "deflect",
+            "kind": "active",
+            "automation": "choice",
+            "requiresDecision": true,
+            "choices": [
+              "protectedTarget",
+              "defenseRoll"
+            ]
+          },
+          {
+            "effectId": "e1",
+            "type": "enhanced_trait",
+            "kind": "support",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Rapid Spin (Alternativo - Counter Shield (Bloquear Rajadas)): 2 ajuste(s) de trait, 1 efeito(s) ativo(s), 1 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "deflect",
+            "rank": 3,
+            "automatic": true,
+            "unreliable": null
+          },
+          {
+            "effectId": "e1",
+            "type": "enhanced_trait",
+            "rank": 3,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect",
+          "stat_boost",
+          "stat_boost"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhj_krcdrk",
+            "owner": "Actor",
+            "pid": "10",
+            "pieceId": "piece_Actor_10",
+            "effectId": "e0",
+            "effectType": "deflect",
+            "label": "Deflect",
+            "rank": 3,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": true,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Deflect (Rank = ) [Reflect] [Close] [Reaction] [Flaw: Limited (apenas projéteis e ataques à distância)] [Custom 0/r: Stgr Based]"
+          },
+          {
+            "kind": "stat_boost",
+            "owner": "Actor",
+            "pid": "10",
+            "stat": "dodge",
+            "before": 1,
+            "after": 4,
+            "delta": 3,
+            "source": {
+              "effectId": "e1",
+              "type": "enhanced_trait"
+            }
+          },
+          {
+            "kind": "stat_boost",
+            "owner": "Actor",
+            "pid": "10",
+            "stat": "initiative",
+            "before": 0,
+            "after": 3,
+            "delta": 3,
+            "source": {
+              "effectId": "e1",
+              "type": "enhanced_trait"
+            }
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhj_krcdrk",
+            "owner": "Actor",
+            "pid": "10",
+            "pieceId": "piece_Actor_10",
+            "effectId": "e0",
+            "effectType": "deflect",
+            "label": "Deflect",
+            "rank": 3,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": true,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Deflect (Rank = ) [Reflect] [Close] [Reaction] [Flaw: Limited (apenas projéteis e ataques à distância)] [Custom 0/r: Stgr Based]"
+          },
+          {
+            "kind": "rule_validation",
+            "requiresAdjudication": true,
+            "effectId": "e0",
+            "code": "reaction_needs_trigger",
+            "severity": "warning",
+            "message": "Reaction exige gatilho/evento antes da resolucao automatica."
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 2,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "reaction_needs_trigger",
+            "message": "Modificador/falha que altera timing ou uso deve aparecer como revisao de regra.",
+            "effectId": "e0"
+          },
+          {
+            "status": "pass",
+            "code": "requires_adjudication_flag",
+            "message": "Poder com escolha, Reaction, Unreliable, Fades ou efeito adjudicavel deve marcar requiresAdjudication."
+          }
+        ]
+      }
+    },
+    {
+      "index": 11,
+      "id": "move:crafty-shield:797",
+      "name": "Crafty Shield",
+      "sourceRow": 797,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 7,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "11",
+          "pieceId": "piece_Target_11",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "11",
+          "pieceId": "piece_Actor_11",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "immunity"
+      ],
+      "modifiers": [
+        "Affects Others",
+        "Limited (apenas golpes de Status/alterações)",
+        "Limited (apenas até o início do próximo turno)",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "partial",
+        "automatic": 0,
+        "tracked": 1,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "immunity",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Crafty Shield: 1 efeito(s) ativo(s)",
+        "requiresAdjudication": false,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "immunity",
+            "rank": 5,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhj_3z95bz",
+            "owner": "Actor",
+            "pid": "11",
+            "pieceId": "piece_Actor_11",
+            "effectId": "e0",
+            "effectType": "immunity",
+            "label": "Immunity",
+            "rank": 5,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Immunity 5 (Alteration Effects) [Affects Others] [Flaw: Limited (apenas golpes de Status/alterações)] [Flaw: Limited (apenas até o início do próximo turno)]"
+          }
+        ],
+        "adjudications": []
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 0,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": []
+      }
+    },
+    {
+      "index": 12,
+      "id": "move:poison-gas-alternative:464",
+      "name": "Poison Gas (Alternative)",
+      "sourceRow": 464,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 6,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 5,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "12",
+          "pieceId": "piece_Target_12",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "12",
+          "pieceId": "piece_Actor_12",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "concealment"
+      ],
+      "modifiers": [
+        "Increased Range 1",
+        "Area: Cloud",
+        "Limited (apenas fumaça/gás [Ranged",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "partial",
+        "automatic": 0,
+        "tracked": 1,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "concealment",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Poison Gas (Alternative): 1 efeito(s) ativo(s)",
+        "requiresAdjudication": false,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "concealment",
+            "rank": 6,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhk_4vo8bl",
+            "owner": "Actor",
+            "pid": "12",
+            "pieceId": "piece_Actor_12",
+            "effectId": "e0",
+            "effectType": "concealment",
+            "label": "Concealment",
+            "rank": 6,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Concealment (Rank = ) (visual) [Area: Cloud] [Flaw: Limited (apenas fumaça/gás [Ranged] [Extra: Increased Range 1]; pode ser disperso)]"
+          }
+        ],
+        "adjudications": []
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 0,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": []
+      }
+    },
+    {
+      "index": 13,
+      "id": "move:rain-dance:14",
+      "name": "Rain Dance",
+      "sourceRow": 14,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 3,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "13",
+          "pieceId": "piece_Target_13",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "13",
+          "pieceId": "piece_Actor_13",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "environment"
+      ],
+      "modifiers": [
+        "Increased Range 1"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "partial",
+        "automatic": 0,
+        "tracked": 1,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "environment",
+            "kind": "field",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Rain Dance: 1 efeito(s) ativo(s)",
+        "requiresAdjudication": false,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "environment",
+            "rank": 3,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhk_fnuvgx",
+            "owner": "Actor",
+            "pid": "13",
+            "pieceId": "piece_Actor_13",
+            "effectId": "e0",
+            "effectType": "environment",
+            "label": "Environment",
+            "rank": 3,
+            "duration": "instant",
+            "remainingTurns": 5,
+            "tickPolicy": "round_end",
+            "scope": "field",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": false
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Environment (Rank = ) [Weather: Chuva] [Visibility -2] [Area: Enviroment (Cloud) [Duration: 5 turnos [Ranged] [Extra: Increased Range 1]; 8 com item] [Conflito de climas: Rank+10 vs Rank+d20]"
+          }
+        ],
+        "adjudications": []
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 0,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": []
+      }
+    },
+    {
+      "index": 14,
+      "id": "move:aqua-ring:167",
+      "name": "Aqua Ring",
+      "sourceRow": 167,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 10,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "14",
+          "pieceId": "piece_Target_14",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "14",
+          "pieceId": "piece_Actor_14",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "regeneration"
+      ],
+      "modifiers": [
+        "Limited",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "partial",
+        "automatic": 0,
+        "tracked": 1,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "regeneration",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Aqua Ring: 1 efeito(s) ativo(s)",
+        "requiresAdjudication": false,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "regeneration",
+            "rank": 1,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhk_zhyukw",
+            "owner": "Actor",
+            "pid": "14",
+            "pieceId": "piece_Actor_14",
+            "effectId": "e0",
+            "effectType": "regeneration",
+            "label": "Regeneration",
+            "rank": 1,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Regeneration 1 (Limited: enquanto o usuário mantiver o efeito ativo) [Affects Only Self]"
+          }
+        ],
+        "adjudications": []
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 0,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": []
+      }
+    },
+    {
+      "index": 15,
+      "id": "move:ice-beam-alternativo-esfera-oca-de-gelo-casulo-protetor:530",
+      "name": "Ice Beam (Alternativo - Esfera Oca de Gelo (casulo protetor))",
+      "sourceRow": 530,
+      "scenario": {
+        "mode": "resistance",
+        "shouldFail": true,
+        "rank": 7,
+        "d20": 4,
+        "stats": {
+          "thg": 0,
+          "fort": 0,
+          "will": 0,
+          "dodge": 0,
+          "parry": 0,
+          "stgr": 0,
+          "int": 0,
+          "speed": 0
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "15",
+          "pieceId": "piece_Target_15",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "15",
+          "pieceId": "piece_Actor_15",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "create",
+        "protection",
+        "affliction",
+        "weaken"
+      ],
+      "modifiers": [
+        "Increased Range 1",
+        "Affects Others",
+        "Limited (envolver 1 alvo)",
+        "limited",
+        "Limited (enquanto esfera intacta)"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "partial",
+        "automatic": 2,
+        "tracked": 2,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "create",
+            "kind": "active",
+            "automation": "ignored",
+            "requiresDecision": false,
+            "choices": [
+              "shape",
+              "location",
+              "toughness"
+            ]
+          },
+          {
+            "effectId": "e1",
+            "type": "protection",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e2",
+            "type": "affliction",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e3",
+            "type": "weaken",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "resistance",
+        "summary": "Ice Beam (Alternativo - Esfera Oca de Gelo (casulo protetor)): 1 condicao(oes), 1 ajuste(s) de trait, 1 efeito(s) ativo(s)",
+        "requiresAdjudication": false,
+        "effectResults": [
+          {
+            "effectId": "e2",
+            "type": "affliction",
+            "label": "Affliction",
+            "resistance": "fort",
+            "d20": 4,
+            "statVal": 0,
+            "total": 4,
+            "dc": 11,
+            "degree": 2,
+            "success": false,
+            "unreliable": null
+          },
+          {
+            "effectId": "e3",
+            "type": "weaken",
+            "label": "Weaken",
+            "resistance": "fort",
+            "d20": 4,
+            "statVal": 0,
+            "total": 4,
+            "dc": 17,
+            "degree": 3,
+            "success": false,
+            "unreliable": null
+          },
+          {
+            "effectId": "e0",
+            "type": "create",
+            "rank": 3,
+            "automatic": true,
+            "ignored": true
+          }
+        ],
+        "patchKinds": [
+          "conditions",
+          "stat_boost",
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "conditions",
+            "pieceId": "piece_Target_15",
+            "owner": "Target",
+            "pid": "15",
+            "before": {
+              "mm_conditions": {
+                "deg1": [],
+                "deg2": [],
+                "deg3": []
+              },
+              "pokemon_conditions": []
+            },
+            "after": {
+              "mm_conditions": {
+                "deg1": [],
+                "deg2": [
+                  "stunned"
+                ],
+                "deg3": []
+              },
+              "pokemon_conditions": []
+            },
+            "source": {
+              "effectId": "e2",
+              "type": "affliction"
+            }
+          },
+          {
+            "kind": "stat_boost",
+            "owner": "Target",
+            "pid": "15",
+            "stat": "int",
+            "before": 1,
+            "after": -20,
+            "delta": -21,
+            "source": {
+              "effectId": "e3",
+              "type": "weaken"
+            }
+          },
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhk_3rznhl",
+            "owner": "Target",
+            "pid": "15",
+            "pieceId": "piece_Target_15",
+            "effectId": "e1",
+            "effectType": "protection",
+            "label": "Protection",
+            "rank": 1,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Linked Protection 1 (Sustained) [Flaw: Limited (enquanto esfera intacta)]"
+          }
+        ],
+        "adjudications": []
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 10,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "resistance_queue_count",
+            "message": "M&M espera um teste de resistencia para cada efeito resistido estruturado.",
+            "expected": 2,
+            "actual": 2
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Affliction."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "fort",
+            "actual": "fort"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 11,
+            "actual": 11
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Weaken."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "fort",
+            "actual": "fort"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 17,
+            "actual": 17
+          },
+          {
+            "status": "pass",
+            "code": "active_effect_tracking",
+            "message": "protection deve ser rastreado como active_effect.",
+            "effectId": "e1",
+            "automation": "tracked"
+          },
+          {
+            "status": "pass",
+            "code": "affliction_condition_patch",
+            "message": "Affliction falho deve aplicar condicao por grau.",
+            "effectId": "e2",
+            "degree": 2
+          },
+          {
+            "status": "pass",
+            "code": "weaken_trait_patch",
+            "message": "Weaken falho deve reduzir cada trait estruturado.",
+            "effectId": "e3",
+            "expectedTraits": [
+              "int"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "index": 16,
+      "id": "move:detect-alternative:445",
+      "name": "Detect (Alternative)",
+      "sourceRow": 445,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 4,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "16",
+          "pieceId": "piece_Target_16",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "16",
+          "pieceId": "piece_Actor_16",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "senses",
+        "enhanced_trait"
+      ],
+      "modifiers": [
+        "Precise",
+        "Limited",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "partial",
+        "automatic": 2,
+        "tracked": 1,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "senses",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e1",
+            "type": "enhanced_trait",
+            "kind": "support",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e2",
+            "type": "enhanced_trait",
+            "kind": "support",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Detect (Alternative): 2 ajuste(s) de trait, 1 efeito(s) ativo(s)",
+        "requiresAdjudication": false,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "senses",
+            "rank": 2,
+            "automatic": true,
+            "unreliable": null
+          },
+          {
+            "effectId": "e1",
+            "type": "enhanced_trait",
+            "rank": 4,
+            "automatic": true,
+            "unreliable": null
+          },
+          {
+            "effectId": "e2",
+            "type": "enhanced_trait",
+            "rank": 4,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect",
+          "stat_boost",
+          "stat_boost"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhk_0e0r2m",
+            "owner": "Actor",
+            "pid": "16",
+            "pieceId": "piece_Actor_16",
+            "effectId": "e0",
+            "effectType": "senses",
+            "label": "Senses",
+            "rank": 2,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Senses 2 (Danger Sense) [Precise] (Limited: em combate)"
+          },
+          {
+            "kind": "stat_boost",
+            "owner": "Actor",
+            "pid": "16",
+            "stat": "dodge",
+            "before": 1,
+            "after": 5,
+            "delta": 4,
+            "source": {
+              "effectId": "e1",
+              "type": "enhanced_trait"
+            }
+          },
+          {
+            "kind": "stat_boost",
+            "owner": "Actor",
+            "pid": "16",
+            "stat": "parry",
+            "before": 0,
+            "after": 4,
+            "delta": 4,
+            "source": {
+              "effectId": "e2",
+              "type": "enhanced_trait"
+            }
+          }
+        ],
+        "adjudications": []
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 0,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": []
+      }
+    },
+    {
+      "index": 17,
+      "id": "move:movimentacao-bem-em-terreno:134",
+      "name": "Movimentação bem em terreno",
+      "sourceRow": 134,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 9,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "17",
+          "pieceId": "piece_Target_17",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "17",
+          "pieceId": "piece_Actor_17",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "movement"
+      ],
+      "modifiers": [],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "partial",
+        "automatic": 0,
+        "tracked": 1,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "movement",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Movimentação bem em terreno: 1 efeito(s) ativo(s)",
+        "requiresAdjudication": false,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "movement",
+            "rank": 9,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhk_avbjo6",
+            "owner": "Actor",
+            "pid": "17",
+            "pieceId": "piece_Actor_17",
+            "effectId": "e0",
+            "effectType": "movement",
+            "label": "Movement",
+            "rank": 9,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": false
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Movement (Sure-Footed) (Rank = )"
+          }
+        ],
+        "adjudications": []
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 0,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": []
+      }
+    },
+    {
+      "index": 18,
+      "id": "move:metronome:875",
+      "name": "Metronome",
+      "sourceRow": 875,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 8,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "18",
+          "pieceId": "piece_Target_18",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "18",
+          "pieceId": "piece_Actor_18",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "variable"
+      ],
+      "modifiers": [
+        "Uncontrolled"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "needs_review",
+        "automatic": 0,
+        "tracked": 0,
+        "choices": 1,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "variable",
+            "kind": "active",
+            "automation": "choice",
+            "requiresDecision": true,
+            "choices": [
+              "configuration"
+            ]
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Metronome: 1 efeito(s) ativo(s), 1 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "variable",
+            "rank": 8,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhk_ncf5ul",
+            "owner": "Actor",
+            "pid": "18",
+            "pieceId": "piece_Actor_18",
+            "effectId": "e0",
+            "effectType": "variable",
+            "label": "Variable",
+            "rank": 8,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": false
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Variable (Rank = ) [Custom: escolhe um golpe aleatório e o executa] [Flaw: Uncontrolled]"
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhk_ncf5ul",
+            "owner": "Actor",
+            "pid": "18",
+            "pieceId": "piece_Actor_18",
+            "effectId": "e0",
+            "effectType": "variable",
+            "label": "Variable",
+            "rank": 8,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": false
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Variable (Rank = ) [Custom: escolhe um golpe aleatório e o executa] [Flaw: Uncontrolled]"
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 1,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "requires_adjudication_flag",
+            "message": "Poder com escolha, Reaction, Unreliable, Fades ou efeito adjudicavel deve marcar requiresAdjudication."
+          }
+        ]
+      }
+    },
+    {
+      "index": 19,
+      "id": "move:transform:1000",
+      "name": "Transform",
+      "sourceRow": 1000,
+      "scenario": {
+        "mode": "resistance",
+        "shouldFail": true,
+        "rank": 8,
+        "d20": 5,
+        "stats": {
+          "thg": 0,
+          "fort": 0,
+          "will": 0,
+          "dodge": 0,
+          "parry": 0,
+          "stgr": 0,
+          "int": 0,
+          "speed": 0
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "19",
+          "pieceId": "piece_Target_19",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "19",
+          "pieceId": "piece_Actor_19",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "transform"
+      ],
+      "modifiers": [
+        "Increased Range 1",
+        "Limited (apenas o alvo escolhido)",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "needs_review",
+        "automatic": 0,
+        "tracked": 0,
+        "choices": 1,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "transform",
+            "kind": "resistance",
+            "automation": "choice",
+            "requiresDecision": true,
+            "choices": [
+              "form",
+              "traits"
+            ]
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "resistance",
+        "summary": "Transform: 1 efeito(s) ativo(s), 1 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "transform",
+            "label": "Morph",
+            "resistance": "fort",
+            "d20": 5,
+            "statVal": 0,
+            "total": 5,
+            "dc": 11,
+            "degree": 2,
+            "success": false,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhk_mq1mf1",
+            "owner": "Target",
+            "pid": "19",
+            "pieceId": "piece_Target_19",
+            "effectId": "e0",
+            "effectType": "transform",
+            "label": "Morph",
+            "rank": 1,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Morph 1 (Any Humanoid/Creature) [Custom: copia forma e moves do alvo] [Ranged] [Extra: Increased Range 1] [Flaw: Limited (apenas o alvo escolhido)]",
+            "degree": 2
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhk_mq1mf1",
+            "owner": "Target",
+            "pid": "19",
+            "pieceId": "piece_Target_19",
+            "effectId": "e0",
+            "effectType": "transform",
+            "label": "Morph",
+            "rank": 1,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Morph 1 (Any Humanoid/Creature) [Custom: copia forma e moves do alvo] [Ranged] [Extra: Increased Range 1] [Flaw: Limited (apenas o alvo escolhido)]",
+            "degree": 2
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 6,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "resistance_queue_count",
+            "message": "M&M espera um teste de resistencia para cada efeito resistido estruturado.",
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Morph."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "fort",
+            "actual": "fort"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 11,
+            "actual": 11
+          },
+          {
+            "status": "pass",
+            "code": "transform_active_review",
+            "message": "Transform resistido deve criar efeito ativo e pedir forma/traits.",
+            "effectId": "e0"
+          },
+          {
+            "status": "pass",
+            "code": "requires_adjudication_flag",
+            "message": "Poder com escolha, Reaction, Unreliable, Fades ou efeito adjudicavel deve marcar requiresAdjudication."
+          }
+        ]
+      }
+    },
+    {
+      "index": 20,
+      "id": "move:counter-alternative:456",
+      "name": "Counter (Alternative)",
+      "sourceRow": 456,
+      "scenario": {
+        "mode": "resistance",
+        "shouldFail": true,
+        "rank": 4,
+        "d20": 6,
+        "stats": {
+          "thg": 0,
+          "fort": 0,
+          "will": 0,
+          "dodge": 0,
+          "parry": 0,
+          "stgr": 0,
+          "int": 0,
+          "speed": 0
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "20",
+          "pieceId": "piece_Target_20",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "20",
+          "pieceId": "piece_Actor_20",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "damage",
+        "deflect"
+      ],
+      "modifiers": [
+        "Reaction",
+        "Limited (apenas após sofrer dano por ataque Close/Parry)",
+        "reaction",
+        "limited",
+        "Limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "needs_review",
+        "automatic": 1,
+        "tracked": 0,
+        "choices": 1,
+        "adjudication": 0,
+        "issueCount": 1,
+        "issues": [
+          {
+            "severity": "warning",
+            "code": "reaction_needs_trigger",
+            "effectId": "e0",
+            "message": "Reaction exige gatilho/evento antes da resolucao automatica."
+          }
+        ],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "damage",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e1",
+            "type": "deflect",
+            "kind": "active",
+            "automation": "choice",
+            "requiresDecision": true,
+            "choices": [
+              "protectedTarget",
+              "defenseRoll"
+            ]
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "resistance",
+        "summary": "Counter (Alternative): 3 HP perdido, 1 efeito(s) ativo(s), 1 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "damage",
+            "label": "Damage",
+            "resistance": "parry",
+            "d20": 6,
+            "statVal": 0,
+            "total": 6,
+            "dc": 19,
+            "degree": 3,
+            "success": false,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "hp",
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "hp",
+            "owner": "Target",
+            "pid": "20",
+            "pieceId": "piece_Target_20",
+            "before": 6,
+            "after": 3,
+            "delta": -3,
+            "source": {
+              "effectId": "e0",
+              "type": "damage"
+            }
+          },
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhk_fjm2on",
+            "owner": "Target",
+            "pid": "20",
+            "pieceId": "piece_Target_20",
+            "effectId": "e1",
+            "effectType": "deflect",
+            "label": "Deflect",
+            "rank": 4,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Linked Deflect (Rank = ) [Reflect] (Limited: apenas ataques Close/Parry)"
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhk_fjm2on",
+            "owner": "Target",
+            "pid": "20",
+            "pieceId": "piece_Target_20",
+            "effectId": "e1",
+            "effectType": "deflect",
+            "label": "Deflect",
+            "rank": 4,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Linked Deflect (Rank = ) [Reflect] (Limited: apenas ataques Close/Parry)"
+          },
+          {
+            "kind": "rule_validation",
+            "requiresAdjudication": true,
+            "effectId": "e0",
+            "code": "reaction_needs_trigger",
+            "severity": "warning",
+            "message": "Reaction exige gatilho/evento antes da resolucao automatica."
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 9,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "resistance_queue_count",
+            "message": "M&M espera um teste de resistencia para cada efeito resistido estruturado.",
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Damage."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "parry",
+            "actual": "parry"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 19,
+            "actual": 19
+          },
+          {
+            "status": "pass",
+            "code": "damage_hp_patch",
+            "message": "Damage falho deve aplicar perda de HP.",
+            "effectId": "e0"
+          },
+          {
+            "status": "pass",
+            "code": "damage_degree",
+            "message": "Perda de HP deve seguir grau de falha, com clamp no HP minimo.",
+            "expectedAfter": 3,
+            "actualAfter": 3,
+            "degree": 3
+          },
+          {
+            "status": "pass",
+            "code": "active_effect_tracking",
+            "message": "deflect deve ser rastreado como active_effect.",
+            "effectId": "e1",
+            "automation": "choice"
+          },
+          {
+            "status": "pass",
+            "code": "reaction_needs_trigger",
+            "message": "Modificador/falha que altera timing ou uso deve aparecer como revisao de regra.",
+            "effectId": "e0"
+          },
+          {
+            "status": "pass",
+            "code": "requires_adjudication_flag",
+            "message": "Poder com escolha, Reaction, Unreliable, Fades ou efeito adjudicavel deve marcar requiresAdjudication."
+          }
+        ]
+      }
+    },
+    {
+      "index": 21,
+      "id": "move:surf-alternativo-montaria-deslocamento-sobre-onda:507",
+      "name": "Surf (Alternativo - Montaria / Deslocamento sobre Onda)",
+      "sourceRow": 507,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 7,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "21",
+          "pieceId": "piece_Target_21",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "21",
+          "pieceId": "piece_Actor_21",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "movement",
+        "enhanced_trait"
+      ],
+      "modifiers": [
+        "Increased Range 1",
+        "Limited (apenas sobre água/onda criada)",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "partial",
+        "automatic": 1,
+        "tracked": 1,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "movement",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e1",
+            "type": "enhanced_trait",
+            "kind": "support",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Surf (Alternativo - Montaria / Deslocamento sobre Onda): 1 efeito(s) ativo(s), 1 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "movement",
+            "rank": 7,
+            "automatic": true,
+            "unreliable": null
+          },
+          {
+            "effectId": "e1",
+            "type": "enhanced_trait",
+            "rank": 7,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect",
+          "adjudication"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhl_192g17",
+            "owner": "Actor",
+            "pid": "21",
+            "pieceId": "piece_Actor_21",
+            "effectId": "e0",
+            "effectType": "movement",
+            "label": "Movement",
+            "rank": 7,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": false
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Movement (Rank = ) [Subtype: Water Travel/Surf] [Extra: Increased Range 1]"
+          },
+          {
+            "kind": "adjudication",
+            "effectId": "e1",
+            "effectType": "enhanced_trait",
+            "label": "Enhanced Trait",
+            "reason": "Enhanced Trait sem trait estruturado.",
+            "owner": "Actor",
+            "pid": "21",
+            "raw": "Linked Enhanced Trait (Speed) 1 [Custom: converte para Dodge & Initiative no combate] [Flaw: Limited (apenas sobre água/onda criada)] [Custom 0/r: Intelect Based]"
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "adjudication",
+            "effectId": "e1",
+            "effectType": "enhanced_trait",
+            "label": "Enhanced Trait",
+            "reason": "Enhanced Trait sem trait estruturado.",
+            "owner": "Actor",
+            "pid": "21",
+            "raw": "Linked Enhanced Trait (Speed) 1 [Custom: converte para Dodge & Initiative no combate] [Flaw: Limited (apenas sobre água/onda criada)] [Custom 0/r: Intelect Based]"
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 0,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": []
+      }
+    },
+    {
+      "index": 22,
+      "id": "move:telepatia:139",
+      "name": "Telepatia",
+      "sourceRow": 139,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 8,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "22",
+          "pieceId": "piece_Target_22",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "22",
+          "pieceId": "piece_Actor_22",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "communication"
+      ],
+      "modifiers": [],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "partial",
+        "automatic": 0,
+        "tracked": 1,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "communication",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Telepatia: 1 efeito(s) ativo(s)",
+        "requiresAdjudication": false,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "communication",
+            "rank": 8,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhl_nxzkya",
+            "owner": "Actor",
+            "pid": "22",
+            "pieceId": "piece_Actor_22",
+            "effectId": "e0",
+            "effectType": "communication",
+            "label": "Communication",
+            "rank": 8,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": false
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Communication (Mental) (Rank = )"
+          }
+        ],
+        "adjudications": []
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 0,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": []
+      }
+    },
+    {
+      "index": 23,
+      "id": "move:ingrain:281",
+      "name": "Ingrain",
+      "sourceRow": 281,
+      "scenario": {
+        "mode": "resistance",
+        "shouldFail": true,
+        "rank": 3,
+        "d20": 3,
+        "stats": {
+          "thg": 0,
+          "fort": 0,
+          "will": 0,
+          "dodge": 0,
+          "parry": 0,
+          "stgr": 0,
+          "int": 0,
+          "speed": 0
+        },
+        "critBonus": 5,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "23",
+          "pieceId": "piece_Target_23",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "23",
+          "pieceId": "piece_Actor_23",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "regeneration",
+        "nullify"
+      ],
+      "modifiers": [
+        "Limited (cura leve por turno)",
+        "limited",
+        "Increased Duration 3 (Sustained)",
+        "Limited (apenas impedir troca/fuga)"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "needs_review",
+        "automatic": 0,
+        "tracked": 1,
+        "choices": 1,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "regeneration",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e1",
+            "type": "nullify",
+            "kind": "resistance",
+            "automation": "choice",
+            "requiresDecision": true,
+            "choices": [
+              "effectToNullify"
+            ]
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "resistance",
+        "summary": "Ingrain: 1 efeito(s) ativo(s), 1 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e1",
+            "type": "nullify",
+            "label": "Nullify",
+            "resistance": "will",
+            "d20": 3,
+            "statVal": 0,
+            "total": 3,
+            "dc": 17,
+            "degree": 3,
+            "success": false,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "mm_decision",
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "mm_decision",
+            "effectId": "e1",
+            "effectType": "nullify",
+            "label": "Nullify",
+            "reason": "Nullify teve sucesso; escolha o efeito ativo/poder alvo para cancelar.",
+            "choices": [
+              "effectToNullify"
+            ],
+            "requiresAdjudication": true,
+            "owner": "Target",
+            "pid": "23",
+            "pieceId": "piece_Target_23",
+            "raw": "Linked Nullify 2 (Teleport) [Affects Only Self] [Flaw: Limited (apenas impedir troca/fuga)] [Extra: Increased Duration 3 (Sustained)]",
+            "degree": 3,
+            "rank": 2,
+            "dc": 17
+          },
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhl_cfikjj",
+            "owner": "Target",
+            "pid": "23",
+            "pieceId": "piece_Target_23",
+            "effectId": "e0",
+            "effectType": "regeneration",
+            "label": "Regeneration",
+            "rank": 1,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Regeneration 1 (Sustained) (Affects Only Self) [Flaw: Limited (cura leve por turno)]"
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "mm_decision",
+            "effectId": "e1",
+            "effectType": "nullify",
+            "label": "Nullify",
+            "reason": "Nullify teve sucesso; escolha o efeito ativo/poder alvo para cancelar.",
+            "choices": [
+              "effectToNullify"
+            ],
+            "requiresAdjudication": true,
+            "owner": "Target",
+            "pid": "23",
+            "pieceId": "piece_Target_23",
+            "raw": "Linked Nullify 2 (Teleport) [Affects Only Self] [Flaw: Limited (apenas impedir troca/fuga)] [Extra: Increased Duration 3 (Sustained)]",
+            "degree": 3,
+            "rank": 2,
+            "dc": 17
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 7,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "resistance_queue_count",
+            "message": "M&M espera um teste de resistencia para cada efeito resistido estruturado.",
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Nullify."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "will",
+            "actual": "will"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 17,
+            "actual": 17
+          },
+          {
+            "status": "pass",
+            "code": "active_effect_tracking",
+            "message": "regeneration deve ser rastreado como active_effect.",
+            "effectId": "e0",
+            "automation": "tracked"
+          },
+          {
+            "status": "pass",
+            "code": "nullify_decision",
+            "message": "nullify exige escolha/adjudicacao depois do teste resistido.",
+            "effectId": "e1",
+            "choices": [
+              "effectToNullify"
+            ]
+          },
+          {
+            "status": "pass",
+            "code": "requires_adjudication_flag",
+            "message": "Poder com escolha, Reaction, Unreliable, Fades ou efeito adjudicavel deve marcar requiresAdjudication."
+          }
+        ]
+      }
+    },
+    {
+      "index": 24,
+      "id": "move:dig-alternative:453",
+      "name": "Dig (Alternative)",
+      "sourceRow": 453,
+      "scenario": {
+        "mode": "resistance",
+        "shouldFail": true,
+        "rank": 6,
+        "d20": 6,
+        "stats": {
+          "thg": 0,
+          "fort": 0,
+          "will": 0,
+          "dodge": 0,
+          "parry": 0,
+          "stgr": 0,
+          "int": 0,
+          "speed": 0
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "24",
+          "pieceId": "piece_Target_24",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "24",
+          "pieceId": "piece_Actor_24",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "burrowing",
+        "damage"
+      ],
+      "modifiers": [
+        "Limited",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "partial",
+        "automatic": 1,
+        "tracked": 1,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "burrowing",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e1",
+            "type": "damage",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "resistance",
+        "summary": "Dig (Alternative): 3 HP perdido, 1 efeito(s) ativo(s)",
+        "requiresAdjudication": false,
+        "effectResults": [
+          {
+            "effectId": "e1",
+            "type": "damage",
+            "label": "Damage",
+            "resistance": "thg",
+            "d20": 6,
+            "statVal": 0,
+            "total": 6,
+            "dc": 21,
+            "degree": 3,
+            "success": false,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "hp",
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "hp",
+            "owner": "Target",
+            "pid": "24",
+            "pieceId": "piece_Target_24",
+            "before": 6,
+            "after": 3,
+            "delta": -3,
+            "source": {
+              "effectId": "e1",
+              "type": "damage"
+            }
+          },
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhl_dtpsn0",
+            "owner": "Target",
+            "pid": "24",
+            "pieceId": "piece_Target_24",
+            "effectId": "e0",
+            "effectType": "burrowing",
+            "label": "Burrowing",
+            "rank": 6,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Burrowing (Rank = ) (Limited: apenas durante a execução do golpe)"
+          }
+        ],
+        "adjudications": []
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 7,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "resistance_queue_count",
+            "message": "M&M espera um teste de resistencia para cada efeito resistido estruturado.",
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Damage."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "thg",
+            "actual": "thg"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 21,
+            "actual": 21
+          },
+          {
+            "status": "pass",
+            "code": "active_effect_tracking",
+            "message": "burrowing deve ser rastreado como active_effect.",
+            "effectId": "e0",
+            "automation": "tracked"
+          },
+          {
+            "status": "pass",
+            "code": "damage_hp_patch",
+            "message": "Damage falho deve aplicar perda de HP.",
+            "effectId": "e1"
+          },
+          {
+            "status": "pass",
+            "code": "damage_degree",
+            "message": "Perda de HP deve seguir grau de falha, com clamp no HP minimo.",
+            "expectedAfter": 3,
+            "actualAfter": 3,
+            "degree": 3
+          }
+        ]
+      }
+    },
+    {
+      "index": 25,
+      "id": "move:thunder-combo-rain-dance-thunder-perception-lock-on:637",
+      "name": "Thunder (Combo - Rain Dance → Thunder (Perception Lock-On))",
+      "sourceRow": 637,
+      "scenario": {
+        "mode": "resistance",
+        "shouldFail": true,
+        "rank": 9,
+        "d20": 7,
+        "stats": {
+          "thg": 0,
+          "fort": 0,
+          "will": 0,
+          "dodge": 0,
+          "parry": 0,
+          "stgr": 0,
+          "int": 0,
+          "speed": 0
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "25",
+          "pieceId": "piece_Target_25",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "25",
+          "pieceId": "piece_Actor_25",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "damage",
+        "affliction",
+        "weaken"
+      ],
+      "modifiers": [
+        "Limited (somente sob Rain Dance; alvo deve estar a céu aberto/na chuva)",
+        "limited",
+        "Limited (apenas se o dano acertar)"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "automatic",
+        "automatic": 4,
+        "tracked": 0,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "damage",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e1",
+            "type": "affliction",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e2",
+            "type": "affliction",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e3",
+            "type": "weaken",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "resistance",
+        "summary": "Thunder (Combo - Rain Dance → Thunder (Perception Lock-On)): 4 HP perdido, 2 condicao(oes), 3 ajuste(s) de trait",
+        "requiresAdjudication": false,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "damage",
+            "label": "Damage",
+            "resistance": "thg",
+            "d20": 7,
+            "statVal": 0,
+            "total": 7,
+            "dc": 24,
+            "degree": 4,
+            "success": false,
+            "unreliable": null
+          },
+          {
+            "effectId": "e1",
+            "type": "affliction",
+            "label": "Affliction",
+            "resistance": "fort",
+            "d20": 7,
+            "statVal": 0,
+            "total": 7,
+            "dc": 11,
+            "degree": 1,
+            "success": false,
+            "unreliable": null
+          },
+          {
+            "effectId": "e2",
+            "type": "affliction",
+            "label": "Affliction",
+            "resistance": "fort",
+            "d20": 7,
+            "statVal": 0,
+            "total": 7,
+            "dc": 11,
+            "degree": 1,
+            "success": false,
+            "unreliable": null
+          },
+          {
+            "effectId": "e3",
+            "type": "weaken",
+            "label": "Weaken",
+            "resistance": "fort",
+            "d20": 7,
+            "statVal": 0,
+            "total": 7,
+            "dc": 19,
+            "degree": 3,
+            "success": false,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "hp",
+          "conditions",
+          "conditions",
+          "stat_boost",
+          "stat_boost",
+          "stat_boost"
+        ],
+        "patches": [
+          {
+            "kind": "hp",
+            "owner": "Target",
+            "pid": "25",
+            "pieceId": "piece_Target_25",
+            "before": 6,
+            "after": 2,
+            "delta": -4,
+            "source": {
+              "effectId": "e0",
+              "type": "damage"
+            }
+          },
+          {
+            "kind": "conditions",
+            "pieceId": "piece_Target_25",
+            "owner": "Target",
+            "pid": "25",
+            "before": {
+              "mm_conditions": {
+                "deg1": [],
+                "deg2": [],
+                "deg3": []
+              },
+              "pokemon_conditions": []
+            },
+            "after": {
+              "mm_conditions": {
+                "deg1": [
+                  "fatigued"
+                ],
+                "deg2": [],
+                "deg3": []
+              },
+              "pokemon_conditions": []
+            },
+            "source": {
+              "effectId": "e1",
+              "type": "affliction"
+            }
+          },
+          {
+            "kind": "conditions",
+            "pieceId": "piece_Target_25",
+            "owner": "Target",
+            "pid": "25",
+            "before": {
+              "mm_conditions": {
+                "deg1": [
+                  "fatigued"
+                ],
+                "deg2": [],
+                "deg3": []
+              },
+              "pokemon_conditions": []
+            },
+            "after": {
+              "mm_conditions": {
+                "deg1": [
+                  "fatigued"
+                ],
+                "deg2": [],
+                "deg3": []
+              },
+              "pokemon_conditions": []
+            },
+            "source": {
+              "effectId": "e2",
+              "type": "affliction"
+            }
+          },
+          {
+            "kind": "stat_boost",
+            "owner": "Target",
+            "pid": "25",
+            "stat": "initiative",
+            "before": 0,
+            "after": -27,
+            "delta": -27,
+            "source": {
+              "effectId": "e3",
+              "type": "weaken"
+            }
+          },
+          {
+            "kind": "stat_boost",
+            "owner": "Target",
+            "pid": "25",
+            "stat": "speed",
+            "before": 1,
+            "after": -26,
+            "delta": -27,
+            "source": {
+              "effectId": "e3",
+              "type": "weaken"
+            }
+          },
+          {
+            "kind": "stat_boost",
+            "owner": "Target",
+            "pid": "25",
+            "stat": "dodge",
+            "before": 1,
+            "after": -26,
+            "delta": -27,
+            "source": {
+              "effectId": "e3",
+              "type": "weaken"
+            }
+          }
+        ],
+        "adjudications": []
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 18,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "resistance_queue_count",
+            "message": "M&M espera um teste de resistencia para cada efeito resistido estruturado.",
+            "expected": 4,
+            "actual": 4
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Damage."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "thg",
+            "actual": "thg"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 24,
+            "actual": 24
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Affliction."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "fort",
+            "actual": "fort"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 11,
+            "actual": 11
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Affliction."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "fort",
+            "actual": "fort"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 11,
+            "actual": 11
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Weaken."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "fort",
+            "actual": "fort"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 19,
+            "actual": 19
+          },
+          {
+            "status": "pass",
+            "code": "damage_hp_patch",
+            "message": "Damage falho deve aplicar perda de HP.",
+            "effectId": "e0"
+          },
+          {
+            "status": "pass",
+            "code": "damage_degree",
+            "message": "Perda de HP deve seguir grau de falha, com clamp no HP minimo.",
+            "expectedAfter": 2,
+            "actualAfter": 2,
+            "degree": 4
+          },
+          {
+            "status": "pass",
+            "code": "affliction_condition_patch",
+            "message": "Affliction falho deve aplicar condicao por grau.",
+            "effectId": "e1",
+            "degree": 1
+          },
+          {
+            "status": "pass",
+            "code": "affliction_condition_patch",
+            "message": "Affliction falho deve aplicar condicao por grau.",
+            "effectId": "e2",
+            "degree": 1
+          },
+          {
+            "status": "pass",
+            "code": "weaken_trait_patch",
+            "message": "Weaken falho deve reduzir cada trait estruturado.",
+            "effectId": "e3",
+            "expectedTraits": [
+              "initiative",
+              "speed",
+              "dodge"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "index": 26,
+      "id": "move:wonder-room:431",
+      "name": "Wonder Room",
+      "sourceRow": 431,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 7,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "26",
+          "pieceId": "piece_Target_26",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "26",
+          "pieceId": "piece_Actor_26",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "environment"
+      ],
+      "modifiers": [
+        "Increased Range 1",
+        "Area: Burst",
+        "Limited (dura 5 turnos)",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "partial",
+        "automatic": 0,
+        "tracked": 1,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "environment",
+            "kind": "field",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Wonder Room: 1 efeito(s) ativo(s)",
+        "requiresAdjudication": false,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "environment",
+            "rank": 7,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhl_xc5yvu",
+            "owner": "Actor",
+            "pid": "26",
+            "pieceId": "piece_Actor_26",
+            "effectId": "e0",
+            "effectType": "environment",
+            "label": "Environment",
+            "rank": 7,
+            "duration": "instant",
+            "remainingTurns": 5,
+            "tickPolicy": "round_end",
+            "scope": "field",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Environment (Rank = ) [Area: Burst] [Custom 0/r: Wonder Room (troca Defense e Sp. Def dos alvos na área: Thg <-> Will)] [Ranged] [Extra: Increased Range 1] [Flaw: Limited (dura 5 turnos)]"
+          }
+        ],
+        "adjudications": []
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 0,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": []
+      }
+    },
+    {
+      "index": 27,
+      "id": "move:entrainment:872",
+      "name": "Entrainment",
+      "sourceRow": 872,
+      "scenario": {
+        "mode": "resistance",
+        "shouldFail": true,
+        "rank": 8,
+        "d20": 7,
+        "stats": {
+          "thg": 0,
+          "fort": 0,
+          "will": 0,
+          "dodge": 0,
+          "parry": 0,
+          "stgr": 0,
+          "int": 0,
+          "speed": 0
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "27",
+          "pieceId": "piece_Target_27",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "27",
+          "pieceId": "piece_Actor_27",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "transform"
+      ],
+      "modifiers": [
+        "Increased Range 1"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "needs_review",
+        "automatic": 0,
+        "tracked": 0,
+        "choices": 1,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "transform",
+            "kind": "resistance",
+            "automation": "choice",
+            "requiresDecision": true,
+            "choices": [
+              "form",
+              "traits"
+            ]
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "resistance",
+        "summary": "Entrainment: 1 efeito(s) ativo(s), 1 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "transform",
+            "label": "Transform",
+            "resistance": "will",
+            "d20": 7,
+            "statVal": 0,
+            "total": 7,
+            "dc": 18,
+            "degree": 3,
+            "success": false,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhl_eaamxz",
+            "owner": "Target",
+            "pid": "27",
+            "pieceId": "piece_Target_27",
+            "effectId": "e0",
+            "effectType": "transform",
+            "label": "Transform",
+            "rank": 8,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": false
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Transform (Rank = ) [Custom: habilidade do alvo vira a do usuário] [Resisted by Will] [Ranged] [Extra: Increased Range 1]",
+            "degree": 3
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhl_eaamxz",
+            "owner": "Target",
+            "pid": "27",
+            "pieceId": "piece_Target_27",
+            "effectId": "e0",
+            "effectType": "transform",
+            "label": "Transform",
+            "rank": 8,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": false
+            },
+            "automation": "choice",
+            "requiresAdjudication": true,
+            "raw": "Transform (Rank = ) [Custom: habilidade do alvo vira a do usuário] [Resisted by Will] [Ranged] [Extra: Increased Range 1]",
+            "degree": 3
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 6,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "resistance_queue_count",
+            "message": "M&M espera um teste de resistencia para cada efeito resistido estruturado.",
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Transform."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "will",
+            "actual": "will"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 18,
+            "actual": 18
+          },
+          {
+            "status": "pass",
+            "code": "transform_active_review",
+            "message": "Transform resistido deve criar efeito ativo e pedir forma/traits.",
+            "effectId": "e0"
+          },
+          {
+            "status": "pass",
+            "code": "requires_adjudication_flag",
+            "message": "Poder com escolha, Reaction, Unreliable, Fades ou efeito adjudicavel deve marcar requiresAdjudication."
+          }
+        ]
+      }
+    },
+    {
+      "index": 28,
+      "id": "move:fly-alternative:452",
+      "name": "Fly (Alternative)",
+      "sourceRow": 452,
+      "scenario": {
+        "mode": "resistance",
+        "shouldFail": true,
+        "rank": 6,
+        "d20": 4,
+        "stats": {
+          "thg": 0,
+          "fort": 0,
+          "will": 0,
+          "dodge": 0,
+          "parry": 0,
+          "stgr": 0,
+          "int": 0,
+          "speed": 0
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "28",
+          "pieceId": "piece_Target_28",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "28",
+          "pieceId": "piece_Actor_28",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "flight",
+        "damage"
+      ],
+      "modifiers": [
+        "Limited",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "partial",
+        "automatic": 1,
+        "tracked": 1,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "flight",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e1",
+            "type": "damage",
+            "kind": "resistance",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "resistance",
+        "summary": "Fly (Alternative): 4 HP perdido, 1 efeito(s) ativo(s)",
+        "requiresAdjudication": false,
+        "effectResults": [
+          {
+            "effectId": "e1",
+            "type": "damage",
+            "label": "Damage",
+            "resistance": "thg",
+            "d20": 4,
+            "statVal": 0,
+            "total": 4,
+            "dc": 21,
+            "degree": 4,
+            "success": false,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "hp",
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "hp",
+            "owner": "Target",
+            "pid": "28",
+            "pieceId": "piece_Target_28",
+            "before": 6,
+            "after": 2,
+            "delta": -4,
+            "source": {
+              "effectId": "e1",
+              "type": "damage"
+            }
+          },
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhl_m3gwz7",
+            "owner": "Target",
+            "pid": "28",
+            "pieceId": "piece_Target_28",
+            "effectId": "e0",
+            "effectType": "flight",
+            "label": "Flight",
+            "rank": 6,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Flight (Rank = ) (Limited: apenas durante a execução do golpe)"
+          }
+        ],
+        "adjudications": []
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 7,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": [
+          {
+            "status": "pass",
+            "code": "resistance_queue_count",
+            "message": "M&M espera um teste de resistencia para cada efeito resistido estruturado.",
+            "expected": 1,
+            "actual": 1
+          },
+          {
+            "status": "pass",
+            "code": "resistance_result_present",
+            "message": "Resultado de resistencia presente para Damage."
+          },
+          {
+            "status": "pass",
+            "code": "alternate_resistance",
+            "message": "Resistencia usada deve bater com o efeito/Alternate Resistance.",
+            "expected": "thg",
+            "actual": "thg"
+          },
+          {
+            "status": "pass",
+            "code": "dc_formula",
+            "message": "CD deve ser 15+rank para Damage e 10+rank para outros efeitos resistidos.",
+            "expected": 21,
+            "actual": 21
+          },
+          {
+            "status": "pass",
+            "code": "active_effect_tracking",
+            "message": "flight deve ser rastreado como active_effect.",
+            "effectId": "e0",
+            "automation": "tracked"
+          },
+          {
+            "status": "pass",
+            "code": "damage_hp_patch",
+            "message": "Damage falho deve aplicar perda de HP.",
+            "effectId": "e1"
+          },
+          {
+            "status": "pass",
+            "code": "damage_degree",
+            "message": "Perda de HP deve seguir grau de falha, com clamp no HP minimo.",
+            "expectedAfter": 2,
+            "actualAfter": 2,
+            "degree": 4
+          }
+        ]
+      }
+    },
+    {
+      "index": 29,
+      "id": "move:calm-mind-alternativo-foco-de-batalha-barreira-momentanea:669",
+      "name": "Calm Mind (Alternativo - Foco de Batalha (Barreira Momentânea))",
+      "sourceRow": 669,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 7,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "29",
+          "pieceId": "piece_Target_29",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "29",
+          "pieceId": "piece_Actor_29",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "enhanced_trait",
+        "protection"
+      ],
+      "modifiers": [
+        "Limited (apenas contra energia/psíquico)",
+        "limited"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "partial",
+        "automatic": 2,
+        "tracked": 1,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "enhanced_trait",
+            "kind": "support",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e1",
+            "type": "protection",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e2",
+            "type": "enhanced_trait",
+            "kind": "support",
+            "automation": "automatic",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Calm Mind (Alternativo - Foco de Batalha (Barreira Momentânea)): 1 ajuste(s) de trait, 1 efeito(s) ativo(s), 1 revisao(oes)",
+        "requiresAdjudication": true,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "enhanced_trait",
+            "rank": 1,
+            "automatic": true,
+            "unreliable": null
+          },
+          {
+            "effectId": "e1",
+            "type": "protection",
+            "rank": 1,
+            "automatic": true,
+            "unreliable": null
+          },
+          {
+            "effectId": "e2",
+            "type": "enhanced_trait",
+            "rank": 7,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "adjudication",
+          "active_effect",
+          "stat_boost"
+        ],
+        "patches": [
+          {
+            "kind": "adjudication",
+            "effectId": "e0",
+            "effectType": "enhanced_trait",
+            "label": "Enhanced Trait",
+            "reason": "Enhanced Trait sem trait estruturado.",
+            "owner": "Actor",
+            "pid": "29",
+            "raw": "Enhanced Trait 1 (Will) [Sustained] (Affects Only Self)"
+          },
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhl_y30d5w",
+            "owner": "Actor",
+            "pid": "29",
+            "pieceId": "piece_Actor_29",
+            "effectId": "e1",
+            "effectType": "protection",
+            "label": "Protection",
+            "rank": 1,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Linked Protection 1 [Flaw: Limited (apenas contra energia/psíquico)]"
+          },
+          {
+            "kind": "stat_boost",
+            "owner": "Actor",
+            "pid": "29",
+            "stat": "will",
+            "before": 0,
+            "after": 7,
+            "delta": 7,
+            "source": {
+              "effectId": "e2",
+              "type": "enhanced_trait"
+            }
+          }
+        ],
+        "adjudications": [
+          {
+            "kind": "adjudication",
+            "effectId": "e0",
+            "effectType": "enhanced_trait",
+            "label": "Enhanced Trait",
+            "reason": "Enhanced Trait sem trait estruturado.",
+            "owner": "Actor",
+            "pid": "29",
+            "raw": "Enhanced Trait 1 (Will) [Sustained] (Affects Only Self)"
+          }
+        ]
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 0,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": []
+      }
+    },
+    {
+      "index": 30,
+      "id": "move:dig-alternativo-esquiva-subterranea:511",
+      "name": "Dig (Alternativo - Esquiva Subterrânea)",
+      "sourceRow": 511,
+      "scenario": {
+        "mode": "immediate",
+        "shouldFail": false,
+        "rank": 5,
+        "d20": 20,
+        "stats": {
+          "thg": 40,
+          "fort": 40,
+          "will": 40,
+          "dodge": 40,
+          "parry": 40,
+          "stgr": 40,
+          "int": 40,
+          "speed": 40
+        },
+        "critBonus": 0,
+        "targetStart": {
+          "owner": "Target",
+          "pid": "30",
+          "pieceId": "piece_Target_30",
+          "hp": 6,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        },
+        "actorStart": {
+          "owner": "Actor",
+          "pid": "30",
+          "pieceId": "piece_Actor_30",
+          "hp": 4,
+          "conditions": {
+            "deg1": [],
+            "deg2": [],
+            "deg3": []
+          },
+          "pokemonConditions": [],
+          "statBoosts": {
+            "stgr": 1,
+            "int": 1,
+            "dodge": 1,
+            "speed": 1
+          }
+        }
+      },
+      "effectTypes": [
+        "movement",
+        "concealment",
+        "immunity"
+      ],
+      "modifiers": [
+        "Limited (apenas enquanto enterrado)",
+        "limited",
+        "Limited (apenas enquanto enterrado; não protege de efeitos de área/terremotos, a critério do mestre)"
+      ],
+      "validation": {
+        "schema": "MmRuleValidation",
+        "schemaVersion": 1,
+        "status": "partial",
+        "automatic": 0,
+        "tracked": 3,
+        "choices": 0,
+        "adjudication": 0,
+        "issueCount": 0,
+        "issues": [],
+        "effects": [
+          {
+            "effectId": "e0",
+            "type": "movement",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e1",
+            "type": "concealment",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          },
+          {
+            "effectId": "e2",
+            "type": "immunity",
+            "kind": "active",
+            "automation": "tracked",
+            "requiresDecision": false,
+            "choices": []
+          }
+        ]
+      },
+      "resolution": {
+        "kind": "immediate",
+        "summary": "Dig (Alternativo - Esquiva Subterrânea): 3 efeito(s) ativo(s)",
+        "requiresAdjudication": false,
+        "effectResults": [
+          {
+            "effectId": "e0",
+            "type": "movement",
+            "rank": 5,
+            "automatic": true,
+            "unreliable": null
+          },
+          {
+            "effectId": "e1",
+            "type": "concealment",
+            "rank": 2,
+            "automatic": true,
+            "unreliable": null
+          },
+          {
+            "effectId": "e2",
+            "type": "immunity",
+            "rank": 5,
+            "automatic": true,
+            "unreliable": null
+          }
+        ],
+        "patchKinds": [
+          "active_effect",
+          "active_effect",
+          "active_effect"
+        ],
+        "patches": [
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhl_lrr88b",
+            "owner": "Actor",
+            "pid": "30",
+            "pieceId": "piece_Actor_30",
+            "effectId": "e0",
+            "effectType": "movement",
+            "label": "Movement",
+            "rank": 5,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": false
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Movement (Rank = ) [Subtype: Burrowing]"
+          },
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhl_5fm3e8",
+            "owner": "Actor",
+            "pid": "30",
+            "pieceId": "piece_Actor_30",
+            "effectId": "e1",
+            "effectType": "concealment",
+            "label": "Concealment",
+            "rank": 2,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Linked Concealment 2 (Visual) [Flaw: Limited (apenas enquanto enterrado)]"
+          },
+          {
+            "kind": "active_effect",
+            "id": "ae_mongbyhl_8rwe27",
+            "owner": "Actor",
+            "pid": "30",
+            "pieceId": "piece_Actor_30",
+            "effectId": "e2",
+            "effectType": "immunity",
+            "label": "Immunity",
+            "rank": 5,
+            "duration": "instant",
+            "remainingTurns": null,
+            "tickPolicy": "owner_turn_end",
+            "scope": "combatant",
+            "flags": {
+              "secondaryEffect": false,
+              "fades": false,
+              "unreliable": false,
+              "reaction": false,
+              "selective": false,
+              "limited": true
+            },
+            "automation": "tracked",
+            "requiresAdjudication": false,
+            "raw": "Linked Immunity 5 (Damage) [Flaw: Limited (apenas enquanto enterrado; não protege de efeitos de área/terremotos, a critério do mestre)] [Custom 0/r: Stgr Based]"
+          }
+        ],
+        "adjudications": []
+      },
+      "comparison": {
+        "verdict": "pass",
+        "passCount": 0,
+        "gapCount": 0,
+        "failCount": 0,
+        "checks": []
+      }
+    }
+  ],
+  "outputPath": "C:\\Users\\joaop\\Documents\\mapa 2\\battle-site\\battle-site\\output\\mm-simulation-30-seed-20260501.json"
+}
