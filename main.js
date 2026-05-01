@@ -5627,6 +5627,15 @@ function _roomPartyStateHpKey(resolved) {
   return safeStr(resolved?.entryId || resolved?.partySlot || resolved?.pid);
 }
 
+function _isPartyPidUnambiguous(ownerName, resolved) {
+  const pid = normalizePartyPid(resolved?.pid);
+  if (!pid) return false;
+  const party = getPartyForTrainer(ownerName);
+  if (!Array.isArray(party) || !party.length) return true;
+  const matches = party.filter((entry) => normalizePartyPid(entry?.pid ?? entry?.pokemon?.id ?? entry) === pid);
+  return matches.length <= 1;
+}
+
 async function _writeRoomPartyStateHp(ownerName, resolved, hp) {
   const db = currentDb;
   const rid = currentRid;
@@ -5642,8 +5651,16 @@ async function _writeRoomPartyStateHp(ownerName, resolved, hp) {
   if (safeStr(resolved?.partySlot)) payload.party_slot = safeStr(resolved.partySlot);
 
   const psRef = doc(db, "rooms", rid, "public_state", "party_states");
-  await setDoc(psRef, { [trainer]: { [stateKey]: payload } }, { merge: true });
+  const trainerPatch = { [stateKey]: payload };
+  const pidAlias = safeStr(resolved?.pid);
+  if (pidAlias && pidAlias !== stateKey && _isPartyPidUnambiguous(trainer, resolved)) {
+    trainerPatch[pidAlias] = { ...payload };
+  }
+  await setDoc(psRef, { [trainer]: trainerPatch }, { merge: true });
   _touchLocalRoomHpCache(trainer, stateKey, payload.hp);
+  if (pidAlias && pidAlias !== stateKey && trainerPatch[pidAlias]) {
+    _touchLocalRoomHpCache(trainer, pidAlias, payload.hp);
+  }
   return true;
 }
 
@@ -5658,11 +5675,27 @@ async function updatePartyStateHp(ownerName, pidLike, hp) {
   const resolved = _resolvePartyEntryIdentity(trainer, pidLike);
   const monPid = safeStr(resolved.pid || pidLike?.pid || pidLike?.pokemon?.id || pidLike);
   const entryId = safeStr(resolved.entryId);
-  if (!monPid || !entryId) {
-    setStatus("err", "HP global indisponivel: entry_id ausente para este Pokemon");
+  if (!monPid) {
+    setStatus("err", "HP indisponivel: Pokemon sem identificador");
     return;
   }
   const newHp = clampPartyHp(hp, 6);
+  if (!entryId) {
+    try {
+      if (await _writeRoomPartyStateHp(trainer, resolved, newHp)) {
+        setStatus("warn", `HP atualizado nesta sala: ${newHp}/6 (entry_id ausente)`);
+        try { renderSheetsTab(); } catch {}
+        try { updateSidePanels(); } catch {}
+        try { window.requestScoreboardRefresh?.(); } catch {}
+        try { requestArenaRefresh(true); } catch {}
+        return;
+      }
+    } catch (fallbackErr) {
+      console.warn("[hp-room] falha ao salvar HP na sala:", fallbackErr);
+    }
+    setStatus("err", "HP indisponivel: nao foi possivel salvar na sala");
+    return;
+  }
   const uid = _trainerUidForGlobalHp(trainer);
   if (!uid) {
     try {
@@ -14682,7 +14715,7 @@ function _getPartyStateForSheet(ownerName, sh, fallbackPid) {
   const fallbackKey = (fallbackPid && typeof fallbackPid === "object")
     ? (fallbackPid.pid ?? fallbackPid.pokemon?.id ?? fallbackPid.name)
     : fallbackPid;
-  let roomState = {};
+  let roomState = _getRoomPartyStateEntry(ownerName, fallbackPid || fallbackKey) || {};
   for (const key of _sheetStateCandidates(sh, fallbackPid || fallbackKey)) {
     if (Object.prototype.hasOwnProperty.call(stateBucket, key)) {
       roomState = _mergePartyStateEntry(roomState, stateBucket[key]);

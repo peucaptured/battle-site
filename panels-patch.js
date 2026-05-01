@@ -695,11 +695,13 @@ function buildMonCard(pid, ownerName, options = {}) {
     pieceId = null,
     revealed = true,
     piece = null,
+    identity = null,
   } = options;
 
   const state = getPokemonState(ownerName, pid);
+  const identityLike = piece || identity || pid;
   const hp = (typeof window.getPartyHp === "function")
-    ? Number(window.getPartyHp(ownerName, piece || pid))
+    ? Number(window.getPartyHp(ownerName, identityLike))
     : state.hp;
   const cond = state.cond;
   const isFainted = hp <= 0;
@@ -823,7 +825,7 @@ function buildMonCard(pid, ownerName, options = {}) {
     newHp = Math.max(0, Math.min(6, newHp));
     try {
       if (typeof window.updatePartyStateHp === "function") {
-        window.updatePartyStateHp(ownerName, piece || pid, newHp);
+        window.updatePartyStateHp(ownerName, identityLike, newHp);
         return;
       }
       const db = window._combatDb || window.currentDb;
@@ -914,6 +916,7 @@ function renderMyTeam(teamRoot, by, pieces, myParty) {
       pieceId: piece?.id || null,
       revealed: piece ? !!piece.revealed : true,
       piece,
+      identity: it,
     });
     teamRoot.appendChild(card);
   }
@@ -1032,6 +1035,7 @@ function renderOpponents(oppRoot, by, pieces) {
         revealed: isRevealed || isSeen,
         pieceId: piece?.id || null,
         piece,
+        identity: it,
       });
       body.appendChild(card);
     }
