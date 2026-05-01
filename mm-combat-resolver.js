@@ -7,7 +7,7 @@ import {
   isMmTrackableActiveEffect,
   makeMmActiveEffectId,
   validatePowerRule,
-} from "./mm-rulebook.js?v=20260501mm5";
+} from "./mm-rulebook.js?v=20260501mm8";
 
 function safeStr(value) {
   return value == null ? "" : String(value).trim();

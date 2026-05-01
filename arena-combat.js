@@ -27,16 +27,27 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
 import { getMoveType, getTypeDamageBonus, normalizeType } from "./type-data.js";
-import { getPowerRuleForMove, isSelfPowerRule, hasResolvableImmediateEffects } from "./mm-power-catalog.js?v=20260501mm5";
+import { getPowerRuleForMove, isSelfPowerRule, hasResolvableImmediateEffects } from "./mm-power-catalog.js?v=20260501mm8";
 import {
   buildResistanceQueue,
   resolveMmImmediatePower,
   resolveMmPowerResistance,
-} from "./mm-combat-resolver.js?v=20260501mm5";
+} from "./mm-combat-resolver.js?v=20260501mm8";
 
 // ─── helpers ──────────────────────────────────────────────────────
 function safeStr(x) { return (x == null ? "" : String(x)).trim(); }
 function safeInt(x, fb = 0) { const n = parseInt(x, 10); return Number.isFinite(n) ? n : fb; }
+function firestoreSafeValue(value) {
+  if (value === undefined) return null;
+  if (value === null || typeof value !== "object") return value;
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map((item) => firestoreSafeValue(item));
+  const out = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (child !== undefined) out[key] = firestoreSafeValue(child);
+  }
+  return out;
+}
 function getBaseMoveDataLegacy(mv) {
   return {
     // Garante que pega o Rank base do golpe
@@ -548,7 +559,7 @@ const CSS_TEXT = `
 #arena-combat-overlay {
   position: absolute; inset: 0;
   pointer-events: none;
-  z-index: 50;
+  z-index: 5000;
   overflow: hidden;
 }
 
@@ -1017,7 +1028,8 @@ const CSS_TEXT = `
   right: 14px;
   bottom: 18px;
   width: min(320px, calc(100vw - 28px));
-  z-index: 70;
+  z-index: 5100;
+  pointer-events: auto;
   border: 1px solid rgba(56,189,248,.34);
   border-radius: 12px;
   background: rgba(2,6,23,.94);
@@ -1424,9 +1436,10 @@ export class ArenaCombatUI {
       if (!all.length) return null;
       const by = safeStr(this.getBy?.()).toLowerCase();
       const role = this.getRole();
-      const isPlayer = (role === "owner" || role === "challenger");
       const canStartCombat = !!window.canCurrentPlayerStartCombat?.();
-      if (!isPlayer || !canStartCombat) return null;
+      const canStartCombatOffTurn = !canStartCombat && !!window.canCurrentPlayerStartCombat?.({ ignoreTurn: true });
+      const isPlayer = (role === "owner" || role === "challenger" || role === "gm" || canStartCombat || canStartCombatOffTurn);
+      if (!isPlayer || (!canStartCombat && !canStartCombatOffTurn)) return null;
       return all.filter((piece) => {
         const owner = safeStr(piece.owner).toLowerCase();
         return !!owner && owner !== by;
@@ -1561,9 +1574,9 @@ export class ArenaCombatUI {
   _showContextMenu(piece, tile, x, y) {
     const by = this.getBy();
     const role = this.getRole();
-    const isPlayer = (role === "owner" || role === "challenger");
     const canStartCombat = !!window.canCurrentPlayerStartCombat?.();
     const canStartCombatOffTurn = !canStartCombat && !!window.canCurrentPlayerStartCombat?.({ ignoreTurn: true });
+    const isPlayer = (role === "owner" || role === "challenger" || role === "gm" || canStartCombat || canStartCombatOffTurn);
     const el = document.createElement("div");
     el.className = "ac-context";
 
@@ -2463,16 +2476,41 @@ export class ArenaCombatUI {
     const db = this.getDb();
     const rid = this.getRid();
     if (!db || !rid || !resolution) return "";
+    const payload = firestoreSafeValue({
+      ...resolution,
+      ...extra,
+      by: safeStr(this.getBy()),
+    });
     try {
       const docRef = await addDoc(collection(db, "rooms", rid, "combat_resolutions"), {
-        ...resolution,
-        ...extra,
-        by: safeStr(this.getBy()),
+        ...payload,
         createdAt: serverTimestamp(),
       });
       return docRef.id;
     } catch (err) {
       console.warn("[arena-combat] combat_resolutions write failed:", err);
+      return await this._persistMmResolutionFallback(payload, err);
+    }
+  }
+
+  async _persistMmResolutionFallback(payload, cause = null) {
+    const id = `battle:${uid()}`;
+    const errorText = safeStr(cause?.code || cause?.message || cause);
+    const record = firestoreSafeValue({
+      ...payload,
+      id,
+      storage: "battle_doc_fallback",
+      persistError: errorText || null,
+      createdAtMs: Date.now(),
+    });
+    try {
+      await this._writeBattle({
+        mm_resolution_history: arrayUnion(record),
+        last_resolution_fallback: record,
+      });
+      return id;
+    } catch (err) {
+      console.warn("[arena-combat] battle doc resolution fallback failed:", err);
       return "";
     }
   }
@@ -2505,6 +2543,10 @@ export class ArenaCombatUI {
     const rid = this.getRid();
     const id = safeStr(resolutionId);
     if (!db || !rid || !id) return;
+    if (id.startsWith("battle:")) {
+      await this._undoMmResolutionFallback(id);
+      return;
+    }
     const ref = doc(db, "rooms", rid, "combat_resolutions", id);
     try {
       const snap = await getDoc(ref);
@@ -2521,6 +2563,37 @@ export class ArenaCombatUI {
       });
     } catch (err) {
       console.warn("[arena-combat] undo failed:", err);
+    }
+  }
+
+  async _undoMmResolutionFallback(id) {
+    const ref = this._battleRef();
+    if (!ref || !id) return;
+    try {
+      const snap = await getDoc(ref);
+      const data = snap.exists() ? (snap.data() || {}) : {};
+      const history = Array.isArray(data.mm_resolution_history) ? data.mm_resolution_history : [];
+      const record = history.find((item) => safeStr(item?.id) === id);
+      if (!record || record.undoneAtMs) return;
+      await this._applyMmPatches(record.undoPatches || []);
+      const nextHistory = history.map((item) => {
+        if (safeStr(item?.id) !== id) return item;
+        return {
+          ...item,
+          undoneAtMs: Date.now(),
+          undoneBy: safeStr(this.getBy()),
+        };
+      });
+      const lastFallback = safeStr(data.last_resolution_fallback?.id) === id
+        ? { ...data.last_resolution_fallback, undoneAtMs: Date.now(), undoneBy: safeStr(this.getBy()) }
+        : data.last_resolution_fallback;
+      await this._writeBattle({
+        mm_resolution_history: firestoreSafeValue(nextHistory),
+        last_resolution_fallback: firestoreSafeValue(lastFallback),
+        logs: arrayUnion(`↩ Resolução ${id} desfeita por ${safeStr(this.getBy()) || "jogador"}.`),
+      });
+    } catch (err) {
+      console.warn("[arena-combat] fallback undo failed:", err);
     }
   }
 

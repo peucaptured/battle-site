@@ -1735,10 +1735,16 @@ function canCurrentPlayerPassTurn() {
   return isCurrentTurnOwnerMe();
 }
 
+function currentTrainerOwnsBoardPiece() {
+  const me = safeStr(appState.by);
+  if (!me) return false;
+  return (appState.pieces || []).some((piece) => safeStr(piece?.owner) === me);
+}
+
 function canCurrentPlayerStartCombat() {
   const opts = arguments[0] || {};
   const role = safeStr(appState.role);
-  const isPlayer = role === "owner" || role === "challenger" || role === "gm";
+  const isPlayer = role === "owner" || role === "challenger" || role === "gm" || currentTrainerOwnsBoardPiece();
   return isPlayer && (!!opts.ignoreTurn || isCurrentTurnOwnerMe());
 }
 

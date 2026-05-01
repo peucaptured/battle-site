@@ -1,6 +1,6 @@
 const CATALOG_URL = "./assets/rules/moves-mm.json";
 
-import { isMmSupportEffect, isMmTrackableActiveEffect, validatePowerRule } from "./mm-rulebook.js?v=20260501mm5";
+import { isMmSupportEffect, isMmTrackableActiveEffect, validatePowerRule } from "./mm-rulebook.js?v=20260501mm8";
 
 let catalogPromise = null;
 let catalogCache = null;
