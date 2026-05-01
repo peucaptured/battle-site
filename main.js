@@ -73,7 +73,8 @@ const CAPTURE_BALL_THEME_PRESETS = Object.freeze({
  * PvP Arena (HTML/JS) — Realtime Firestore
  *
  * Regras importantes:
- * - Movimento continua via actions (MOVE_PIECE) para manter compatibilidade.
+ * - Movimento atualiza public_state/state diretamente; a fila MOVE_PIECE legada
+ *   nao e consumida pelo cliente atual.
  * - ✅ Nesta etapa (migração do Streamlit), Ocultar/Revelar e Retirar do campo
  *   atualizam o public_state/state diretamente (igual ao app.py), via transaction.
  *   (Depois dá para trocar por actions quando o backend suportar.)
@@ -2922,6 +2923,7 @@ connectBtn?.addEventListener("click", async () => {
         handlePublishedMapEdits(mapEditorState.rawPublished);
         updateArenaMeta();
         updateSidePanels();
+        try { renderSheetsTab(); } catch {}
         renderMapEditorPanel?.();
         // Garante que treinadores que entraram só via peças (sem registro em players) também têm
         // users_raw/users assinados, permitindo carregar party e avatar corretamente.
@@ -2963,6 +2965,7 @@ unsub.push(
 
       // re-render UI que usa party (scoreboard/painéis)
       updateSidePanels?.();
+      try { renderSheetsTab(); } catch {}
       updateArenaMeta?.();
       window.requestScoreboardRefresh?.();
       requestArenaRefresh(true);
@@ -4124,6 +4127,17 @@ function findBoardPieceForTrainer(ownerName, pidLike, options = {}) {
     if (_getPartySlot(pidLike) && !_getPartySlot(piece)) return false;
     return _matchesPartyIdentity(piece, pidLike);
   }) || null;
+}
+
+function _activeOwnerPieces(ownerName, options = {}) {
+  const ownerKey = _trainerLookupKey(ownerName);
+  const pieces = Array.isArray(options.pieces) ? options.pieces : (appState.pieces || []);
+  if (!ownerKey || !Array.isArray(pieces) || !pieces.length) return [];
+  return pieces.filter((piece) => {
+    if (_trainerLookupKey(piece?.owner) !== ownerKey) return false;
+    if (!options.includeInactive && safeStr(piece?.status || "active") !== "active") return false;
+    return true;
+  });
 }
 
 function _getPartySnapshotForTrainer(trainerName) {
@@ -8150,18 +8164,32 @@ function _getPartyStateBucket(trainerName) {
 
 function _getRoomPartyStateEntry(trainerName, pidLike) {
   const targetKeys = _partyEntryLookupKeys(pidLike);
+  const resolved = _resolvePartyEntryIdentity(trainerName, pidLike);
+  _pushPartyLookupKey(targetKeys, resolved?.entryId);
+  _pushPartyLookupKey(targetKeys, resolved?.partySlot);
+  _pushPartyLookupKey(targetKeys, resolved?.pid);
   if (!targetKeys.length) return null;
   const bucket = _getPartyStateBucket(trainerName);
+  const payloadMatches = [];
   for (const [rawKey, entry] of Object.entries(bucket || {})) {
     if (targetKeys.includes(pidKey(rawKey))) {
       return entry || {};
     }
+    const entryKeys = _partyEntryLookupKeys(entry);
+    if (entryKeys.some((key) => targetKeys.includes(key))) {
+      if (resolved?.entryId || resolved?.partySlot || _getEntryId(pidLike) || _getPartySlot(pidLike)) {
+        return entry || {};
+      }
+      payloadMatches.push(entry || {});
+    }
   }
+  if (payloadMatches.length === 1) return payloadMatches[0];
   return null;
 }
 
 function _getPartyStateEntry(trainerName, pidLike) {
   const roomState = _getRoomPartyStateEntry(trainerName, pidLike);
+  if (roomState?.hp != null) return { ...(roomState || {}), hp: clampPartyHp(roomState.hp, 6) };
   const globalHp = _getGlobalEntryHp(trainerName, pidLike);
   if (globalHp != null) return { ...(roomState || {}), hp: globalHp };
   return roomState;
@@ -8747,7 +8775,7 @@ function selectPiece(pieceId) {
   renderArenaHoverCard();
 }
 
-function sendMoveSelected(toRow, toCol) {
+async function sendMoveSelected(toRow, toCol) {
   updateMovementTurnState();
   const pieceId = safeStr(appState.selectedPieceId);
   if (!pieceId) return;
@@ -8769,8 +8797,7 @@ function sendMoveSelected(toRow, toCol) {
   }
 
   if (canReach.free) {
-    const by = safeStr(byInput?.value || "Anon") || "Anon";
-    sendAction("MOVE_PIECE", by, { pieceId, row: Number(toRow), col: Number(toCol) });
+    await movePieceOnBoard(pieceId, Number(toRow), Number(toCol), { free: true });
     return;
   }
 
@@ -8811,12 +8838,11 @@ function sendMoveSelected(toRow, toCol) {
     }
 
     delete appState.movement.halfStepIntentByPieceId[pieceId];
-    toRow = targetRow;
-    toCol = targetCol;
+    await movePieceOnBoard(pieceId, targetRow, targetCol, { halfStep: true });
+    return;
   }
 
-  const by = safeStr(byInput?.value || "Anon") || "Anon";
-  sendAction("MOVE_PIECE", by, { pieceId, row: toRow, col: toCol });
+  await movePieceOnBoard(pieceId, Number(toRow), Number(toCol));
 }
 
 
@@ -8898,6 +8924,7 @@ async function placePokemonOnBoardAt(pidLike, row, col) {
     setStatus("err", "pokémon com HP 0 não pode ser posicionado");
     clearPokemonPlacingMode();
     updateSidePanels();
+    try { renderSheetsTab(); } catch {}
     return;
   }
   if (isPokemonAlreadyOnBoard(by, identity)) {
@@ -8980,6 +9007,7 @@ async function placePokemonOnBoardAt(pidLike, row, col) {
 
     clearPokemonPlacingMode();
     updateSidePanels();
+    try { renderSheetsTab(); } catch {}
     setStatus("ok", "pokémon posicionado no campo");
   } catch (e) {
     setStatus("err", `falha ao colocar pokémon: ${e?.message || e}`);
@@ -8997,10 +9025,10 @@ function isTileOccupied(row, col) {
 }
 
 function getPartyHp(ownerName, pidLike) {
-  const globalHp = _getGlobalEntryHp(ownerName, pidLike);
-  if (globalHp != null) return clampPartyHp(globalHp, 6);
   const roomHp = _getRoomPartyStateEntry(ownerName, pidLike)?.hp;
-  return roomHp == null ? 6 : clampPartyHp(roomHp, 6);
+  if (roomHp != null) return clampPartyHp(roomHp, 6);
+  const globalHp = _getGlobalEntryHp(ownerName, pidLike);
+  return globalHp == null ? 6 : clampPartyHp(globalHp, 6);
 }
 
 function isPokemonKo(ownerName, pidLike) {
@@ -9044,6 +9072,97 @@ function canCurrentPlayerMovePiece(pieceId) {
   if (!isPieceMine(piece)) return false;
   if (appState.movement?.freeByPieceId?.[pid]) return true;
   return isCurrentTurnOwnerMe();
+}
+
+function isTurnStateOwnedBy(turnState, pieces, ownerName) {
+  const owner = safeStr(ownerName).toLowerCase();
+  if (!owner) return false;
+  const synced = syncTurnStateWithCurrentBoard(turnState || {}, pieces);
+  if (safeStr(synced?.phase) !== "active") return false;
+  const order = Array.isArray(synced?.order) ? synced.order : [];
+  if (!order.length) return false;
+  const idx = Math.max(0, Number(synced.index) || 0);
+  const current = order[Math.min(idx, order.length - 1)] || null;
+  return !!current && safeStr(current.owner).toLowerCase() === owner;
+}
+
+async function movePieceOnBoard(pieceId, row, col, options = {}) {
+  const pid = safeStr(pieceId);
+  const by = safeStr(appState.by || byInput?.value || "");
+  const r = Number(row);
+  const c = Number(col);
+  if (!pid || !by) return false;
+
+  const stateRef = getStateDocRef();
+  if (!stateRef || !currentDb) {
+    setStatus("err", "sem conexao com a sala");
+    return false;
+  }
+
+  try {
+    let movedPiece = null;
+    await runTransaction(currentDb, async (tx) => {
+      const snap = await tx.get(stateRef);
+      const data = snap.exists() ? snap.data() : {};
+      const pieces = Array.isArray(data?.pieces) ? data.pieces : [];
+      const battleRef = getBattleDocRef();
+      const battleSnap = battleRef && !options.free ? await tx.get(battleRef) : null;
+      const battleData = battleSnap?.exists?.() ? battleSnap.data() : {};
+
+      const nextPieces = pieces.map((p) => ({ ...(p || {}) }));
+      const idx = nextPieces.findIndex((p) => safeStr(p?.id) === pid);
+      if (idx < 0) throw new Error("peca nao encontrada no state");
+
+      const piece = nextPieces[idx] || {};
+      if (safeStr(piece?.status || "active") !== "active") throw new Error("peca inativa");
+      if (safeStr(piece?.owner).toLowerCase() !== by.toLowerCase()) throw new Error("voce so pode mover pecas suas");
+
+      if (!options.free && !isTurnStateOwnedBy(battleData?.turn_state || appState.battle?.turn_state || {}, pieces, by)) {
+        throw new Error("somente o jogador do turno pode mover");
+      }
+
+      const sizeCategory = piece?.sizeCategory || getPieceSizeCategory(piece);
+      const gs = Number(data?.gridSize) || Number(appState.gridSize) || 10;
+      if (!isFootprintWithinGrid(r, c, sizeCategory, gs)) {
+        throw new Error("tile invalido ou peca nao cabe na borda da arena");
+      }
+
+      if (!options.free) {
+        const fromRow = Number(piece.row);
+        const fromCol = Number(piece.col);
+        const cheb = Math.max(Math.abs(r - fromRow), Math.abs(c - fromCol));
+        const { maxTiles } = getPieceMovementBudget(piece);
+        const limit = options.halfStep && maxTiles < 1 ? 1 : Math.floor(maxTiles);
+        if (cheb <= 0 || cheb > limit) throw new Error("tile fora do deslocamento maximo permitido");
+      }
+
+      const movingPiece = { ...piece, sizeCategory };
+      const landing = canPieceLandOn(movingPiece, r, c, pieces);
+      if (!landing.allowed) throw new Error(landing.reason || "tile ocupado");
+
+      movingPiece.row = r;
+      movingPiece.col = c;
+      movingPiece.updatedAt = Date.now();
+      nextPieces[idx] = movingPiece;
+      movedPiece = movingPiece;
+
+      tx.set(stateRef, { pieces: nextPieces, updatedAt: serverTimestamp() }, { merge: true });
+    });
+
+    if (movedPiece) {
+      appState.piecesRaw = (Array.isArray(appState.piecesRaw) ? appState.piecesRaw : [])
+        .map((p) => safeStr(p?.id) === pid ? { ...(p || {}), row: r, col: c, updatedAt: movedPiece.updatedAt } : p);
+      _refreshResolvedRoomPieces();
+      selectPiece(pid);
+      updateSidePanels();
+      requestArenaRefresh(true);
+    }
+    setStatus("ok", "pokemon movido");
+    return true;
+  } catch (e) {
+    setStatus("err", `falha ao mover pokemon: ${e?.message || e}`);
+    return false;
+  }
 }
 
 // Visibilidade no mapa (mesma lógica do app.py):
@@ -9192,6 +9311,7 @@ async function removePieceFromBoard(pieceId) {
       selBadge.textContent = `seleção: —`;
     }
     updateSidePanels();
+    try { renderSheetsTab(); } catch {}
     requestArenaRefresh(true);
     setStatus("ok", "peça removida do campo");
   } catch (e) {
@@ -14444,9 +14564,19 @@ function _sheetLookupCandidates(sh, fallbackPid) {
     if (!key || out.includes(key)) return;
     out.push(key);
   };
+  const pushFallback = (value) => {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      push(value?.pid);
+      push(value?.pokemon?.id);
+      push(value?.pokemon?.name);
+      push(value?.name);
+      return;
+    }
+    push(value);
+  };
   push(sh?.pokemon?.id);
   push(sh?.linked_pid);
-  push(fallbackPid);
+  pushFallback(fallbackPid);
   push(sh?.pokemon?.name);
   return out;
 }
@@ -14459,9 +14589,19 @@ function _sheetLookupKeys(sh, fallbackPid) {
   return out;
 }
 
-function _sheetMatchesPid(sh, pidLike, fallbackPid) {
+function _sheetMatchesPid(sh, pidLike, fallbackPid, options = {}) {
+  const entryTarget = _getEntryId(fallbackPid);
+  const entryCandidate = _getEntryId(pidLike);
+  if (entryTarget && entryCandidate) return entryCandidate === entryTarget;
+
   const slotTarget = _getPartySlot(fallbackPid || pidLike);
-  if (slotTarget) return _getPartySlot(pidLike) === slotTarget;
+  const slotCandidate = _getPartySlot(pidLike);
+  if (slotTarget) {
+    if (slotCandidate) return slotCandidate === slotTarget;
+    if (!options.allowSlotlessFallback) return false;
+  }
+  if (entryTarget && !options.allowSlotlessFallback) return false;
+
   const targetKeys = _partyEntryLookupKeys(pidLike);
   if (!targetKeys.length) return false;
   const sheetKeys = _sheetLookupKeys(sh, fallbackPid);
@@ -14469,14 +14609,23 @@ function _sheetMatchesPid(sh, pidLike, fallbackPid) {
 }
 
 function findBoardPieceForSheet(ownerName, sh, fallbackPid, options = {}) {
-  const ownerKey = _trainerLookupKey(ownerName);
-  const pieces = Array.isArray(options.pieces) ? options.pieces : (appState.pieces || []);
-  if (!ownerKey || !sh || !Array.isArray(pieces) || !pieces.length) return null;
-  return pieces.find((piece) => {
-    if (_trainerLookupKey(piece?.owner) !== ownerKey) return false;
-    if (!options.includeInactive && safeStr(piece?.status || "active") !== "active") return false;
-    return _sheetMatchesPid(sh, piece, fallbackPid);
-  }) || null;
+  const pieces = _activeOwnerPieces(ownerName, options);
+  if (!sh || !pieces.length) return null;
+
+  const strict = pieces.find((piece) => _sheetMatchesPid(sh, piece, fallbackPid));
+  if (strict) return strict;
+
+  // Compatibilidade com peças antigas criadas antes de salvar party_slot/entry_id.
+  // Só aceita esse fallback quando há uma única peça possível, evitando confundir duplicatas.
+  if (_getPartySlot(fallbackPid) || _getEntryId(fallbackPid)) {
+    const slotlessMatches = pieces.filter((piece) => {
+      if (_getPartySlot(piece) || _getEntryId(piece)) return false;
+      return _sheetMatchesPid(sh, piece, fallbackPid, { allowSlotlessFallback: true });
+    });
+    if (slotlessMatches.length === 1) return slotlessMatches[0];
+  }
+
+  return null;
 }
 
 function _sheetStateCandidates(sh, fallbackPid) {
@@ -14486,11 +14635,34 @@ function _sheetStateCandidates(sh, fallbackPid) {
     if (!key || out.includes(key)) return;
     out.push(key);
   };
-  push(fallbackPid);
+  if (fallbackPid && typeof fallbackPid === "object" && !Array.isArray(fallbackPid)) {
+    push(_getEntryId(fallbackPid));
+    push(_getPartySlot(fallbackPid));
+    push(fallbackPid?.pid);
+    push(fallbackPid?.pokemon?.id);
+    push(fallbackPid?.pokemon?.name);
+    push(fallbackPid?.name);
+  } else {
+    push(fallbackPid);
+  }
   push(sh?.linked_pid);
   push(sh?.pokemon?.id);
   push(sh?.pokemon?.name);
   return out;
+}
+
+function _mergePartyStateEntry(base, entry) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return base || {};
+  const next = { ...(base || {}), ...entry };
+  const baseBoosts = (base?.stat_boosts && typeof base.stat_boosts === "object" && !Array.isArray(base.stat_boosts)) ? base.stat_boosts : {};
+  const entryBoosts = (entry?.stat_boosts && typeof entry.stat_boosts === "object" && !Array.isArray(entry.stat_boosts)) ? entry.stat_boosts : {};
+  const entryHasBoosts = Object.prototype.hasOwnProperty.call(entry, "stat_boosts");
+  if (entryHasBoosts && entry.stat_boosts == null) {
+    next.stat_boosts = null;
+  } else if (Object.keys(baseBoosts).length || Object.keys(entryBoosts).length) {
+    next.stat_boosts = { ...baseBoosts, ...entryBoosts };
+  }
+  return next;
 }
 
 function _sheetResolvedPid(sh, fallbackPid) {
@@ -14511,12 +14683,12 @@ function _getPartyStateForSheet(ownerName, sh, fallbackPid) {
     ? (fallbackPid.pid ?? fallbackPid.pokemon?.id ?? fallbackPid.name)
     : fallbackPid;
   let roomState = {};
-  for (const key of _sheetStateCandidates(sh, fallbackKey)) {
+  for (const key of _sheetStateCandidates(sh, fallbackPid || fallbackKey)) {
     if (Object.prototype.hasOwnProperty.call(stateBucket, key)) {
-      roomState = stateBucket[key] || {};
-      break;
+      roomState = _mergePartyStateEntry(roomState, stateBucket[key]);
     }
   }
+  if (roomState?.hp != null) return { ...roomState, hp: clampPartyHp(roomState.hp, 6) };
   const globalTarget = _getPartyEntryForTrainerPid(ownerName, fallbackPid)
     || _getPartyEntryForTrainerPid(ownerName, fallbackKey)
     || fallbackPid

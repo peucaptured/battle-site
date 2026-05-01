@@ -8,7 +8,7 @@
  *  - Chama render() a cada mudança
  */
 
-import { ArenaCombatUI } from "./arena-combat.js?v=20260424hp1";
+import { ArenaCombatUI } from "./arena-combat.js?v=20260501attack1";
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
 import {
   getFirestore,

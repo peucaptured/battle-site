@@ -1301,7 +1301,7 @@ export class ArenaCombatUI {
     const moveName = safeStr(move.name) || "Golpe";
     const moveType = getMoveType(moveName) || safeStr(move.meta?.type) || safeStr(move.type) || "";
 
-    const atkTypes = resolveTrainerPokemonTypes(atkOwner, atkPid, { sheet: atkSheet });
+    const atkTypes = resolveTrainerPokemonTypes(by, atkPid, { sheet: atkSheet });
     const tSheet = this._getSheet(tOwner, tPid);
     const tgtTypes = resolveTrainerPokemonTypes(tOwner, tPid, { sheet: tSheet });
 
