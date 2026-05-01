@@ -119,6 +119,8 @@ const battlePre = $("battle");
 const ridInput = $("rid");
 const byInput = $("by");
 const pwInput = $("pw");
+const entryLoginLoading = $("entry_login_loading");
+const entryLoginLoadingText = $("entry_login_loading_text");
 // tenta pré-preencher "by" com o último login
 try {
   const cache = loadLoginCache();
@@ -1204,6 +1206,18 @@ function setStatus(kind, text) {
   }
   statusEl.className = `pill ${kind}`;
   statusEl.textContent = text;
+}
+
+function setEntryLoginLoading(isLoading, text = "Validando login...") {
+  if (entryLoginLoading) entryLoginLoading.hidden = !isLoading;
+  if (entryLoginLoadingText) entryLoginLoadingText.textContent = text;
+  if (connectBtn) {
+    connectBtn.disabled = isLoading;
+    connectBtn.textContent = isLoading ? "Entrando..." : "Conectar";
+  }
+  for (const el of [ridInput, byInput, pwInput, entryDisconnectBtn]) {
+    if (el) el.disabled = isLoading;
+  }
 }
 
 function pretty(x) {
@@ -2776,6 +2790,7 @@ disconnectPanelBtn?.addEventListener("click", cleanup);
 entryDisconnectBtn?.addEventListener("click", cleanup);
 
 connectBtn?.addEventListener("click", async () => {
+  if (connectBtn?.disabled) return;
   cleanup();
   const rid = safeStr(ridInput?.value || "");
   if (!rid) {
@@ -2790,8 +2805,17 @@ connectBtn?.addEventListener("click", async () => {
   // login
   const typedName = safeStr(byInput?.value || "");
   const typedPassword = String(pwInput?.value || "");
-  const login = await ensureLoggedInIfNeeded(db, auth, typedName, typedPassword);
+  setEntryLoginLoading(true, "Validando login...");
+  let login;
+  try {
+    login = await ensureLoggedInIfNeeded(db, auth, typedName, typedPassword);
+  } catch (e) {
+    setEntryLoginLoading(false);
+    setStatus("err", `erro no login: ${e?.message || e || "desconhecido"}`);
+    return;
+  }
   if (!login.ok) {
+    setEntryLoginLoading(false);
     if (login.cancel) {
       setStatus("warn", "login cancelado");
     } else if (login.status === "NOT_FOUND") {
@@ -2803,6 +2827,7 @@ connectBtn?.addEventListener("click", async () => {
     }
     return;
   }
+  setEntryLoginLoading(false);
 
   const by = safeStr(login.name || "");
   appState.by = by;
