@@ -5605,16 +5605,33 @@ async function updateStatBoost(ownerName, pid, stat, delta) {
   const rid = currentRid;
   const trainer = safeStr(ownerName);
   const monPid  = safeStr(pid);
-  if (!db || !rid || !trainer || !monPid || !stat) return;
-
-  // Lê o boost atual do appState (já sincronizado via onSnapshot)
-  const psData  = _partyStates?.[trainer]?.[monPid]?.stat_boosts || {};
-  const current = Number(psData[stat] || 0);
-  const newVal  = current + delta;
+  const statKey = safeStr(stat).trim().toLowerCase();
+  const step = Number(delta);
+  if (!db || !rid || !trainer || !monPid || !statKey || !Number.isFinite(step) || step === 0) return 0;
 
   const psRef = doc(db, "rooms", rid, "public_state", "party_states");
-  const patch = { [trainer]: { [monPid]: { stat_boosts: { [stat]: newVal === 0 ? null : newVal } } } };
-  await setDoc(psRef, patch, { merge: true });
+  let newVal = 0;
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(psRef);
+    const data = snap.exists() ? snap.data() : {};
+    const psData = data?.[trainer]?.[monPid]?.stat_boosts || {};
+    const current = Number(psData[statKey] || 0);
+    newVal = current + step;
+    const patch = { [trainer]: { [monPid]: { stat_boosts: { [statKey]: newVal === 0 ? null : newVal } } } };
+    tx.set(psRef, patch, { merge: true });
+  });
+
+  const root = (_partyStates && typeof _partyStates === "object") ? _partyStates : {};
+  const bucket = root[trainer] && typeof root[trainer] === "object" ? root[trainer] : {};
+  const monState = bucket[monPid] && typeof bucket[monPid] === "object" ? { ...bucket[monPid] } : {};
+  const boosts = monState.stat_boosts && typeof monState.stat_boosts === "object" ? { ...monState.stat_boosts } : {};
+  if (newVal === 0) delete boosts[statKey];
+  else boosts[statKey] = newVal;
+  monState.stat_boosts = Object.keys(boosts).length ? boosts : null;
+  root[trainer] = { ...bucket, [monPid]: monState };
+  _partyStates = root;
+  try { window._partyStates = _partyStates; } catch {}
+  return newVal;
 }
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -7183,13 +7200,13 @@ function renderSheetsInspectorCard(wrap) {
           ${['dodge','parry','fort','will','thg','stgr','int','acerto'].map(s => `
             <div class="stat-boost-row">
               <span class="stat-boost-name">${s === 'int' ? 'Int' : s === 'acerto' ? 'Acerto' : s.charAt(0).toUpperCase()+s.slice(1)}</span>
-              <button class="btn ghost stat-boost-btn" data-boost-stat="${s}" data-boost-delta="-1">−</button>
+              <button type="button" class="btn ghost stat-boost-btn" data-boost-stat="${s}" data-boost-delta="-1">−</button>
               <span class="stat-boost-val ${(statBoosts[s]||0) > 0 ? 'boost-pos' : (statBoosts[s]||0) < 0 ? 'boost-neg' : ''}">${(statBoosts[s]||0) > 0 ? '+' : ''}${statBoosts[s]||0}</span>
-              <button class="btn ghost stat-boost-btn" data-boost-stat="${s}" data-boost-delta="1">+</button>
+              <button type="button" class="btn ghost stat-boost-btn" data-boost-stat="${s}" data-boost-delta="1">+</button>
             </div>
           `).join('')}
         </div>
-        ${Object.keys(statBoosts).length > 0 ? `<button class="btn ghost" style="width:100%;margin-top:6px;font-size:11px" data-boost-reset>↺ Zerar todos os boosts</button>` : ''}
+        ${Object.keys(statBoosts).length > 0 ? `<button type="button" class="btn ghost" style="width:100%;margin-top:6px;font-size:11px" data-boost-reset>↺ Zerar todos os boosts</button>` : ''}
       </div>` : `<div class="muted" style="font-size:11px;margin:6px 0;padding:6px;text-align:center">💤 Pokémon não está em campo — boosts indisponíveis</div>`}
       <div class="sheet-divider"></div>
       <div class="section-title">Skills</div>${skH}
@@ -7257,13 +7274,17 @@ function renderSheetsInspectorCard(wrap) {
     const boostPid   = boostPanel.dataset.boostPid;
 
     boostPanel.querySelectorAll(".stat-boost-btn").forEach(btn => {
-      btn.addEventListener("click", async () => {
+      btn.addEventListener("click", async (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
         const stat  = btn.dataset.boostStat;
         const delta = Number(btn.dataset.boostDelta);
         if (!stat || !delta) return;
         btn.disabled = true;
         try {
           await updateStatBoost(boostOwner, boostPid, stat, delta);
+          try { renderSheetsTab(); } catch {}
+          try { updateSidePanels(); } catch {}
         } finally {
           btn.disabled = false;
         }
@@ -7272,14 +7293,26 @@ function renderSheetsInspectorCard(wrap) {
 
     const resetBtn = boostPanel.querySelector("[data-boost-reset]");
     if (resetBtn) {
-      resetBtn.addEventListener("click", async () => {
+      resetBtn.addEventListener("click", async (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
         resetBtn.disabled = true;
         const db  = currentDb;
         const rid = currentRid;
-        if (!db || !rid) return;
+        if (!db || !rid) {
+          resetBtn.disabled = false;
+          return;
+        }
         const psRef = doc(db, "rooms", rid, "public_state", "party_states");
         try {
           await setDoc(psRef, { [boostOwner]: { [boostPid]: { stat_boosts: null } } }, { merge: true });
+          const root = (_partyStates && typeof _partyStates === "object") ? _partyStates : {};
+          const bucket = root[boostOwner] && typeof root[boostOwner] === "object" ? root[boostOwner] : {};
+          root[boostOwner] = { ...bucket, [boostPid]: { ...(bucket[boostPid] || {}), stat_boosts: null } };
+          _partyStates = root;
+          try { window._partyStates = _partyStates; } catch {}
+          try { renderSheetsTab(); } catch {}
+          try { updateSidePanels(); } catch {}
         } finally {
           resetBtn.disabled = false;
         }
@@ -13231,25 +13264,47 @@ function _injectSheetsStyleOnce() {
     font-size: 13px; font-weight: 900; margin-bottom: 8px; color: #c084fc;
   }
   .stat-boost-grid {
-    display: grid; grid-template-columns: repeat(3,1fr); gap: 6px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 6px;
   }
   .stat-boost-row {
-    display: flex; align-items: center; justify-content: center; gap: 4px;
+    display: grid;
+    grid-template-columns: minmax(42px, 1fr) 28px 34px 28px;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    overflow: hidden;
     background: rgba(255,255,255,.04); border-radius: 10px; padding: 4px 6px;
   }
-  .stat-boost-name { font-size: 11px; font-weight: 700; min-width: 34px; text-align:right; }
+  .stat-boost-name { font-size: 11px; font-weight: 700; min-width: 0; text-align:right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .stat-boost-val {
-    font-size: 14px; font-weight: 900; min-width: 24px; text-align: center;
+    font-size: 14px; font-weight: 900; min-width: 0; text-align: center;
   }
   .stat-boost-val.boost-pos { color: #4ade80; }
   .stat-boost-val.boost-neg { color: #f87171; }
   .stat-boost-btn {
-    padding: 0 6px; height: 22px; min-width: 22px; font-size: 14px; line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    padding: 0;
+    font-size: 14px;
+    line-height: 1;
     border-radius: 6px;
+    box-shadow: none;
+    position: relative;
+    z-index: 1;
+  }
+  .stat-boost-btn:hover,
+  .stat-boost-btn:active {
+    transform: none;
   }
   /* versão compacta no inspector */
   #inspector_root .stat-boost-panel { margin: 6px 0; }
-  #inspector_root .stat-boost-grid { grid-template-columns: repeat(3,1fr); gap: 4px; }
+  #inspector_root .stat-boost-grid { grid-template-columns: repeat(auto-fit, minmax(116px, 1fr)); gap: 4px; }
+  #inspector_root .stat-boost-row { grid-template-columns: minmax(36px, 1fr) 26px 30px 26px; padding: 4px 5px; }
+  #inspector_root .stat-boost-btn { width: 26px; height: 26px; min-width: 26px; }
   #inspector_root .stat-boost-title, #inspector_root .stat-boost-name, #inspector_root .stat-boost-val { font-size: 11px; }
 
 /* ── Inspector: Condições (tracking) ─────────────────────── */
@@ -13855,10 +13910,11 @@ function _injectSheetsStyleOnce() {
       font-size:.86rem;
     }
     #tab_sheets #sheetDetail .stat-boost-grid{
-      grid-template-columns:repeat(4,1fr);
+      grid-template-columns:repeat(auto-fit,minmax(132px,1fr));
       gap:6px;
     }
     #tab_sheets #sheetDetail .stat-boost-row{
+      grid-template-columns:minmax(42px,1fr) 28px 34px 28px;
       padding:5px 8px;
     }
     #tab_sheets #sheetDetail .stat-boost-name,
