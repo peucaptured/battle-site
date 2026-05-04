@@ -6,8 +6,11 @@ import {
   isMmSupportEffect,
   isMmTrackableActiveEffect,
   makeMmActiveEffectId,
+  normalizeRuleEnv,
+  readRuleClock,
+  rollRuleDie,
   validatePowerRule,
-} from "./mm-rulebook.js?v=20260501mm8";
+} from "./mm-rulebook.js?v=20260504mm10";
 
 function safeStr(value) {
   return value == null ? "" : String(value).trim();
@@ -22,6 +25,10 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function clone(value) {
+  return JSON.parse(JSON.stringify(value == null ? null : value));
+}
+
 function normalizeResistance(value) {
   const raw = safeStr(value).toLowerCase();
   if (["toughness", "resistencia", "resistance"].includes(raw)) return "thg";
@@ -29,10 +36,17 @@ function normalizeResistance(value) {
   return raw || "thg";
 }
 
-function resolveEffectRank(effect, fallbackRank = 0) {
+function resolveEffectRank(effect, fallbackRank = 0, options = {}) {
   const rank = effect?.rank || {};
+  if (rank.source === "linked_main") {
+    return safeInt(rank.value ?? options.linkedRank ?? options.powerRule?.live?.rank, safeInt(fallbackRank, 0));
+  }
   if (rank.source === "fixed" && Number.isFinite(Number(rank.value))) return safeInt(rank.value, fallbackRank);
   return safeInt(fallbackRank, 0);
+}
+
+function resolveDamageRankBonus(effect) {
+  return Math.max(0, safeInt(effect?.damageBonus ?? effect?.damage_bonus ?? effect?.damage?.bonus, 0));
 }
 
 export function isResistanceEffect(effect) {
@@ -41,6 +55,7 @@ export function isResistanceEffect(effect) {
 
 export function buildResistanceQueue(powerRule, options = {}) {
   const fallbackRank = safeInt(options.rank, 0);
+  const linkedRank = safeInt(options.linkedRank ?? powerRule?.live?.rank, 0);
   const critBonus = safeInt(options.critBonus, 0);
   const fallbackResistance = normalizeResistance(options.fallbackResistance || powerRule?.resistance || "thg");
   const effects = Array.isArray(powerRule?.effects) ? powerRule.effects : [];
@@ -48,8 +63,10 @@ export function buildResistanceQueue(powerRule, options = {}) {
 
   for (const effect of effects) {
     if (!isResistanceEffect(effect)) continue;
-    const rank = resolveEffectRank(effect, fallbackRank);
     const type = safeStr(effect.type);
+    const rankBase = resolveEffectRank(effect, fallbackRank, { powerRule, linkedRank });
+    const damageBonus = type === "damage" ? resolveDamageRankBonus(effect) : 0;
+    const rank = rankBase + damageBonus;
     const baseDc = type === "damage" ? 15 : 10;
     const resistance = normalizeResistance(effect.resistance || fallbackResistance);
     queue.push({
@@ -57,6 +74,8 @@ export function buildResistanceQueue(powerRule, options = {}) {
       type,
       label: safeStr(effect.label || type),
       rank,
+      rankBase,
+      damageBonus,
       baseDc,
       dc: baseDc + rank + critBonus,
       resistance,
@@ -135,6 +154,23 @@ function traitList(effect) {
   return traits.map((x) => safeStr(x).toLowerCase()).filter(Boolean);
 }
 
+function supportTargetForEffect(effect, actor, target) {
+  return safeStr(effect?.target).toLowerCase() === "target" ? target : (actor || target);
+}
+
+function statDeltaForTrait(effect, trait, fallback) {
+  const fallbackDelta = safeInt(fallback, 0);
+  const key = safeStr(trait).toLowerCase();
+  const statDeltas = effect?.statDeltas && typeof effect.statDeltas === "object" ? effect.statDeltas : {};
+  const raw = statDeltas[trait]
+    ?? statDeltas[key]
+    ?? statDeltas[key.replace(/-/g, "_")]
+    ?? statDeltas[key.replace(/_/g, "-")]
+    ?? effect?.statDelta
+    ?? effect?.delta;
+  return Number.isFinite(Number(raw)) ? safeInt(raw, fallbackDelta) : fallbackDelta;
+}
+
 function addBoostPatch(patches, target, stat, delta, source) {
   const key = safeStr(stat).toLowerCase();
   if (!key || !target?.owner || !target?.pid || !delta) return;
@@ -195,14 +231,24 @@ function addDecisionPatch(patches, effect, reason, target, actor, extra = {}) {
   });
 }
 
-function addActiveEffectPatch(patches, effect, target, actor, rank, powerRule, extra = {}) {
+function addActiveEffectPatch(patches, effect, target, actor, rank, powerRule, extra = {}, env = {}) {
   const meta = getMmEffectMeta(effect?.type);
   const ident = targetIdentity(target, actor);
   const durationTurns = inferMmDurationTurns(effect, powerRule);
   const scope = safeStr(effect?.target) === "field" || meta.kind === "field" ? "field" : "combatant";
   patches.push({
     kind: "active_effect",
-    id: makeMmActiveEffectId("ae"),
+    id: makeMmActiveEffectId("ae", env, [
+      safeStr(powerRule?.id),
+      safeStr(effect?.id),
+      safeStr(effect?.type),
+      ident.owner,
+      ident.pid,
+      ident.pieceId,
+      safeInt(rank, 1),
+      safeStr(extra?.trigger),
+      safeStr(extra?.linkedSource?.effectId),
+    ]),
     owner: ident.owner,
     pid: ident.pid,
     pieceId: ident.pieceId,
@@ -229,7 +275,7 @@ function addActiveEffectPatch(patches, effect, target, actor, rank, powerRule, e
   });
 }
 
-function addSecondaryEffectPatch(patches, effect, target, actor, rank, powerRule, source) {
+function addSecondaryEffectPatch(patches, effect, target, actor, rank, powerRule, source, env = {}) {
   if (!effect?.secondaryEffect) return;
   addActiveEffectPatch(patches, {
     ...effect,
@@ -243,17 +289,23 @@ function addSecondaryEffectPatch(patches, effect, target, actor, rank, powerRule
     trigger: "next_turn",
     linkedSource: source || { effectId: safeStr(effect?.id), type: safeStr(effect?.type) },
     requiresAdjudication: true,
-  });
+  }, env);
 }
 
-function resolveUnreliableCheck(effect, input, index = 0) {
+function resolveUnreliableCheck(effect, input, index = 0, env = {}) {
   if (!effect?.unreliable) return null;
   const id = safeStr(effect?.id);
   const rolls = input?.unreliableRolls && typeof input.unreliableRolls === "object" ? input.unreliableRolls : {};
   const rawRoll = rolls[id] ?? rolls[index] ?? input?.unreliableRoll;
-  const roll = rawRoll == null
-    ? Math.floor(Math.random() * 100) + 1
-    : clamp(safeInt(rawRoll, 1), 1, 100);
+  const generated = rawRoll == null ? rollRuleDie(100, env) : null;
+  if (rawRoll == null && generated == null) {
+    return {
+      pending: true,
+      threshold: 50,
+      success: false,
+    };
+  }
+  const roll = rawRoll == null ? generated : clamp(safeInt(rawRoll, 1), 1, 100);
   return {
     roll,
     threshold: 50,
@@ -280,9 +332,9 @@ function addUnreliablePatch(patches, effect, check, target, actor) {
 }
 
 export function resolveMmPowerResistance(input) {
+  const env = normalizeRuleEnv(input?.env);
   const {
     powerRule,
-    target,
     d20,
     stats = {},
     rank = 0,
@@ -290,7 +342,8 @@ export function resolveMmPowerResistance(input) {
     fallbackIsEffect = false,
     fallbackResistance = "thg",
   } = input || {};
-  const actor = input?.actor || null;
+  const actor = clone(input?.actor || null);
+  const target = clone(input?.target || {});
   const queue = buildResistanceQueue(powerRule, { rank, critBonus, fallbackIsEffect, fallbackResistance });
   const patches = [];
   const effectResults = [];
@@ -302,7 +355,29 @@ export function resolveMmPowerResistance(input) {
     const total = safeInt(d20, 0) + statVal;
     const degree = degreeFromCheck(item.dc, total);
     const effect = item.effect || {};
-    const unreliable = resolveUnreliableCheck(effect, input, queueIndex);
+    const unreliable = resolveUnreliableCheck(effect, input, queueIndex, env);
+    if (unreliable?.pending) {
+      addDecisionPatch(patches, effect, "Unreliable exige rolagem d100 ou env.rng antes de resolver o efeito.", target, actor, {
+        choices: ["unreliableRoll"],
+        threshold: unreliable.threshold,
+      });
+      effectResults.push({
+        effectId: item.effectId,
+        type: item.type,
+        label: item.label,
+        resistance,
+        d20: safeInt(d20, 0),
+        statVal,
+        total,
+        dc: item.dc,
+        degree: 0,
+        success: false,
+        skipped: true,
+        requiresRoll: true,
+        unreliable,
+      });
+      continue;
+    }
     addUnreliablePatch(patches, effect, unreliable, target, actor);
 
     if (unreliable && !unreliable.success) {
@@ -354,19 +429,19 @@ export function resolveMmPowerResistance(input) {
       });
       target.hp = hpAfter;
       if (hpAfter <= 0) addConditionPatch(patches, target, "incapacitated", 3, { effectId: item.effectId, type: "damage_ko" });
-      addSecondaryEffectPatch(patches, effect, target, actor, item.rank, powerRule, { effectId: item.effectId, type: "damage" });
+      addSecondaryEffectPatch(patches, effect, target, actor, item.rank, powerRule, { effectId: item.effectId, type: "damage" }, env);
     } else if (item.type === "affliction") {
       const conditions = Array.isArray(effect.conditions) ? effect.conditions : [];
       const chosen = conditions.find((cond) => safeInt(cond.degree, 0) === clamp(degree, 1, 3))
         || conditions[conditions.length - 1]
         || { condition: degree >= 3 ? "incapacitated" : degree === 2 ? "stunned" : "dazed" };
       addConditionPatch(patches, target, chosen.condition, clamp(degree, 1, 3), { effectId: item.effectId, type: "affliction" });
-      addSecondaryEffectPatch(patches, effect, target, actor, item.rank, powerRule, { effectId: item.effectId, type: "affliction" });
+      addSecondaryEffectPatch(patches, effect, target, actor, item.rank, powerRule, { effectId: item.effectId, type: "affliction" }, env);
     } else if (item.type === "weaken") {
       const traits = traitList(effect);
       if (traits.length) {
         for (const trait of traits) addBoostPatch(patches, target, trait, -Math.max(1, item.rank || 1) * degree, { effectId: item.effectId, type: "weaken" });
-        addSecondaryEffectPatch(patches, effect, target, actor, item.rank, powerRule, { effectId: item.effectId, type: "weaken" });
+        addSecondaryEffectPatch(patches, effect, target, actor, item.rank, powerRule, { effectId: item.effectId, type: "weaken" }, env);
       } else {
         addAdjudication(patches, effect, "Weaken sem trait estruturado.", target);
       }
@@ -392,7 +467,7 @@ export function resolveMmPowerResistance(input) {
       addActiveEffectPatch(patches, effect, target, actor, item.rank, powerRule, {
         degree,
         requiresAdjudication: true,
-      });
+      }, env);
     } else if (item.type === "mind_reading") {
       addDecisionPatch(patches, effect, "Mind Reading teve graus de sucesso; escolha o nivel de informacao acessado.", target, actor, {
         degree,
@@ -412,9 +487,20 @@ export function resolveMmPowerResistance(input) {
     .filter((effect) => !isResistanceEffect(effect));
   for (const effect of nonResistance) {
     const type = safeStr(effect.type);
-    const effectRank = Math.max(1, resolveEffectRank(effect, rank || powerRule?.live?.rank || 1));
+    const effectRank = Math.max(1, resolveEffectRank(effect, rank || powerRule?.live?.rank || 1, {
+      powerRule,
+      linkedRank: powerRule?.live?.rank,
+    }));
     const meta = getMmEffectMeta(type);
-    const unreliable = resolveUnreliableCheck(effect, input, safeInt(safeStr(effect.id).replace(/\D+/g, ""), 0));
+    const unreliable = resolveUnreliableCheck(effect, input, safeInt(safeStr(effect.id).replace(/\D+/g, ""), 0), env);
+    if (unreliable?.pending) {
+      addDecisionPatch(patches, effect, "Unreliable exige rolagem d100 ou env.rng antes de resolver o efeito.", target, actor, {
+        choices: ["unreliableRoll"],
+        threshold: unreliable.threshold,
+      });
+      effectResults.push({ effectId: effect.id, type, rank: effectRank, automatic: false, skipped: true, requiresRoll: true, unreliable });
+      continue;
+    }
     addUnreliablePatch(patches, effect, unreliable, target, actor);
     if (unreliable && !unreliable.success) {
       effectResults.push({ effectId: effect.id, type, rank: effectRank, automatic: true, skipped: true, unreliable });
@@ -423,9 +509,9 @@ export function resolveMmPowerResistance(input) {
     if (meta.automation === "ignored") {
       effectResults.push({ effectId: effect.id, type, rank: effectRank, automatic: true, ignored: true });
     } else if (isMmTrackableActiveEffect(type)) {
-      addActiveEffectPatch(patches, effect, target, actor, effectRank, powerRule);
+      addActiveEffectPatch(patches, effect, target, actor, effectRank, powerRule, {}, env);
     } else if (isMmSupportEffect(type)) {
-      const supportTarget = safeStr(effect.target) === "target" ? target : (actor || target);
+      const supportTarget = supportTargetForEffect(effect, actor, target);
       if (type === "healing" && supportTarget) {
         const hpBefore = safeInt(supportTarget?.hp, 6);
         const hpAfter = clamp(hpBefore + effectRank, 0, 6);
@@ -443,7 +529,9 @@ export function resolveMmPowerResistance(input) {
       } else if (type === "enhanced_trait" && supportTarget) {
         const traits = traitList(effect);
         if (traits.length) {
-          for (const trait of traits) addBoostPatch(patches, supportTarget, trait, effectRank, { effectId: effect.id, type });
+          for (const trait of traits) {
+            addBoostPatch(patches, supportTarget, trait, statDeltaForTrait(effect, trait, effectRank), { effectId: effect.id, type });
+          }
         } else {
           addAdjudication(patches, effect, "Enhanced Trait sem trait estruturado.", supportTarget);
         }
@@ -462,21 +550,35 @@ export function resolveMmPowerResistance(input) {
     effectResults,
     actor,
     target,
-  });
+  }, env);
 }
 
 export function resolveMmImmediatePower(input) {
-  const { powerRule, actor, target = actor, rank = 0 } = input || {};
+  const env = normalizeRuleEnv(input?.env);
+  const { powerRule, rank = 0 } = input || {};
+  const actor = clone(input?.actor || null);
+  const target = clone(input?.target || input?.actor || {});
   const patches = [];
   const effectResults = [];
   const effects = Array.isArray(powerRule?.effects) ? powerRule.effects : [];
 
   for (let effectIndex = 0; effectIndex < effects.length; effectIndex += 1) {
     const effect = effects[effectIndex];
-    const effectRank = Math.max(1, resolveEffectRank(effect, rank || powerRule?.live?.rank || 1));
+    const effectRank = Math.max(1, resolveEffectRank(effect, rank || powerRule?.live?.rank || 1, {
+      powerRule,
+      linkedRank: powerRule?.live?.rank,
+    }));
     const type = safeStr(effect.type);
     const meta = getMmEffectMeta(type);
-    const unreliable = resolveUnreliableCheck(effect, input, effectIndex);
+    const unreliable = resolveUnreliableCheck(effect, input, effectIndex, env);
+    if (unreliable?.pending) {
+      addDecisionPatch(patches, effect, "Unreliable exige rolagem d100 ou env.rng antes de resolver o efeito.", target, actor, {
+        choices: ["unreliableRoll"],
+        threshold: unreliable.threshold,
+      });
+      effectResults.push({ effectId: effect.id, type, rank: effectRank, automatic: false, skipped: true, requiresRoll: true, unreliable });
+      continue;
+    }
     addUnreliablePatch(patches, effect, unreliable, target, actor);
     if (unreliable && !unreliable.success) {
       effectResults.push({ effectId: effect.id, type, rank: effectRank, automatic: true, skipped: true, unreliable });
@@ -485,11 +587,14 @@ export function resolveMmImmediatePower(input) {
     effectResults.push({ effectId: effect.id, type, rank: effectRank, automatic: true, unreliable });
     if (type === "enhanced_trait") {
       const traits = traitList(effect);
+      const supportTarget = supportTargetForEffect(effect, actor, target);
       if (!traits.length) {
-        addAdjudication(patches, effect, "Enhanced Trait sem trait estruturado.", target);
+        addAdjudication(patches, effect, "Enhanced Trait sem trait estruturado.", supportTarget);
         continue;
       }
-      for (const trait of traits) addBoostPatch(patches, target, trait, effectRank, { effectId: effect.id, type });
+      for (const trait of traits) {
+        addBoostPatch(patches, supportTarget, trait, statDeltaForTrait(effect, trait, effectRank), { effectId: effect.id, type });
+      }
     } else if (type === "healing") {
       const hpBefore = safeInt(target?.hp, 6);
       const hpAfter = clamp(hpBefore + effectRank, 0, 6);
@@ -507,7 +612,7 @@ export function resolveMmImmediatePower(input) {
     } else if (meta.automation === "ignored") {
       effectResults[effectResults.length - 1].ignored = true;
     } else if (isMmTrackableActiveEffect(type)) {
-      addActiveEffectPatch(patches, effect, target, actor, effectRank, powerRule);
+      addActiveEffectPatch(patches, effect, target, actor, effectRank, powerRule, {}, env);
     } else if (isResistanceEffect(effect)) {
       addDecisionPatch(patches, effect, "Efeito precisa de alvo/resistencia.", target, actor);
     } else {
@@ -522,10 +627,10 @@ export function resolveMmImmediatePower(input) {
     effectResults,
     actor,
     target,
-  });
+  }, env);
 }
 
-function makeResolution(data) {
+function makeResolution(data, env = {}) {
   const patches = data.patches || [];
   const undoPatches = patches
     .filter((patch) => ["hp", "conditions", "stat_boost", "active_effect"].includes(patch.kind))
@@ -566,7 +671,7 @@ function makeResolution(data) {
     adjudications,
     requiresAdjudication: adjudications.length > 0,
     summary: summarizeResolution(data.powerRule, data.effectResults || [], patches),
-    createdAtLocal: new Date().toISOString(),
+    createdAtLocal: readRuleClock(env),
   };
 }
 

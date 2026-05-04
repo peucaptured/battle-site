@@ -1,0 +1,123 @@
+kind,move,pokemon,trainer,source,effects,issues,path
+needsReview,4 Braços Extras,golisopod,Amber,sheet_build,feature,,trainers/Amber/sheets/golisopod_247_77e12fcc
+needsReview,Blizzard,Glalie,Ezenek,catalog+sheet_build,damage+custom,unreliable_50_percent|custom_effect,trainers/Ezenek/sheets/Glalie_117_e88ca4a6
+needsReview,Block,Malamar,Delta,catalog+sheet_build,custom,custom_effect,trainers/Delta/sheets/Malamar_213_9ed74b49
+needsReview,Brave Bird,Sirfetch'd,Ezenek,catalog+sheet_build,custom,custom_effect,trainers/Ezenek/sheets/butterfree_9_7e28987a
+needsReview,Cavar Dano,Infernape,Logan,sheet_build,damage+feature,,trainers/Logan/sheets/Infernape_129_3a12cab3
+needsReview,Charge,Flaaffy,Icarus,catalog+sheet_build,enhanced_trait+custom,custom_effect,trainers/Icarus/sheets/Flaaffy_183_ac5b2917
+needsReview,Counter,Riolu,Icarus,catalog+sheet_build,damage,reaction_needs_trigger,trainers/Icarus/sheets/Riolu_157_8940d6b5
+needsReview,Dark Pulse,Darkrai,Ezenek,catalog+sheet_build,affliction+damage,unknown_extra,trainers/Ezenek/sheets/Darkrai_mm_Darkrai_28d1f33d
+needsReview,Dark Void,Darkrai,Ezenek,sheet_build,custom,custom_effect,trainers/Ezenek/sheets/Darkrai_mm_Darkrai_28d1f33d
+needsReview,Dark Void Area,Darkrai,Ezenek,sheet_build,custom,custom_effect|unknown_extra,trainers/Ezenek/sheets/Darkrai_mm_Darkrai_28d1f33d
+needsReview,Deflect: Deflect 15,Pikachu,Logan,sheet_build,deflect+deflect+damage+weaken,unknown_extra,trainers/Logan/sheets/Pikachu_18_defe6561
+needsReview,Destiny Bond,Gengar,Ezenek,catalog+sheet_build,affliction,reaction_needs_trigger,trainers/Ezenek/sheets/Gengar_62_46ad6c53
+needsReview,Dig,Krokorok,Ezenek,catalog+sheet_build,custom,custom_effect,trainers/Ezenek/sheets/Krokorok_435_c522b620
+needsReview,Disable,Gengar,Ezenek,catalog+sheet_build,nullify,,trainers/Ezenek/sheets/Gengar_62_46ad6c53
+needsReview,Disable: Nullify 22,Darkrai,Ezenek,name_build+sheet_modifiers,nullify,,trainers/Ezenek/sheets/Darkrai_mm_Darkrai_28d1f33d
+needsReview,Dive,Starmie,Amber,catalog+sheet_build,custom,custom_effect,trainers/Amber/sheets/Starmie_71_3f90389b
+needsReview,Double-Edge,Golem-A,Ezenek,catalog+sheet_build,custom,custom_effect,trainers/Ezenek/sheets/Golem-A_52_fe504b8e
+needsReview,Electric Terrain,Raichu,Felicia Fulgar,catalog+sheet_build,environment+nullify,,trainers/Felicia_Fulgar/sheets/Raichu_19_67520735
+needsReview,Electro Ball,Lycanroc (Midday),Ezenek,catalog+sheet_build,custom,custom_effect,trainers/Ezenek/sheets/Raichu_19_44eaf007
+needsReview,Embargo,Weavile,Delta,catalog+sheet_build,nullify,,trainers/Delta/sheets/Weavile_87_9182e07c
+needsReview,Emotional Resonance,Ponyta (Galar),Shintaro,sheet_build,custom+deflect,custom_effect,trainers/Shintaro/sheets/Ponyta_Galar_53_21c27348
+needsReview,Endure,donphan,Ezenek,catalog+sheet_build,feature,,trainers/Ezenek/sheets/donphan_204_db8c81e6
+needsReview,Fire Spin,Centiskorch,Eneias,catalog+sheet_build,damage+nullify+damage,,trainers/Eneias/sheets/Joltik_168_99def918
+needsReview,Fire Spin,Infernape,Logan,catalog+sheet_build,nullify+damage,unknown_extra,trainers/Logan/sheets/Infernape_129_3a12cab3
+needsReview,Fire Spin,Magmortar,Logan,catalog+sheet_build,environment+custom+damage,custom_effect,trainers/Logan/sheets/Magmotar_mm_Magmotar_f8619674
+needsReview,Flare Blitz,Centiskorch,Eneias,catalog+sheet_build,custom,custom_effect,trainers/Eneias/sheets/Joltik_168_99def918
+needsReview,Fly,Corviknight,Ezenek,catalog+sheet_build,custom,custom_effect,trainers/Ezenek/sheets/Corviknight_266_4956f557
+needsReview,Foresight,Riolu,Icarus,catalog+sheet_build,nullify,,trainers/Icarus/sheets/Riolu_157_8940d6b5
+needsReview,Gastro Acid,Seviper,Ezenek,catalog+sheet_build,nullify,,trainers/Ezenek/sheets/Seviper_321_ced86dc3
+needsReview,Gatinho mental,Espeon,James HiBorn,sheet_build,custom+communication,custom_effect,trainers/James_HiBorn/sheets/Espeon_0_3cb985b2
+needsReview,Gravity,Ferrothorn,James HiBorn,catalog+sheet_build,move_object,dangling_linked|unknown_extra,trainers/James_HiBorn/sheets/Ferrothorn_171_4d0ad4b8
+needsReview,Gyro Ball,Glalie,Ezenek,catalog+sheet_build,custom,custom_effect,trainers/Ezenek/sheets/Glalie_117_e88ca4a6
+needsReview,Hail,Glalie,Ezenek,catalog+sheet_build,damage+environment,fades_on_instant,trainers/Ezenek/sheets/Glalie_117_e88ca4a6
+needsReview,Haze,Darkrai,Ezenek,catalog+sheet_build,immunity+environment+damage,unknown_extra,trainers/Ezenek/sheets/Darkrai_mm_Darkrai_28d1f33d
+needsReview,Helping Hand,Dottler,Nala,catalog+sheet_build,feature,,trainers/Nala/sheets/Dottler_268_6664b571
+needsReview,Howl,Houndour,Nyx,catalog+sheet_build,enhanced_trait,selective_without_area,trainers/Nyx/sheets/Houndour_201_02752087
+needsReview,Hypnosis: Illusion 10,Noctowl,Nala,sheet_build,custom,custom_effect,trainers/Nala/sheets/Noctowl_16_70567f30
+needsReview,Ice Punch,Weavile,Delta,catalog+sheet_build,damage+custom,custom_effect,trainers/Delta/sheets/Weavile_87_9182e07c
+needsReview,Infestation,Araquanid,Ezenek,catalog+sheet_build,damage+nullify+damage,,trainers/Ezenek/sheets/Araquanid_261_55142ee7
+needsReview,Ion Deluge,Electivire,Felicia Fulgar,catalog+sheet_build,feature,,trainers/Felicia_Fulgar/sheets/Electivire_77_d505db9d
+needsReview,Lock On,Magneton,James HiBorn,catalog+sheet_build,custom,custom_effect,trainers/James_HiBorn/sheets/Magneton_56_228d3af7
+needsReview,Magic Cylinder,Empoleon,James HiBorn,sheet_build,deflect,,trainers/James_HiBorn/sheets/Empoleon_0_9597eda5
+needsReview,Mean Look,Bisharp,Delta,catalog+sheet_build,custom,custom_effect,trainers/Delta/sheets/Bisharp_174_1b4663d9
+needsReview,Metal Burst,Bisharp,Delta,catalog+sheet_build,damage,reaction_needs_trigger,trainers/Delta/sheets/Bisharp_174_1b4663d9
+needsReview,Mind control,Espeon,James HiBorn,sheet_build,affliction,fades_on_instant,trainers/James_HiBorn/sheets/Espeon_0_3cb985b2
+needsReview,Mind Reader,Riolu,Icarus,catalog+sheet_build,feature,,trainers/Icarus/sheets/Riolu_157_8940d6b5
+needsReview,Misty Terrain,Mawile,Shintaro,catalog+sheet_build,environment+nullify,,trainers/Shintaro/sheets/mawile_218_5076ab81
+needsReview,Mjonir,Dragonite,Logan,sheet_build,damage+damage+custom+affliction+weaken+custom,custom_effect|custom_effect,trainers/Logan/sheets/Dragonite_85_970ec475
+needsReview,Mud Shot,Krabbynho,Delta,catalog+sheet_build,damage+custom,custom_effect,trainers/Delta/sheets/Krabbynho_mm_Krabbynho_589c6aaf
+needsReview,Novo Poder,Dodrio,James HiBorn,sheet_build,senses,dangling_linked,trainers/James_HiBorn/sheets/Dodrio_59_c16367fa
+needsReview,Parting Shot,Pangoro,Amber,catalog+sheet_build,teleport+custom,custom_effect,trainers/Amber/sheets/Pangoro_179_8de27dee
+needsReview,Phantom Force,Spiritomb,Delta,catalog+sheet_build,custom,custom_effect,trainers/Delta/sheets/Spiritomb_388_14d4fb67
+needsReview,Powder,Parasect,Eneias,catalog+sheet_build,damage,reaction_needs_trigger,trainers/Eneias/sheets/Krabbynho_mm_Krabbynho_e0d4c0e4
+needsReview,Psychic (Alternativo - Defletir / Redirecionar Golpes),Zoroark,Delta,catalog+sheet_build,deflect+weaken,,trainers/Delta/sheets/Zoroark_0_47cdd966
+needsReview,Punishment,Zoroark,Delta,catalog+sheet_build,custom,custom_effect,trainers/Delta/sheets/Zoroark_0_47cdd966
+needsReview,Pursuit,Crabominable,Ezenek,catalog+sheet_build,damage+custom,custom_effect,trainers/Ezenek/sheets/pyroar_178_c70eedf0
+needsReview,Rain Dance,poliwrath,Ezenek,catalog+sheet_build,custom,custom_effect,trainers/Ezenek/sheets/poliwrath_45_058a91a2
+needsReview,Recover,Starmie,Amber,catalog+sheet_build,healing,reaction_needs_trigger,trainers/Amber/sheets/Starmie_71_3f90389b
+needsReview,Rollout,Golem,James HiBorn,catalog+sheet_build,damage+nullify+feature,,trainers/James_HiBorn/sheets/Golem_0_9d2a4e59
+needsReview,Sandstorm,Lycanroc (Midday),Ezenek,catalog+sheet_build,damage+environment,fades_on_instant,trainers/Ezenek/sheets/Raichu_19_44eaf007
+needsReview,Sandstorm,carkol,Ezenek,catalog+sheet_build,custom+damage,custom_effect|fades_on_instant,trainers/Ezenek/sheets/carkol_279_3bfcc810
+needsReview,Skill Swap,Dottler,Nala,catalog+sheet_build,feature,,trainers/Nala/sheets/Dottler_268_6664b571
+needsReview,Sleep Powder,Victribell,Logan,catalog+sheet_build,affliction,unknown_extra,trainers/Logan/sheets/Victribell_0_59f6cafe
+needsReview,Sludge Wave,Victribell,Logan,catalog+sheet_build,damage+damage,unknown_extra,trainers/Logan/sheets/Victribell_0_59f6cafe
+needsReview,Smack Down,Golem,James HiBorn,catalog+sheet_build,damage+nullify,,trainers/James_HiBorn/sheets/Golem_0_9d2a4e59
+needsReview,Smogscreen,Magmortar,Logan,sheet_build,custom+environment+damage,custom_effect|unknown_extra,trainers/Logan/sheets/Magmotar_mm_Magmotar_f8619674
+needsReview,Soak,Dewpider,Ezenek,catalog+sheet_build,feature,,trainers/Ezenek/sheets/Dewpider_260_ed953b82
+needsReview,Spider Web,Joltik,Eneias,catalog+sheet_build,custom,custom_effect,trainers/Eneias/sheets/Joltik_168_0019f925
+needsReview,Surf,Pangoro,Amber,catalog+sheet_build,damage,unknown_extra,trainers/Amber/sheets/Pangoro_179_8de27dee
+needsReview,Swallow (Alternativo - Contest Combo: Stockpile → Swallow (Explosão de Energia)),Mawile,Shintaro,catalog+sheet_build,enhanced_trait+feature+healing+affliction,,trainers/Shintaro/sheets/mawile_218_5076ab81
+needsReview,Sweet Scent,Victribell,Logan,catalog+sheet_build,custom+affliction+damage+damage+move_object,custom_effect|unknown_extra,trainers/Logan/sheets/Victribell_0_59f6cafe
+needsReview,Take Down,Sawsbuck,Nala,catalog+sheet_build,custom,custom_effect,trainers/Nala/sheets/Sawsbuck_410_da743bf1
+needsReview,Taunt,Infernape,Logan,catalog+sheet_build,affliction,unknown_extra,trainers/Logan/sheets/Infernape_129_3a12cab3
+needsReview,teleport,Dottler,Icarus,catalog+sheet_build,teleport,unknown_extra,trainers/Icarus/sheets/Dottler_268_894e05bb
+needsReview,Tempestade Eletrica,Dragonite,Logan,sheet_build,environment+custom+affliction+damage+damage,custom_effect|unknown_extra,trainers/Logan/sheets/Dragonite_85_970ec475
+needsReview,Thunderbolt,Pikachu,Logan,catalog+sheet_build,affliction+damage+weaken+custom,custom_effect,trainers/Logan/sheets/Pikachu_18_defe6561
+needsReview,Topsy-Turvy,Malamar,Delta,catalog+sheet_build,nullify,,trainers/Delta/sheets/Malamar_213_9ed74b49
+needsReview,Vacuum Wave,Riolu,Icarus,catalog+sheet_build,custom,custom_effect,trainers/Icarus/sheets/Riolu_157_8940d6b5
+needsReview,Visão Aguçada: Senses 9,Noctowl,Nala,sheet_build,custom,custom_effect,trainers/Nala/sheets/Noctowl_16_70567f30
+needsReview,Voar: Flight 5,Dragonite,Logan,sheet_build,speed+damage+custom+custom+enhanced_trait,custom_effect|custom_effect,trainers/Logan/sheets/Dragonite_85_970ec475
+needsReview,Water Pulse,Blastoise,Logan,catalog+sheet_build,affliction+damage+custom+damage,custom_effect|unknown_extra,trainers/Logan/sheets/Blastoise_6_4f49c217
+needsReview,Whirlpool,Staryu,Delta,catalog+sheet_build,damage+nullify+damage,,trainers/Delta/sheets/Staryu_70_34a898d0
+needsReview,Whirlpool,Empoleon,James HiBorn,catalog+sheet_build,damage+affliction+nullify,,trainers/James_HiBorn/sheets/Empoleon_0_9597eda5
+needsReview,Wrap,Seviper,Ezenek,catalog+sheet_build,damage+nullify+damage,,trainers/Ezenek/sheets/Seviper_321_ced86dc3
+custom,Blizzard,Glalie,Ezenek,catalog+sheet_build,damage+custom,unreliable_50_percent|custom_effect,trainers/Ezenek/sheets/Glalie_117_e88ca4a6
+custom,Block,Malamar,Delta,catalog+sheet_build,custom,custom_effect,trainers/Delta/sheets/Malamar_213_9ed74b49
+custom,Brave Bird,Sirfetch'd,Ezenek,catalog+sheet_build,custom,custom_effect,trainers/Ezenek/sheets/butterfree_9_7e28987a
+custom,Charge,Flaaffy,Icarus,catalog+sheet_build,enhanced_trait+custom,custom_effect,trainers/Icarus/sheets/Flaaffy_183_ac5b2917
+custom,Dark Void,Darkrai,Ezenek,sheet_build,custom,custom_effect,trainers/Ezenek/sheets/Darkrai_mm_Darkrai_28d1f33d
+custom,Dark Void Area,Darkrai,Ezenek,sheet_build,custom,custom_effect|unknown_extra,trainers/Ezenek/sheets/Darkrai_mm_Darkrai_28d1f33d
+custom,Dig,Krokorok,Ezenek,catalog+sheet_build,custom,custom_effect,trainers/Ezenek/sheets/Krokorok_435_c522b620
+custom,Dive,Starmie,Amber,catalog+sheet_build,custom,custom_effect,trainers/Amber/sheets/Starmie_71_3f90389b
+custom,Double-Edge,Golem-A,Ezenek,catalog+sheet_build,custom,custom_effect,trainers/Ezenek/sheets/Golem-A_52_fe504b8e
+custom,Electro Ball,Lycanroc (Midday),Ezenek,catalog+sheet_build,custom,custom_effect,trainers/Ezenek/sheets/Raichu_19_44eaf007
+custom,Emotional Resonance,Ponyta (Galar),Shintaro,sheet_build,custom+deflect,custom_effect,trainers/Shintaro/sheets/Ponyta_Galar_53_21c27348
+custom,Fire Spin,Magmortar,Logan,catalog+sheet_build,environment+custom+damage,custom_effect,trainers/Logan/sheets/Magmotar_mm_Magmotar_f8619674
+custom,Flare Blitz,Centiskorch,Eneias,catalog+sheet_build,custom,custom_effect,trainers/Eneias/sheets/Joltik_168_99def918
+custom,Fly,Corviknight,Ezenek,catalog+sheet_build,custom,custom_effect,trainers/Ezenek/sheets/Corviknight_266_4956f557
+custom,Gatinho mental,Espeon,James HiBorn,sheet_build,custom+communication,custom_effect,trainers/James_HiBorn/sheets/Espeon_0_3cb985b2
+custom,Gyro Ball,Glalie,Ezenek,catalog+sheet_build,custom,custom_effect,trainers/Ezenek/sheets/Glalie_117_e88ca4a6
+custom,Hypnosis: Illusion 10,Noctowl,Nala,sheet_build,custom,custom_effect,trainers/Nala/sheets/Noctowl_16_70567f30
+custom,Ice Punch,Weavile,Delta,catalog+sheet_build,damage+custom,custom_effect,trainers/Delta/sheets/Weavile_87_9182e07c
+custom,Lock On,Magneton,James HiBorn,catalog+sheet_build,custom,custom_effect,trainers/James_HiBorn/sheets/Magneton_56_228d3af7
+custom,Mean Look,Bisharp,Delta,catalog+sheet_build,custom,custom_effect,trainers/Delta/sheets/Bisharp_174_1b4663d9
+custom,Mjonir,Dragonite,Logan,sheet_build,damage+damage+custom+affliction+weaken+custom,custom_effect|custom_effect,trainers/Logan/sheets/Dragonite_85_970ec475
+custom,Mud Shot,Krabbynho,Delta,catalog+sheet_build,damage+custom,custom_effect,trainers/Delta/sheets/Krabbynho_mm_Krabbynho_589c6aaf
+custom,Parting Shot,Pangoro,Amber,catalog+sheet_build,teleport+custom,custom_effect,trainers/Amber/sheets/Pangoro_179_8de27dee
+custom,Phantom Force,Spiritomb,Delta,catalog+sheet_build,custom,custom_effect,trainers/Delta/sheets/Spiritomb_388_14d4fb67
+custom,Punishment,Zoroark,Delta,catalog+sheet_build,custom,custom_effect,trainers/Delta/sheets/Zoroark_0_47cdd966
+custom,Pursuit,Crabominable,Ezenek,catalog+sheet_build,damage+custom,custom_effect,trainers/Ezenek/sheets/pyroar_178_c70eedf0
+custom,Rain Dance,poliwrath,Ezenek,catalog+sheet_build,custom,custom_effect,trainers/Ezenek/sheets/poliwrath_45_058a91a2
+custom,Sandstorm,carkol,Ezenek,catalog+sheet_build,custom+damage,custom_effect|fades_on_instant,trainers/Ezenek/sheets/carkol_279_3bfcc810
+custom,Smogscreen,Magmortar,Logan,sheet_build,custom+environment+damage,custom_effect|unknown_extra,trainers/Logan/sheets/Magmotar_mm_Magmotar_f8619674
+custom,Spider Web,Joltik,Eneias,catalog+sheet_build,custom,custom_effect,trainers/Eneias/sheets/Joltik_168_0019f925
+custom,Sweet Scent,Victribell,Logan,catalog+sheet_build,custom+affliction+damage+damage+move_object,custom_effect|unknown_extra,trainers/Logan/sheets/Victribell_0_59f6cafe
+custom,Take Down,Sawsbuck,Nala,catalog+sheet_build,custom,custom_effect,trainers/Nala/sheets/Sawsbuck_410_da743bf1
+custom,Tempestade Eletrica,Dragonite,Logan,sheet_build,environment+custom+affliction+damage+damage,custom_effect|unknown_extra,trainers/Logan/sheets/Dragonite_85_970ec475
+custom,Thunderbolt,Pikachu,Logan,catalog+sheet_build,affliction+damage+weaken+custom,custom_effect,trainers/Logan/sheets/Pikachu_18_defe6561
+custom,Vacuum Wave,Riolu,Icarus,catalog+sheet_build,custom,custom_effect,trainers/Icarus/sheets/Riolu_157_8940d6b5
+custom,Visão Aguçada: Senses 9,Noctowl,Nala,sheet_build,custom,custom_effect,trainers/Nala/sheets/Noctowl_16_70567f30
+custom,Voar: Flight 5,Dragonite,Logan,sheet_build,speed+damage+custom+custom+enhanced_trait,custom_effect|custom_effect,trainers/Logan/sheets/Dragonite_85_970ec475
+custom,Water Pulse,Blastoise,Logan,catalog+sheet_build,affliction+damage+custom+damage,custom_effect|unknown_extra,trainers/Logan/sheets/Blastoise_6_4f49c217

@@ -1,0 +1,812 @@
+{
+  "tempId": "codex_tmp_eneias_monhdlvr",
+  "initial": {
+    "Ezenek": {
+      "by": "Ezenek",
+      "role": "—",
+      "statusText": "conectado",
+      "pieces": [
+        {
+          "id": "pc_mon4cycj_ylyi4n",
+          "owner": "Ezenek",
+          "pid": "239",
+          "row": 0,
+          "col": 0,
+          "hp": 6,
+          "temp": false
+        },
+        {
+          "id": "pc_mon4d09x_3rlzbq",
+          "owner": "Ezenek",
+          "pid": "178",
+          "row": 0,
+          "col": 1,
+          "hp": 0,
+          "temp": false
+        }
+      ],
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "target_id": "codex_tmp_eneias_monh881a",
+        "target_owner": "Eneias",
+        "target_pid": "codex_tmp_target",
+        "attacker": "Ezenek",
+        "attacker_pid": "239",
+        "last_resolution_id": null,
+        "fallback_id": null,
+        "fallback_storage": null,
+        "fallback_undone": false,
+        "historyCount": 0,
+        "logs": [
+          "Ezenek rolou 16+40=56 (vs Def 10 [0+10])... ACERTOU! ✅",
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)",
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+          {
+            "by": "Eneias",
+            "t": "log",
+            "text": "➕ Codex Tmp Target entrou no campo em (2,1)",
+            "at": {
+              "seconds": 1777674054,
+              "nanoseconds": 152000000
+            }
+          },
+          {
+            "by": "Eneias",
+            "t": "log",
+            "text": "💢 Codex Tmp Target perdeu 4 HP (6→2)",
+            "at": {
+              "seconds": 1777674055,
+              "nanoseconds": 32000000
+            }
+          },
+          {
+            "by": "Eneias",
+            "text": "↩️ Codex Tmp Target foi recolhido do campo",
+            "t": "log",
+            "at": {
+              "seconds": 1777674073,
+              "nanoseconds": 114000000
+            }
+          }
+        ]
+      },
+      "promptVisible": false,
+      "undoVisible": false
+    },
+    "Eneias": {
+      "by": "Eneias",
+      "role": "—",
+      "statusText": "conectado",
+      "pieces": [
+        {
+          "id": "pc_mon4cycj_ylyi4n",
+          "owner": "Ezenek",
+          "pid": "239",
+          "row": 0,
+          "col": 0,
+          "hp": 6,
+          "temp": false
+        },
+        {
+          "id": "pc_mon4d09x_3rlzbq",
+          "owner": "Ezenek",
+          "pid": "178",
+          "row": 0,
+          "col": 1,
+          "hp": 0,
+          "temp": false
+        }
+      ],
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "target_id": "codex_tmp_eneias_monh881a",
+        "target_owner": "Eneias",
+        "target_pid": "codex_tmp_target",
+        "attacker": "Ezenek",
+        "attacker_pid": "239",
+        "last_resolution_id": null,
+        "fallback_id": null,
+        "fallback_storage": null,
+        "fallback_undone": false,
+        "historyCount": 0,
+        "logs": [
+          "Ezenek rolou 16+40=56 (vs Def 10 [0+10])... ACERTOU! ✅",
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)",
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+          {
+            "at": {
+              "seconds": 1777674054,
+              "nanoseconds": 152000000
+            },
+            "t": "log",
+            "text": "➕ Codex Tmp Target entrou no campo em (2,1)",
+            "by": "Eneias"
+          },
+          {
+            "at": {
+              "seconds": 1777674055,
+              "nanoseconds": 32000000
+            },
+            "text": "💢 Codex Tmp Target perdeu 4 HP (6→2)",
+            "t": "log",
+            "by": "Eneias"
+          },
+          {
+            "by": "Eneias",
+            "at": {
+              "seconds": 1777674073,
+              "nanoseconds": 114000000
+            },
+            "text": "↩️ Codex Tmp Target foi recolhido do campo",
+            "t": "log"
+          }
+        ]
+      },
+      "promptVisible": false,
+      "undoVisible": false
+    }
+  },
+  "usedExistingEneiasPiece": false,
+  "tempPiece": {
+    "id": "codex_tmp_eneias_monhdlvr",
+    "owner": "Eneias",
+    "pid": "codex_tmp_target",
+    "row": 1,
+    "col": 0,
+    "status": "active",
+    "revealed": true,
+    "kind": "pokemon",
+    "name": "Codex Test Target",
+    "codexTemporary": true
+  },
+  "beforeAttack": {
+    "Ezenek": {
+      "by": "Ezenek",
+      "role": "—",
+      "statusText": "conectado",
+      "pieces": [
+        {
+          "id": "pc_mon4cycj_ylyi4n",
+          "owner": "Ezenek",
+          "pid": "239",
+          "row": 0,
+          "col": 0,
+          "hp": 6,
+          "temp": false
+        },
+        {
+          "id": "pc_mon4d09x_3rlzbq",
+          "owner": "Ezenek",
+          "pid": "178",
+          "row": 0,
+          "col": 1,
+          "hp": 0,
+          "temp": false
+        },
+        {
+          "id": "codex_tmp_eneias_monhdlvr",
+          "owner": "Eneias",
+          "pid": "codex_tmp_target",
+          "row": 1,
+          "col": 0,
+          "hp": 6,
+          "temp": true
+        }
+      ],
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "target_id": "codex_tmp_eneias_monh881a",
+        "target_owner": "Eneias",
+        "target_pid": "codex_tmp_target",
+        "attacker": "Ezenek",
+        "attacker_pid": "239",
+        "last_resolution_id": null,
+        "fallback_id": null,
+        "fallback_storage": null,
+        "fallback_undone": false,
+        "historyCount": 0,
+        "logs": [
+          "Ezenek rolou 16+40=56 (vs Def 10 [0+10])... ACERTOU! ✅",
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)",
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+          {
+            "at": {
+              "seconds": 1777674054,
+              "nanoseconds": 152000000
+            },
+            "by": "Eneias",
+            "t": "log",
+            "text": "➕ Codex Tmp Target entrou no campo em (2,1)"
+          },
+          {
+            "t": "log",
+            "text": "💢 Codex Tmp Target perdeu 4 HP (6→2)",
+            "by": "Eneias",
+            "at": {
+              "seconds": 1777674055,
+              "nanoseconds": 32000000
+            }
+          },
+          {
+            "text": "↩️ Codex Tmp Target foi recolhido do campo",
+            "t": "log",
+            "by": "Eneias",
+            "at": {
+              "seconds": 1777674073,
+              "nanoseconds": 114000000
+            }
+          }
+        ]
+      },
+      "promptVisible": false,
+      "undoVisible": false
+    },
+    "Eneias": {
+      "by": "Eneias",
+      "role": "—",
+      "statusText": "ação enviada: ADD_LOG",
+      "pieces": [
+        {
+          "id": "pc_mon4cycj_ylyi4n",
+          "owner": "Ezenek",
+          "pid": "239",
+          "row": 0,
+          "col": 0,
+          "hp": 6,
+          "temp": false
+        },
+        {
+          "id": "pc_mon4d09x_3rlzbq",
+          "owner": "Ezenek",
+          "pid": "178",
+          "row": 0,
+          "col": 1,
+          "hp": 0,
+          "temp": false
+        },
+        {
+          "id": "codex_tmp_eneias_monhdlvr",
+          "owner": "Eneias",
+          "pid": "codex_tmp_target",
+          "row": 1,
+          "col": 0,
+          "hp": 6,
+          "temp": true
+        }
+      ],
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "target_id": "codex_tmp_eneias_monh881a",
+        "target_owner": "Eneias",
+        "target_pid": "codex_tmp_target",
+        "attacker": "Ezenek",
+        "attacker_pid": "239",
+        "last_resolution_id": null,
+        "fallback_id": null,
+        "fallback_storage": null,
+        "fallback_undone": false,
+        "historyCount": 0,
+        "logs": [
+          "Ezenek rolou 16+40=56 (vs Def 10 [0+10])... ACERTOU! ✅",
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)",
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+          {
+            "t": "log",
+            "at": {
+              "seconds": 1777674054,
+              "nanoseconds": 152000000
+            },
+            "text": "➕ Codex Tmp Target entrou no campo em (2,1)",
+            "by": "Eneias"
+          },
+          {
+            "t": "log",
+            "text": "💢 Codex Tmp Target perdeu 4 HP (6→2)",
+            "at": {
+              "seconds": 1777674055,
+              "nanoseconds": 32000000
+            },
+            "by": "Eneias"
+          },
+          {
+            "by": "Eneias",
+            "t": "log",
+            "text": "↩️ Codex Tmp Target foi recolhido do campo",
+            "at": {
+              "seconds": 1777674073,
+              "nanoseconds": 114000000
+            }
+          }
+        ]
+      },
+      "promptVisible": false,
+      "undoVisible": false
+    }
+  },
+  "attack": {
+    "attacker": {
+      "id": "pc_mon4cycj_ylyi4n",
+      "owner": "Ezenek",
+      "pid": "239"
+    },
+    "target": {
+      "id": "codex_tmp_eneias_monhdlvr",
+      "owner": "Eneias",
+      "pid": "codex_tmp_target"
+    },
+    "move": {
+      "name": "Thunderbolt",
+      "accuracy": 40,
+      "rank": 5,
+      "damage": 5,
+      "meta": {
+        "category": "Special",
+        "type": "Electric"
+      }
+    }
+  },
+  "afterAttack": {
+    "Ezenek": {
+      "by": "Ezenek",
+      "role": "—",
+      "statusText": "conectado",
+      "pieces": [
+        {
+          "id": "pc_mon4cycj_ylyi4n",
+          "owner": "Ezenek",
+          "pid": "239",
+          "row": 0,
+          "col": 0,
+          "hp": 6,
+          "temp": false
+        },
+        {
+          "id": "pc_mon4d09x_3rlzbq",
+          "owner": "Ezenek",
+          "pid": "178",
+          "row": 0,
+          "col": 1,
+          "hp": 0,
+          "temp": false
+        },
+        {
+          "id": "codex_tmp_eneias_monhdlvr",
+          "owner": "Eneias",
+          "pid": "codex_tmp_target",
+          "row": 1,
+          "col": 0,
+          "hp": 6,
+          "temp": true
+        }
+      ],
+      "battle": {
+        "status": "waiting_defense",
+        "pendingFor": "Eneias",
+        "target_id": "codex_tmp_eneias_monhdlvr",
+        "target_owner": "Eneias",
+        "target_pid": "codex_tmp_target",
+        "attacker": "Ezenek",
+        "attacker_pid": "239",
+        "last_resolution_id": null,
+        "fallback_id": null,
+        "fallback_storage": null,
+        "fallback_undone": false,
+        "historyCount": 0,
+        "logs": [
+          "Ezenek rolou 16+40=56 (vs Def 10 [0+10])... ACERTOU! ✅",
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)"
+        ]
+      },
+      "promptVisible": false,
+      "undoVisible": false
+    },
+    "Eneias": {
+      "by": "Eneias",
+      "role": "—",
+      "statusText": "ação enviada: ADD_LOG",
+      "pieces": [
+        {
+          "id": "pc_mon4cycj_ylyi4n",
+          "owner": "Ezenek",
+          "pid": "239",
+          "row": 0,
+          "col": 0,
+          "hp": 6,
+          "temp": false
+        },
+        {
+          "id": "pc_mon4d09x_3rlzbq",
+          "owner": "Ezenek",
+          "pid": "178",
+          "row": 0,
+          "col": 1,
+          "hp": 0,
+          "temp": false
+        },
+        {
+          "id": "codex_tmp_eneias_monhdlvr",
+          "owner": "Eneias",
+          "pid": "codex_tmp_target",
+          "row": 1,
+          "col": 0,
+          "hp": 6,
+          "temp": true
+        }
+      ],
+      "battle": {
+        "status": "waiting_defense",
+        "pendingFor": "Eneias",
+        "target_id": "codex_tmp_eneias_monhdlvr",
+        "target_owner": "Eneias",
+        "target_pid": "codex_tmp_target",
+        "attacker": "Ezenek",
+        "attacker_pid": "239",
+        "last_resolution_id": null,
+        "fallback_id": null,
+        "fallback_storage": null,
+        "fallback_undone": false,
+        "historyCount": 0,
+        "logs": [
+          "Ezenek rolou 16+40=56 (vs Def 10 [0+10])... ACERTOU! ✅",
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)"
+        ]
+      },
+      "promptVisible": true,
+      "undoVisible": false
+    }
+  },
+  "afterDefense": {
+    "Ezenek": {
+      "by": "Ezenek",
+      "role": "—",
+      "statusText": "conectado",
+      "pieces": [
+        {
+          "id": "pc_mon4cycj_ylyi4n",
+          "owner": "Ezenek",
+          "pid": "239",
+          "row": 0,
+          "col": 0,
+          "hp": 6,
+          "temp": false
+        },
+        {
+          "id": "pc_mon4d09x_3rlzbq",
+          "owner": "Ezenek",
+          "pid": "178",
+          "row": 0,
+          "col": 1,
+          "hp": 0,
+          "temp": false
+        },
+        {
+          "id": "codex_tmp_eneias_monhdlvr",
+          "owner": "Eneias",
+          "pid": "codex_tmp_target",
+          "row": 1,
+          "col": 0,
+          "hp": 2,
+          "temp": true
+        }
+      ],
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "target_id": "codex_tmp_eneias_monhdlvr",
+        "target_owner": "Eneias",
+        "target_pid": "codex_tmp_target",
+        "attacker": "Ezenek",
+        "attacker_pid": "239",
+        "last_resolution_id": "battle:ac_monhdyrn_",
+        "fallback_id": "battle:ac_monhdyrn_",
+        "fallback_storage": "battle_doc_fallback",
+        "fallback_undone": false,
+        "historyCount": 1,
+        "logs": [
+          "Ezenek rolou 16+40=56 (vs Def 10 [0+10])... ACERTOU! ✅",
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)",
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+          {
+            "by": "Eneias",
+            "text": "💢 Codex Tmp Target perdeu 4 HP (6→2)",
+            "t": "log",
+            "at": {
+              "seconds": 1777674302,
+              "nanoseconds": 985000000
+            }
+          }
+        ]
+      },
+      "promptVisible": true,
+      "undoVisible": false
+    },
+    "Eneias": {
+      "by": "Eneias",
+      "role": "—",
+      "statusText": "condições atualizadas",
+      "pieces": [
+        {
+          "id": "pc_mon4cycj_ylyi4n",
+          "owner": "Ezenek",
+          "pid": "239",
+          "row": 0,
+          "col": 0,
+          "hp": 6,
+          "temp": false
+        },
+        {
+          "id": "pc_mon4d09x_3rlzbq",
+          "owner": "Ezenek",
+          "pid": "178",
+          "row": 0,
+          "col": 1,
+          "hp": 0,
+          "temp": false
+        },
+        {
+          "id": "codex_tmp_eneias_monhdlvr",
+          "owner": "Eneias",
+          "pid": "codex_tmp_target",
+          "row": 1,
+          "col": 0,
+          "hp": 2,
+          "temp": true
+        }
+      ],
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "target_id": "codex_tmp_eneias_monhdlvr",
+        "target_owner": "Eneias",
+        "target_pid": "codex_tmp_target",
+        "attacker": "Ezenek",
+        "attacker_pid": "239",
+        "last_resolution_id": "battle:ac_monhdyrn_",
+        "fallback_id": "battle:ac_monhdyrn_",
+        "fallback_storage": "battle_doc_fallback",
+        "fallback_undone": false,
+        "historyCount": 1,
+        "logs": [
+          "Ezenek rolou 16+40=56 (vs Def 10 [0+10])... ACERTOU! ✅",
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)",
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+          {
+            "text": "💢 Codex Tmp Target perdeu 4 HP (6→2)",
+            "at": {
+              "seconds": 1777674302,
+              "nanoseconds": 985000000
+            },
+            "t": "log",
+            "by": "Eneias"
+          }
+        ]
+      },
+      "promptVisible": false,
+      "undoVisible": true
+    }
+  },
+  "hpAfterDamage": 2,
+  "resolutionRecord": {
+    "id": "battle:ac_monhdyrn_",
+    "storage": "battle_doc_fallback",
+    "summary": "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+    "applied": true,
+    "requiresAdjudication": false,
+    "persistError": "permission-denied",
+    "patches": [
+      {
+        "kind": "hp",
+        "owner": "Eneias",
+        "pid": "codex_tmp_target",
+        "before": 6,
+        "after": 2
+      },
+      {
+        "kind": "conditions",
+        "owner": "Eneias",
+        "pid": "codex_tmp_target",
+        "before": {
+          "mm_conditions": {
+            "deg3": [],
+            "deg2": [],
+            "deg1": []
+          },
+          "pokemon_conditions": []
+        },
+        "after": {
+          "mm_conditions": {
+            "deg3": [],
+            "deg1": [],
+            "deg2": [
+              "immobile"
+            ]
+          },
+          "pokemon_conditions": []
+        }
+      }
+    ],
+    "undoPatches": [
+      {
+        "kind": "conditions",
+        "owner": "Eneias",
+        "pid": "codex_tmp_target",
+        "before": {
+          "mm_conditions": {
+            "deg2": [
+              "immobile"
+            ],
+            "deg1": [],
+            "deg3": []
+          },
+          "pokemon_conditions": []
+        },
+        "after": {
+          "mm_conditions": {
+            "deg2": [],
+            "deg1": [],
+            "deg3": []
+          },
+          "pokemon_conditions": []
+        }
+      },
+      {
+        "kind": "hp",
+        "owner": "Eneias",
+        "pid": "codex_tmp_target",
+        "before": 2,
+        "after": 6
+      }
+    ]
+  },
+  "error": {
+    "message": "page.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.ac-resolution-toast [data-act=\"undo\"]')\u001b[22m\n\u001b[2m    - locator resolved to <button data-act=\"undo\" class=\"ac-mini-btn\">Desfazer</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <canvas id=\"arena\" width=\"1106\" height=\"792\"></canvas> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <canvas id=\"arena\" width=\"1106\" height=\"792\"></canvas> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    16 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <canvas id=\"arena\" width=\"1106\" height=\"792\"></canvas> intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m  - element was detached from the DOM, retrying\u001b[22m\n",
+    "stack": "page.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.ac-resolution-toast [data-act=\"undo\"]')\u001b[22m\n\u001b[2m    - locator resolved to <button data-act=\"undo\" class=\"ac-mini-btn\">Desfazer</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <canvas id=\"arena\" width=\"1106\" height=\"792\"></canvas> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <canvas id=\"arena\" width=\"1106\" height=\"792\"></canvas> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    16 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <canvas id=\"arena\" width=\"1106\" height=\"792\"></canvas> intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m  - element was detached from the DOM, retrying\u001b[22m\n\n    at run (C:\\Users\\joaop\\Documents\\mapa 2\\battle-site\\[eval1]:151:20)\n    at async file:///C:/Users/joaop/Documents/mapa%202/battle-site/[eval1]:190:1"
+  },
+  "partial": {
+    "Ezenek": {
+      "by": "Ezenek",
+      "role": "—",
+      "statusText": "conectado",
+      "pieces": [
+        {
+          "id": "pc_mon4cycj_ylyi4n",
+          "owner": "Ezenek",
+          "pid": "239",
+          "row": 0,
+          "col": 0,
+          "hp": 6,
+          "temp": false
+        },
+        {
+          "id": "pc_mon4d09x_3rlzbq",
+          "owner": "Ezenek",
+          "pid": "178",
+          "row": 0,
+          "col": 1,
+          "hp": 0,
+          "temp": false
+        },
+        {
+          "id": "codex_tmp_eneias_monhdlvr",
+          "owner": "Eneias",
+          "pid": "codex_tmp_target",
+          "row": 1,
+          "col": 0,
+          "hp": 2,
+          "temp": true
+        }
+      ],
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "target_id": "codex_tmp_eneias_monhdlvr",
+        "target_owner": "Eneias",
+        "target_pid": "codex_tmp_target",
+        "attacker": "Ezenek",
+        "attacker_pid": "239",
+        "last_resolution_id": "battle:ac_monhdyrn_",
+        "fallback_id": "battle:ac_monhdyrn_",
+        "fallback_storage": "battle_doc_fallback",
+        "fallback_undone": false,
+        "historyCount": 1,
+        "logs": [
+          "Ezenek rolou 16+40=56 (vs Def 10 [0+10])... ACERTOU! ✅",
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)",
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+          {
+            "by": "Eneias",
+            "text": "💢 Codex Tmp Target perdeu 4 HP (6→2)",
+            "t": "log",
+            "at": {
+              "seconds": 1777674302,
+              "nanoseconds": 985000000
+            }
+          }
+        ]
+      },
+      "promptVisible": true,
+      "undoVisible": false
+    },
+    "Eneias": {
+      "by": "Eneias",
+      "role": "—",
+      "statusText": "condições atualizadas",
+      "pieces": [
+        {
+          "id": "pc_mon4cycj_ylyi4n",
+          "owner": "Ezenek",
+          "pid": "239",
+          "row": 0,
+          "col": 0,
+          "hp": 6,
+          "temp": false
+        },
+        {
+          "id": "pc_mon4d09x_3rlzbq",
+          "owner": "Ezenek",
+          "pid": "178",
+          "row": 0,
+          "col": 1,
+          "hp": 0,
+          "temp": false
+        },
+        {
+          "id": "codex_tmp_eneias_monhdlvr",
+          "owner": "Eneias",
+          "pid": "codex_tmp_target",
+          "row": 1,
+          "col": 0,
+          "hp": 2,
+          "temp": true
+        }
+      ],
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "target_id": "codex_tmp_eneias_monhdlvr",
+        "target_owner": "Eneias",
+        "target_pid": "codex_tmp_target",
+        "attacker": "Ezenek",
+        "attacker_pid": "239",
+        "last_resolution_id": "battle:ac_monhdyrn_",
+        "fallback_id": "battle:ac_monhdyrn_",
+        "fallback_storage": "battle_doc_fallback",
+        "fallback_undone": false,
+        "historyCount": 1,
+        "logs": [
+          "Ezenek rolou 16+40=56 (vs Def 10 [0+10])... ACERTOU! ✅",
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)",
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+          {
+            "text": "💢 Codex Tmp Target perdeu 4 HP (6→2)",
+            "at": {
+              "seconds": 1777674302,
+              "nanoseconds": 985000000
+            },
+            "t": "log",
+            "by": "Eneias"
+          }
+        ]
+      },
+      "promptVisible": false,
+      "undoVisible": false
+    }
+  },
+  "cleanup": {
+    "pieceRemoved": true,
+    "hpDeleted": true,
+    "battleIdle": true
+  }
+}

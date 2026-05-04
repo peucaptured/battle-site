@@ -27,12 +27,20 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
 import { getMoveType, getTypeDamageBonus, normalizeType } from "./type-data.js";
-import { getPowerRuleForMove, isSelfPowerRule, hasResolvableImmediateEffects } from "./mm-power-catalog.js?v=20260501mm8";
+import { getPowerRuleForMove, isSelfPowerRule, hasResolvableImmediateEffects } from "./mm-power-catalog.js?v=20260504mm10";
 import {
   buildResistanceQueue,
   resolveMmImmediatePower,
   resolveMmPowerResistance,
-} from "./mm-combat-resolver.js?v=20260501mm8";
+} from "./mm-combat-resolver.js?v=20260504mm10";
+import {
+  collectPendingReactions,
+  resolveCombatEvent,
+} from "./mm-rules-engine.js?v=20260504mm10";
+import {
+  getAttackModifierSummary,
+  resolveAttackHitAndCritical,
+} from "./mm-attack-modifiers.js?v=20260504mm10";
 
 // ─── helpers ──────────────────────────────────────────────────────
 function safeStr(x) { return (x == null ? "" : String(x)).trim(); }
@@ -115,6 +123,13 @@ function safeDocId(name) {
 function d20Roll() { return Math.floor(Math.random() * 20) + 1; }
 function escHtml(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 function uid() { return `ac_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`; }
+function mmRuntimeEnv() {
+  return {
+    rng: Math.random,
+    clock: () => new Date().toISOString(),
+    idFactory: (prefix = "id") => `${prefix}_${uid()}`,
+  };
+}
 function signedMod(value) { return value >= 0 ? `+${value}` : `${value}`; }
 function describeExtraAttackMods(accMod = 0, dmgMod = 0) {
   const parts = [];
@@ -122,9 +137,10 @@ function describeExtraAttackMods(accMod = 0, dmgMod = 0) {
   if (dmgMod !== 0) parts.push(`Dano ${signedMod(dmgMod)}`);
   return parts.join(" • ");
 }
-function buildAttackRollText(baseAtkMod, extraAccMod, aceiroBonus) {
+function buildAttackRollText(baseAtkMod, extraAccMod, aceiroBonus, ruleAttackMod = 0) {
   const parts = [`${safeInt(baseAtkMod, 0)}`];
   if (safeInt(extraAccMod, 0) !== 0) parts.push(signedMod(safeInt(extraAccMod, 0)));
+  if (safeInt(ruleAttackMod, 0) !== 0) parts.push(signedMod(safeInt(ruleAttackMod, 0)));
   if (safeInt(aceiroBonus, 0) !== 0) parts.push(signedMod(safeInt(aceiroBonus, 0)));
   return parts.join("");
 }
@@ -134,6 +150,7 @@ function normalizeStatKey(key) {
   if (k === "fortitude") return "fort";
   if (k === "toughness") return "thg";
   if (k === "intel" || k === "intelligence") return "int";
+  if (k === "crit" || k === "critico" || k === "crítico") return "critical";
   return k;
 }
 
@@ -797,6 +814,112 @@ const CSS_TEXT = `
 }
 
 /* ── Pending prompt (defender / attacker small panel) ── */
+/* Dice / coin animation layer */
+.ac-roll-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 86;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2,6,23,.28);
+}
+.ac-roll-panel {
+  width: min(290px, calc(100% - 28px));
+  border-radius: 14px;
+  border: 1px solid rgba(148,163,184,.28);
+  background: rgba(10,18,32,.95);
+  box-shadow: 0 18px 46px rgba(2,6,23,.55);
+  backdrop-filter: blur(12px);
+  padding: 14px;
+  text-align: center;
+  animation: acFadeIn .16s ease-out;
+}
+.ac-roll-title {
+  font-size: 13px;
+  font-weight: 900;
+  color: rgba(226,232,240,.95);
+  margin-bottom: 8px;
+}
+.ac-roll-sub {
+  font-size: 11px;
+  color: rgba(148,163,184,.82);
+  line-height: 1.35;
+  margin-bottom: 12px;
+}
+.ac-roll-sprite {
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 10px;
+  image-rendering: auto;
+  background-repeat: no-repeat;
+  background-position: 0 0;
+}
+.ac-coin-sprite {
+  background-image: url("./assets/ui/coin-flip-sprite.svg");
+  background-size: 1536px 96px;
+}
+.ac-d20-sprite {
+  background-image: url("./assets/ui/d20-roll-sprite.svg");
+  background-size: 1920px 96px;
+}
+.ac-coin-sprite.ac-rolling {
+  animation: acCoinFlip .9s steps(15) 2;
+}
+.ac-d20-sprite.ac-rolling {
+  animation: acD20Roll .8s steps(19) 2;
+}
+@keyframes acCoinFlip {
+  from { background-position: 0 0; }
+  to { background-position: -1440px 0; }
+}
+@keyframes acD20Roll {
+  from { background-position: 0 0; }
+  to { background-position: -1824px 0; }
+}
+.ac-coin-choice-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.ac-roll-choice {
+  appearance: none;
+  cursor: pointer;
+  padding: 10px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(148,163,184,.24);
+  background: rgba(2,6,23,.35);
+  color: rgba(226,232,240,.88);
+  font-size: 12px;
+  font-weight: 900;
+  transition: all .14s ease;
+}
+.ac-roll-choice:hover {
+  border-color: rgba(251,191,36,.48);
+  background: rgba(251,191,36,.14);
+  transform: translateY(-1px);
+}
+.ac-roll-choice:disabled {
+  opacity: .45;
+  cursor: default;
+  transform: none;
+}
+.ac-roll-result {
+  min-height: 20px;
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(226,232,240,.9);
+}
+.ac-roll-result.ac-success { color: rgba(34,197,94,.96); }
+.ac-roll-result.ac-fail { color: rgba(248,113,113,.96); }
+.ac-roll-value {
+  font-size: 30px;
+  font-weight: 1000;
+  color: rgba(248,250,252,.96);
+  margin-top: -4px;
+}
+
 .ac-prompt {
   position: absolute;
   pointer-events: auto;
@@ -1085,6 +1208,7 @@ export class ArenaCombatUI {
     this._currentPrompt = null;
     this._currentContext = null;
     this._currentReroll = null;
+    this._currentRollAnimation = null;
     this._floats = [];
     this._pendingBadge = null;
     this._repeatBtn = null;
@@ -1287,7 +1411,7 @@ export class ArenaCombatUI {
 
       for (const [k, v] of Object.entries(boosts)) {
         const statKey = normalizeStatKey(k);
-        if (result[statKey] !== undefined || statKey === "acerto") {
+        if (result[statKey] !== undefined || statKey === "acerto" || statKey === "critical") {
           result[statKey] = (safeInt(result[statKey]) + safeInt(v));
         }
       }
@@ -1315,7 +1439,7 @@ export class ArenaCombatUI {
     // Aplica modificadores (ex: acerto +2, parry -1)
     for (const [k, v] of Object.entries(boosts)) {
       const statKey = normalizeStatKey(k);
-      if (result[statKey] !== undefined || statKey === "acerto") {
+      if (result[statKey] !== undefined || statKey === "acerto" || statKey === "critical") {
         result[statKey] = (safeInt(result[statKey]) + safeInt(v));
       }
     }
@@ -2338,6 +2462,407 @@ export class ArenaCombatUI {
     };
   }
 
+  _ruleHasReaction(powerRule) {
+    const effects = Array.isArray(powerRule?.effects) ? powerRule.effects : [];
+    return !!powerRule?.flags?.reaction
+      || safeStr(powerRule?.action).toLowerCase() === "reaction"
+      || effects.some((effect) => (
+        safeStr(effect?.type).toLowerCase() === "deflect"
+        || !!effect?.reaction
+        || safeStr(effect?.action).toLowerCase() === "reaction"
+      ));
+  }
+
+  async _buildReactionBattleState(attackEvent) {
+    const pieces = (this.getPieces() || []).filter((piece) => safeStr(piece?.status || "active") === "active");
+    const owners = Array.from(new Set(pieces.map((piece) => safeStr(piece?.owner)).filter(Boolean)));
+    await Promise.all(owners.map((owner) => this._loadSheets(owner)));
+
+    const combatants = [];
+    for (const piece of pieces) {
+      const owner = safeStr(piece?.owner);
+      const pid = safeStr(piece?.pid);
+      if (!owner || !pid) continue;
+      const sheet = this._getSheet(owner, pid);
+      const moves = Array.isArray(sheet?.moves) ? sheet.moves : [];
+      const powers = [];
+      for (let idx = 0; idx < moves.length; idx += 1) {
+        const move = moves[idx];
+        try {
+          const powerRule = await getPowerRuleForMove({ ...move, _move_idx: idx });
+          if (!this._ruleHasReaction(powerRule)) continue;
+          powers.push({
+            moveIndex: idx,
+            moveName: safeStr(move?.name || powerRule?.name),
+            powerRule,
+          });
+        } catch (err) {
+          console.warn("[arena-combat] reaction power load failed:", err);
+        }
+      }
+      if (!powers.length) continue;
+      const stats = this._getEffectiveStats(owner, pid);
+      combatants.push({
+        ...this._combatantSnapshot(owner, pid, piece),
+        row: Number(piece?.row),
+        col: Number(piece?.col),
+        stats,
+        initiative: safeInt(stats.initiative ?? stats.speed),
+        powers,
+      });
+    }
+
+    const battle = this.getBattle() || {};
+    return {
+      combatants,
+      activeEffects: Array.isArray(battle.active_effects) ? battle.active_effects : [],
+      attack: attackEvent?.attack || null,
+    };
+  }
+
+  async _collectPendingReactionsForAttack(attackEvent) {
+    const battleState = await this._buildReactionBattleState(attackEvent);
+    const resolution = resolveCombatEvent(attackEvent, battleState, {}, mmRuntimeEnv());
+    return {
+      pendingReactions: Array.isArray(resolution.pendingReactions) ? resolution.pendingReactions : [],
+      combatLog: resolution.combatLog || null,
+      summary: resolution.summary || "",
+    };
+  }
+
+  _firstPendingReaction(reactions = []) {
+    return (Array.isArray(reactions) ? reactions : []).find((reaction) => safeStr(reaction?.status || "pending") === "pending") || null;
+  }
+
+  _sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  _coinLabel(value) {
+    return value === "heads" ? "Cara" : "Coroa";
+  }
+
+  _hasUnreliablePowerRule(powerRule) {
+    const hasUnreliableText = (items = []) => (Array.isArray(items) ? items : [])
+      .some((item) => safeStr(item).toLowerCase().includes("unreliable"));
+    if (powerRule?.flags?.unreliable || hasUnreliableText(powerRule?.flaws)) return true;
+    return (Array.isArray(powerRule?.effects) ? powerRule.effects : []).some((effect) => (
+      !!effect?.unreliable ||
+      hasUnreliableText(effect?.flaws) ||
+      hasUnreliableText(effect?.modifiers)
+    ));
+  }
+
+  _unreliableRollFromCoin(success) {
+    return success ? 1 : 100;
+  }
+
+  _formatUnreliableGateLog(gate) {
+    if (!gate?.applies) return "";
+    return `Unreliable: ${gate.choiceLabel} escolhido; moeda caiu ${gate.resultLabel}; ${gate.success ? "golpe continua" : "golpe falha"}.`;
+  }
+
+  async _promptUnreliableCoin({ move, powerRule, actorPiece, targetPiece } = {}) {
+    this._closePrompt();
+    const moveName = safeStr(move?.name || powerRule?.name || "Golpe");
+    const actorName = pieceBattleLabel(actorPiece) || displayName(actorPiece?.pid || this.getBy());
+    const targetName = targetPiece ? pieceBattleLabel(targetPiece) : "";
+
+    return new Promise((resolve) => {
+      const layer = document.createElement("div");
+      layer.className = "ac-roll-layer";
+      layer.innerHTML = `
+        <div class="ac-roll-panel">
+          <div class="ac-roll-title">Unreliable: ${escHtml(moveName)}</div>
+          <div class="ac-roll-sub">
+            ${escHtml(actorName)} escolhe cara ou coroa antes do golpe.
+            ${targetName ? `<br>Alvo: ${escHtml(targetName)}` : ""}
+          </div>
+          <div class="ac-roll-sprite ac-coin-sprite" data-coin-sprite></div>
+          <div class="ac-roll-result" data-coin-result>Escolha um lado.</div>
+          <div class="ac-coin-choice-row">
+            <button class="ac-roll-choice" data-choice="heads">Cara</button>
+            <button class="ac-roll-choice" data-choice="tails">Coroa</button>
+          </div>
+        </div>
+      `;
+      layer._acOnClose = resolve;
+      (this._overlayRoot || document.body).appendChild(layer);
+      this._currentPrompt = layer;
+
+      const sprite = layer.querySelector("[data-coin-sprite]");
+      const resultEl = layer.querySelector("[data-coin-result]");
+      layer.querySelectorAll("[data-choice]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const choice = btn.dataset.choice === "tails" ? "tails" : "heads";
+          layer.querySelectorAll("[data-choice]").forEach((choiceBtn) => { choiceBtn.disabled = true; });
+          if (resultEl) resultEl.textContent = `Voce escolheu ${this._coinLabel(choice)}.`;
+
+          const result = Math.random() < 0.5 ? "heads" : "tails";
+          sprite?.classList.add("ac-rolling");
+          await this._sleep(1850);
+          if (sprite) {
+            sprite.classList.remove("ac-rolling");
+            sprite.style.animation = "none";
+            sprite.style.backgroundPosition = result === "heads" ? "-1152px 0" : "-1440px 0";
+          }
+
+          const success = choice === result;
+          if (resultEl) {
+            resultEl.textContent = `${this._coinLabel(result)}: ${success ? "golpe continua" : "golpe falha"}.`;
+            resultEl.classList.toggle("ac-success", success);
+            resultEl.classList.toggle("ac-fail", !success);
+          }
+          await this._sleep(700);
+          this._closePrompt({
+            applies: true,
+            choice,
+            result,
+            choiceLabel: this._coinLabel(choice),
+            resultLabel: this._coinLabel(result),
+            success,
+            unreliableRoll: this._unreliableRollFromCoin(success),
+          });
+        }, { once: true });
+      });
+    });
+  }
+
+  async _runUnreliableGate({ move, powerRule, actorPiece, targetPiece, opts = {} } = {}) {
+    if (opts.unreliableGateResult) return opts.unreliableGateResult;
+    if (!this._hasUnreliablePowerRule(powerRule)) {
+      return { applies: false, success: true, unreliableRoll: null };
+    }
+    const gate = await this._promptUnreliableCoin({ move, powerRule, actorPiece, targetPiece });
+    if (!gate) return { applies: true, success: false, cancelled: true, blocked: true, unreliableRoll: 100 };
+    return { ...gate, blocked: !gate.success };
+  }
+
+  async _writeUnreliableFailure({ by, atkPid, move, powerRule, gate, actorPiece, targetPiece, tOwner = "", tPid = "", tId = "" } = {}) {
+    const moveName = safeStr(move?.name || powerRule?.name || "Golpe");
+    const line = `${safeStr(by) || "Jogador"} tentou ${moveName}: ${this._formatUnreliableGateLog(gate) || "Unreliable falhou."} O golpe nao acontece.`;
+    await this._writeBattle({
+      status: "idle",
+      attacker: safeStr(by),
+      attacker_pid: safeStr(atkPid),
+      target_id: safeStr(tId || targetPiece?.id || actorPiece?.id),
+      target_owner: safeStr(tOwner || targetPiece?.owner || actorPiece?.owner || by),
+      target_pid: safeStr(tPid || targetPiece?.pid || actorPiece?.pid || atkPid),
+      attack_move: firestoreSafeValue(move || null),
+      power_rule: firestoreSafeValue(powerRule || null),
+      unreliable_roll: safeInt(gate?.unreliableRoll, 100),
+      unreliable_gate: firestoreSafeValue(gate || null),
+      pendingFor: null,
+      prompt: null,
+      logs: arrayUnion(line),
+    });
+    const floatPiece = targetPiece || actorPiece;
+    if (floatPiece) this._showFloat(floatPiece, "Unreliable falhou", "miss");
+  }
+
+  async _rollD20Animated(label = "d20") {
+    const roll = d20Roll();
+    const frameByRoll = {
+      1: 0, 7: 1, 13: 2, 4: 3, 18: 4,
+      2: 5, 9: 6, 15: 7, 5: 8, 20: 9,
+      3: 10, 11: 11, 6: 12, 17: 13, 8: 14,
+      14: 15, 10: 16, 16: 17, 12: 18, 19: 19,
+    };
+    try { this._currentRollAnimation?.remove?.(); } catch {}
+    const layer = document.createElement("div");
+    layer.className = "ac-roll-layer";
+    layer.innerHTML = `
+      <div class="ac-roll-panel">
+        <div class="ac-roll-title">${escHtml(label)}</div>
+        <div class="ac-roll-sprite ac-d20-sprite ac-rolling" data-d20-sprite></div>
+        <div class="ac-roll-value" data-d20-value></div>
+      </div>
+    `;
+    (this._overlayRoot || document.body).appendChild(layer);
+    this._currentRollAnimation = layer;
+
+    await this._sleep(1650);
+    const sprite = layer.querySelector("[data-d20-sprite]");
+    const valueEl = layer.querySelector("[data-d20-value]");
+    const frame = frameByRoll[roll] ?? Math.max(0, Math.min(19, roll - 1));
+    if (sprite) {
+      sprite.classList.remove("ac-rolling");
+      sprite.style.animation = "none";
+      sprite.style.backgroundPosition = `-${frame * 96}px 0`;
+    }
+    if (valueEl) valueEl.textContent = roll;
+    await this._sleep(520);
+    try { layer.remove(); } catch {}
+    if (this._currentRollAnimation === layer) this._currentRollAnimation = null;
+    return roll;
+  }
+
+  _reactionLogLine(reaction, resolution, choiceLabel) {
+    const name = safeStr(reaction?.powerName || "Reacao");
+    const owner = safeStr(reaction?.reactor?.owner || "jogador");
+    if (choiceLabel === "ignored") return `${owner} ignorou ${name}.`;
+    const result = resolution?.effectResults?.[0] || {};
+    if (resolution?.blocked || result.blocked) {
+      return `${owner} ativou ${name}: Deflect ${safeInt(result.total)} bloqueou ataque ${safeInt(result.attackTotal)}.`;
+    }
+    if (safeStr(reaction?.effectType) === "deflect") {
+      return `${owner} ativou ${name}: Deflect ${safeInt(result.total)} nao superou ataque ${safeInt(result.attackTotal)}.`;
+    }
+    return `${owner} ativou ${name}: aguardando decisao do efeito.`;
+  }
+
+  async _advanceOrContinuePendingAttack(battle, reactions, extraLogs = []) {
+    const nextReaction = this._firstPendingReaction(reactions);
+    if (nextReaction) {
+      await this._writeBattle({
+        status: "pending_reaction",
+        pending_reactions: firestoreSafeValue(reactions),
+        pendingFor: safeStr(nextReaction.reactor?.owner),
+        prompt: { type: "MM_REACTION", reactionId: safeStr(nextReaction.id) },
+        logs: (Array.isArray(battle?.logs) ? battle.logs : []).concat(extraLogs),
+      });
+      return;
+    }
+    await this._continuePendingAttack({ ...(battle || {}), pending_reactions: reactions }, extraLogs);
+  }
+
+  async _continuePendingAttack(battle, extraLogs = []) {
+    const pending = battle?.pending_attack || {};
+    const by = safeStr(pending.attacker);
+    const atkPid = safeStr(pending.attacker_pid);
+    const tOwner = safeStr(pending.target_owner);
+    const tPid = safeStr(pending.target_pid);
+    const tId = safeStr(pending.target_id);
+    const targetPiece = (this.getPieces() || []).find((piece) => safeStr(piece?.id) === tId);
+    const roll = safeInt(pending.d20);
+    const totalAtk = safeInt(pending.total_atk);
+    const needed = safeInt(pending.needed);
+    const critBonus = safeInt(pending.crit_bonus);
+    const totalDmg = safeInt(pending.dmg_base);
+    const isEffect = !!pending.is_effect;
+    const powerRule = pending.power_rule || pending.attack_move?.power_rule || await getPowerRuleForMove(pending.attack_move || {});
+    const attackMove = pending.attack_move || {};
+    const atkModStr = safeStr(pending.atk_mod_text) || buildAttackRollText(safeInt(pending.atk_mod), safeInt(pending.extra_acc_mod), safeInt(pending.aceiro_bonus));
+    const defenseVal = safeInt(pending.defense_val);
+    const sneakTxt = pending.sneak_attack ? " 🥷 Furtivo (def/2)" : "";
+
+    let hit;
+    if (roll === 1) hit = false;
+    else if (roll === 20) hit = true;
+    else hit = totalAtk >= needed;
+
+    const rollText = `d20=${roll}+${atkModStr}=${totalAtk} vs DEF ${needed}`;
+    if (targetPiece) {
+      if (hit) {
+        const critTxt = critBonus ? " CRIT!" : "";
+        this._showFloat(targetPiece, `ACERTOU ✅ (${rollText})${critTxt}`, critBonus ? "crit" : "hit");
+      } else {
+        this._showFloat(targetPiece, `ERROU ❌ (${rollText})`, "miss");
+      }
+    }
+
+    const resultMsg = hit ? "ACERTOU! ✅" : "ERROU! ❌";
+    const critTxt = critBonus ? " (CRÍTICO +5)" : "";
+    const baseLogs = (Array.isArray(battle?.logs) ? battle.logs : []).concat(extraLogs);
+
+    if (hit) {
+      const critFloat = critBonus ? " CRIT!" : "";
+      this._showFloat(targetPiece, `ACERTOU (${rollText})${critFloat}`, critBonus ? "crit" : "hit");
+    } else {
+      this._showFloat(targetPiece, `ERROU (${rollText})`, "miss");
+    }
+
+    if (hit) {
+      const resistanceQueue = buildResistanceQueue(powerRule, {
+        rank: totalDmg,
+        critBonus,
+        fallbackIsEffect: isEffect,
+        fallbackResistance: isEffect ? "fort" : "thg",
+      });
+      const dcTotal = safeInt(resistanceQueue?.[0]?.dc, (isEffect ? 10 : 15) + totalDmg + critBonus);
+      const logs = baseLogs.concat([
+        `${by} rolou ${roll}+${atkModStr}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${critTxt}${sneakTxt}... ${resultMsg}`,
+        `Rank/Dano: ${totalDmg}${isEffect ? " (Affliction)" : ""}. Aguardando resistência... (CD ${dcTotal})`,
+      ]);
+
+      await this._writeBattle({
+        status: "waiting_defense",
+        attacker: by,
+        attacker_pid: atkPid,
+        target_id: tId,
+        target_owner: tOwner,
+        target_pid: tPid,
+        attack_move: attackMove,
+        power_rule: powerRule,
+        unreliable_roll: safeInt(pending.unreliable_roll, 0) || null,
+        unreliable_gate: firestoreSafeValue(pending.unreliable_gate || null),
+        resistance_queue: resistanceQueue,
+        attack_range: safeStr(pending.attack_range),
+        atk_mod: safeInt(pending.atk_mod),
+        atk_base_mod: safeInt(pending.atk_base_mod),
+        rule_attack_mod: safeInt(pending.rule_attack_mod),
+        attack_modifier_summary: firestoreSafeValue(pending.attack_modifier_summary || null),
+        aceiro_bonus: safeInt(pending.aceiro_bonus),
+        d20: roll,
+        defense_val: defenseVal,
+        needed,
+        total_atk: totalAtk,
+        crit_bonus: critBonus,
+        sneak_attack: !!pending.sneak_attack,
+        dmg_base: totalDmg,
+        is_effect: isEffect,
+        extra_acc_mod: safeInt(pending.extra_acc_mod),
+        extra_dmg_mod: safeInt(pending.extra_dmg_mod),
+        pending_reactions: [],
+        pending_attack: null,
+        pendingFor: tOwner,
+        prompt: {
+          type: "ROLL_RESIST",
+          options: { dc: dcTotal, isEffect, rank: totalDmg, critBonus, powerRule, resistanceQueue },
+        },
+        logs,
+      });
+      if (targetPiece) this._showFloat(targetPiece, `🛡️ Resistência pendente (${tOwner})`, "pending");
+    } else {
+      const logs = baseLogs.concat([
+        `${by} rolou ${roll}+${atkModStr}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${sneakTxt}... ${resultMsg}`,
+      ]);
+      await this._writeBattle({
+        status: "idle",
+        attacker: by,
+        attacker_pid: atkPid,
+        target_id: tId,
+        target_owner: tOwner,
+        target_pid: tPid,
+        attack_move: attackMove,
+        power_rule: powerRule,
+        unreliable_roll: safeInt(pending.unreliable_roll, 0) || null,
+        unreliable_gate: firestoreSafeValue(pending.unreliable_gate || null),
+        attack_range: safeStr(pending.attack_range),
+        atk_mod: safeInt(pending.atk_mod),
+        atk_base_mod: safeInt(pending.atk_base_mod),
+        rule_attack_mod: safeInt(pending.rule_attack_mod),
+        attack_modifier_summary: firestoreSafeValue(pending.attack_modifier_summary || null),
+        aceiro_bonus: safeInt(pending.aceiro_bonus),
+        d20: roll,
+        defense_val: defenseVal,
+        needed,
+        total_atk: totalAtk,
+        crit_bonus: 0,
+        sneak_attack: !!pending.sneak_attack,
+        dmg_base: totalDmg,
+        is_effect: isEffect,
+        extra_acc_mod: safeInt(pending.extra_acc_mod),
+        extra_dmg_mod: safeInt(pending.extra_dmg_mod),
+        pending_reactions: [],
+        pending_attack: null,
+        pendingFor: null,
+        prompt: null,
+        logs,
+      });
+    }
+  }
+
   async _executeImmediatePower(atkPid, move, stats, opts = {}) {
     this._closeAll();
     const by = this.getBy();
@@ -2353,12 +2878,20 @@ export class ArenaCombatUI {
     const powerRule = opts.powerRule || await getPowerRuleForMove({ ...move, _move_idx: moveIdx });
     const actorPiece = this._findPieceByOwnerPid(by, atkPid);
     const actor = this._combatantSnapshot(by, atkPid, actorPiece);
-    const resolution = resolveMmImmediatePower({
+    const unreliableGate = await this._runUnreliableGate({ move, powerRule, actorPiece, targetPiece: actorPiece, opts });
+    if (unreliableGate?.cancelled) return;
+    if (unreliableGate?.blocked) {
+      await this._writeUnreliableFailure({ by, atkPid, move, powerRule, gate: unreliableGate, actorPiece });
+      return;
+    }
+    const resolution = resolveCombatEvent({
+      type: "immediatePower",
       powerRule,
       actor,
       target: actor,
       rank: Math.max(1, ctx.totalDmg || ctx.rank || safeInt(move?.rank, 1)),
-    });
+      unreliableRoll: unreliableGate?.unreliableRoll || undefined,
+    }, {}, {}, mmRuntimeEnv());
 
     await this._applyMmPatches(resolution.patches);
     const resolutionId = await this._persistMmResolution(resolution, { applied: true });
@@ -2368,6 +2901,8 @@ export class ArenaCombatUI {
       `${by} usou ${safeStr(move?.name) || "Power"} (${safeStr(powerRule?.id)}).`,
       resolution.summary,
     ];
+    const unreliableLog = this._formatUnreliableGateLog(unreliableGate);
+    if (unreliableLog) logs.splice(1, 0, unreliableLog);
     if (resolution.requiresAdjudication) logs.push("Há efeito(s) marcados para revisão do mestre.");
     await this._writeBattle({
       status: "idle",
@@ -2377,6 +2912,8 @@ export class ArenaCombatUI {
       target_pid: atkPid,
       target_id: safeStr(actorPiece?.id),
       power_rule: powerRule,
+      unreliable_roll: unreliableGate?.unreliableRoll || null,
+      unreliable_gate: firestoreSafeValue(unreliableGate?.applies ? unreliableGate : null),
       last_resolution_id: resolutionId || null,
       pending_review: !!resolution.requiresAdjudication,
       pendingFor: null,
@@ -2396,7 +2933,8 @@ export class ArenaCombatUI {
     const aPid = safeStr(battle?.attacker_pid);
     const actor = this._combatantSnapshot(aOwner, aPid, this._findPieceByOwnerPid(aOwner, aPid));
     const stats = this._getEffectiveStats(tOwner, tPid);
-    const resolution = resolveMmPowerResistance({
+    const resolution = resolveCombatEvent({
+      type: "resistanceCheck",
       powerRule,
       target,
       d20: roll,
@@ -2406,7 +2944,8 @@ export class ArenaCombatUI {
       fallbackIsEffect: !!(battle?.is_effect || prompt?.options?.isEffect),
       fallbackResistance: defType || "thg",
       actor,
-    });
+      unreliableRoll: safeInt(battle?.unreliable_roll, 0) || undefined,
+    }, {}, {}, mmRuntimeEnv());
 
     await this._applyMmPatches(resolution.patches);
     const resolutionId = await this._persistMmResolution(resolution, { applied: true });
@@ -2630,6 +3169,13 @@ export class ArenaCombatUI {
     const firstEffectType = safeStr(powerRule?.effects?.[0]?.type);
     const isEffect = this._isEffectMove(move) || (!!firstEffectType && firstEffectType !== "damage");
     const extraModsTxt = describeExtraAttackMods(0, resolved.extraDmgMod);
+    const actorPiece = this._findPieceByOwnerPid(by, atkPid);
+    const unreliableGate = await this._runUnreliableGate({ move, powerRule, actorPiece, targetPiece, opts });
+    if (unreliableGate?.cancelled) return;
+    if (unreliableGate?.blocked) {
+      await this._writeUnreliableFailure({ by, atkPid, move: resolved.movePayload, powerRule, gate: unreliableGate, actorPiece, targetPiece, tOwner, tPid, tId });
+      return;
+    }
 
     this._lastMove = {
       moveName: safeStr(move?.name),
@@ -2645,6 +3191,8 @@ export class ArenaCombatUI {
     const logs = [
       `${by} lançou Área com ${safeStr(move?.name) || "Golpe"} (Rank ${totalDmg}). Defensor rola Dodge obrigatório (CD ${aoeDc}).`,
     ];
+    const unreliableLog = this._formatUnreliableGateLog(unreliableGate);
+    if (unreliableLog) logs.push(unreliableLog);
     if (extraModsTxt) logs.push(`Modificadores extras aplicados: ${extraModsTxt}.`);
 
     await this._writeBattle({
@@ -2656,6 +3204,8 @@ export class ArenaCombatUI {
       target_pid: tPid,
       attack_move: resolved.movePayload,
       power_rule: powerRule,
+      unreliable_roll: unreliableGate?.unreliableRoll || null,
+      unreliable_gate: firestoreSafeValue(unreliableGate?.applies ? unreliableGate : null),
       attack_range: "Área (Dodge)",
       aoe_dc: aoeDc,
       dmg_base: totalDmg,
@@ -2707,28 +3257,42 @@ export class ArenaCombatUI {
       moveIdx: opts.moveIdx,
       atkSheet,
     });
+    const powerRule = opts.powerRule || await getPowerRuleForMove({ ...move, _move_idx: ctx.moveIdx });
+    const attackModifierSummary = getAttackModifierSummary(powerRule, atkStats);
     const resolved = this._buildResolvedMovePayload(move, ctx, extraAttackMods);
+    if (attackModifierSummary.attackBonus) {
+      resolved.atkMod += attackModifierSummary.attackBonus;
+      resolved.movePayload.accuracy = resolved.atkMod;
+      resolved.movePayload.rule_attack_mod = attackModifierSummary.attackBonus;
+    }
+    resolved.movePayload.attack_modifier_summary = attackModifierSummary;
     const atkMod = resolved.atkMod;
     const totalDmg = resolved.totalDmg;
-    const powerRule = opts.powerRule || await getPowerRuleForMove({ ...move, _move_idx: ctx.moveIdx });
     const firstEffectType = safeStr(powerRule?.effects?.[0]?.type);
     const isEffect = this._isEffectMove(move) || (!!firstEffectType && firstEffectType !== "damage");
+    const actorPiece = this._findPieceByOwnerPid(by, atkPid);
+    const unreliableGate = await this._runUnreliableGate({ move, powerRule, actorPiece, targetPiece, opts });
+    if (unreliableGate?.cancelled) return;
+    if (unreliableGate?.blocked) {
+      await this._writeUnreliableFailure({ by, atkPid, move: resolved.movePayload, powerRule, gate: unreliableGate, actorPiece, targetPiece, tOwner, tPid, tId });
+      return;
+    }
+    const unreliableLog = this._formatUnreliableGateLog(unreliableGate);
 
-    const roll = d20Roll();
+    const roll = await this._rollD20Animated(`Ataque - ${displayName(atkPid)}`);
     this._publishRoll(roll, `Ataque • ${displayName(atkPid)}`);
 
     const totalAtk = atkMod + aceiroBonus + roll;
-    let hit, critBonus;
-    if (roll === 1) { hit = false; critBonus = 0; }
-    else if (roll === 20) { hit = true; critBonus = 5; }
-    else { hit = totalAtk >= needed; critBonus = 0; }
+    const attackOutcome = resolveAttackHitAndCritical({ roll, totalAtk, needed, powerRule, attackerStats: atkStats });
+    const hit = attackOutcome.hit;
+    const critBonus = attackOutcome.critBonus;
 
-    const atkModStr = buildAttackRollText(ctx.atkMod, extraAccMod, aceiroBonus);
+    const atkModStr = buildAttackRollText(ctx.atkMod, extraAccMod, aceiroBonus, attackModifierSummary.attackBonus);
     const rollText = `d20=${roll}+${atkModStr}=${totalAtk} vs DEF ${needed}`;
-    if (hit) {
+    if (false && hit) {
       const critTxt = critBonus ? " CRIT!" : "";
       this._showFloat(targetPiece, `ACERTOU ✅ (${rollText})${critTxt}`, critBonus ? "crit" : "hit");
-    } else {
+    } else if (false) {
       this._showFloat(targetPiece, `ERROU ❌ (${rollText})`, "miss");
     }
 
@@ -2744,6 +3308,104 @@ export class ArenaCombatUI {
     this._updateRepeatBtn();
 
     const movePayload = resolved.movePayload;
+
+    if (hit) {
+      const reactionAtkRange = isDistance ? "Distancia (Dodge)" : "Corpo-a-corpo (Parry)";
+      const actor = {
+        ...this._combatantSnapshot(by, atkPid, actorPiece),
+        row: Number(actorPiece?.row),
+        col: Number(actorPiece?.col),
+      };
+      const target = {
+        ...this._combatantSnapshot(tOwner, tPid, targetPiece),
+        row: Number(targetPiece?.row),
+        col: Number(targetPiece?.col),
+      };
+      const pendingAttack = {
+        attacker: by,
+        attacker_pid: atkPid,
+        target_id: tId,
+        target_owner: tOwner,
+        target_pid: tPid,
+        attack_move: movePayload,
+        power_rule: powerRule,
+        attack_range: reactionAtkRange,
+        range_str: rangeStr,
+        atk_mod: atkMod,
+        atk_base_mod: ctx.atkMod,
+        rule_attack_mod: attackModifierSummary.attackBonus,
+        attack_modifier_summary: attackModifierSummary,
+        atk_mod_text: atkModStr,
+        aceiro_bonus: aceiroBonus,
+        d20: roll,
+        defense_key: defenseKey,
+        defense_val: defenseVal,
+        needed,
+        total_atk: totalAtk,
+        crit_bonus: critBonus,
+        sneak_attack: isSneakAttack,
+        dmg_base: totalDmg,
+        is_effect: isEffect,
+        extra_acc_mod: extraAccMod,
+        extra_dmg_mod: extraDmgMod,
+        extra_mods_text: extraModsTxt,
+        unreliable_roll: unreliableGate?.unreliableRoll || null,
+        unreliable_gate: firestoreSafeValue(unreliableGate?.applies ? unreliableGate : null),
+        manual_context_mods: opts.manualContextMods || {},
+      };
+      const attackEvent = {
+        type: "attackDeclared",
+        id: `atk_${uid()}`,
+        summary: `${by} atacou ${tOwner} com ${safeStr(move?.name || powerRule?.name || "Golpe")}.`,
+        attack: {
+          actor,
+          target,
+          powerRule,
+          attackTotal: totalAtk,
+          totalAtk,
+          d20: roll,
+          defenseKey,
+          isArea: false,
+          isPerception: safeStr(powerRule?.range).toLowerCase() === "perception",
+          range: rangeStr,
+          manualContextMods: pendingAttack.manual_context_mods,
+        },
+      };
+      const reactionResolution = await this._collectPendingReactionsForAttack(attackEvent);
+      if (reactionResolution.pendingReactions.length) {
+        const firstReaction = this._firstPendingReaction(reactionResolution.pendingReactions);
+        const logs = [
+          `${by} rolou ${roll}+${atkModStr}=${totalAtk} contra ${tOwner}; aguardando reacao antes de confirmar o acerto.`,
+          `${reactionResolution.pendingReactions.length} reacao(oes) elegivel(is) adicionada(s) a fila.`,
+        ];
+        if (unreliableLog) logs.push(unreliableLog);
+        if (extraModsTxt) logs.push(`Modificadores extras aplicados: ${extraModsTxt}.`);
+        await this._writeBattle({
+          status: "pending_reaction",
+          attacker: by,
+          attacker_pid: atkPid,
+          target_id: tId,
+          target_owner: tOwner,
+          target_pid: tPid,
+          attack_move: movePayload,
+          power_rule: powerRule,
+          unreliable_roll: unreliableGate?.unreliableRoll || null,
+          unreliable_gate: firestoreSafeValue(unreliableGate?.applies ? unreliableGate : null),
+          attack_range: reactionAtkRange,
+          atk_base_mod: ctx.atkMod,
+          rule_attack_mod: attackModifierSummary.attackBonus,
+          attack_modifier_summary: attackModifierSummary,
+          pending_attack: firestoreSafeValue(pendingAttack),
+          pending_reactions: firestoreSafeValue(reactionResolution.pendingReactions),
+          pending_reaction_log: firestoreSafeValue(reactionResolution.combatLog),
+          pendingFor: safeStr(firstReaction?.reactor?.owner),
+          prompt: { type: "MM_REACTION", reactionId: safeStr(firstReaction?.id) },
+          logs,
+        });
+        this._showFloat(targetPiece, `Reacao pendente (${safeStr(firstReaction?.reactor?.owner)})`, "pending");
+        return;
+      }
+    }
 
     const atkRange = isDistance ? "Distância (Dodge)" : "Corpo-a-corpo (Parry)";
     const critTxt = critBonus ? " (CRÍTICO +5)" : "";
@@ -2762,6 +3424,7 @@ export class ArenaCombatUI {
         `${by} rolou ${roll}+${atkModStr}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${critTxt}${sneakTxt}... ${resultMsg}`,
       ];
       if (extraModsTxt) logs.push(`Modificadores extras aplicados: ${extraModsTxt}.`);
+      if (unreliableLog) logs.push(unreliableLog);
       logs.push(`Rank/Dano: ${totalDmg}${isEffect ? " (Affliction)" : ""}. Aguardando resistência... (CD ${dcTotal})`);
 
       await this._writeBattle({
@@ -2773,9 +3436,14 @@ export class ArenaCombatUI {
         target_pid: tPid,
         attack_move: movePayload,
         power_rule: powerRule,
+        unreliable_roll: unreliableGate?.unreliableRoll || null,
+        unreliable_gate: firestoreSafeValue(unreliableGate?.applies ? unreliableGate : null),
         resistance_queue: resistanceQueue,
         attack_range: atkRange,
         atk_mod: atkMod,
+        atk_base_mod: ctx.atkMod,
+        rule_attack_mod: attackModifierSummary.attackBonus,
+        attack_modifier_summary: attackModifierSummary,
         aceiro_bonus: aceiroBonus,
         d20: roll,
         defense_val: defenseVal,
@@ -2800,6 +3468,7 @@ export class ArenaCombatUI {
       const logs = [
         `${by} rolou ${roll}+${atkModStr}=${totalAtk} (vs Def ${needed} [${defenseVal}+10])${sneakTxt}... ${resultMsg}`,
       ];
+      if (unreliableLog) logs.push(unreliableLog);
       if (extraModsTxt) logs.push(`Modificadores extras aplicados: ${extraModsTxt}.`);
 
       await this._writeBattle({
@@ -2811,8 +3480,13 @@ export class ArenaCombatUI {
         target_pid: tPid,
         attack_move: movePayload,
         power_rule: powerRule,
+        unreliable_roll: unreliableGate?.unreliableRoll || null,
+        unreliable_gate: firestoreSafeValue(unreliableGate?.applies ? unreliableGate : null),
         attack_range: atkRange,
         atk_mod: atkMod,
+        atk_base_mod: ctx.atkMod,
+        rule_attack_mod: attackModifierSummary.attackBonus,
+        attack_modifier_summary: attackModifierSummary,
         aceiro_bonus: aceiroBonus,
         d20: roll,
         defense_val: defenseVal,
@@ -3062,6 +3736,8 @@ export class ArenaCombatUI {
         this._renderResistPrompt(battle, prompt);
       } else if (prompt.type === "CONFIRM_HIT_RANK" && !this._currentPrompt) {
         this._renderRankPrompt(battle, prompt);
+      } else if (prompt.type === "MM_REACTION" && !this._currentPrompt) {
+        this._renderReactionPrompt(battle, prompt);
       } else if (prompt.type === "REROLL" && !this._currentReroll) {
         this._renderRerollToast(battle, prompt);
       }
@@ -3072,6 +3748,102 @@ export class ArenaCombatUI {
   }
 
   // Novo prompt que aparece para o Atacante ativar efeitos secundários
+  _renderReactionPrompt(battle, prompt) {
+    this._closePrompt();
+    const reactions = Array.isArray(battle?.pending_reactions) ? battle.pending_reactions : [];
+    const reaction = reactions.find((item) => safeStr(item?.id) === safeStr(prompt?.reactionId)) || this._firstPendingReaction(reactions);
+    if (!reaction) {
+      this._advanceOrContinuePendingAttack(battle, reactions, ["Fila de reacao vazia; ataque retomado."]);
+      return;
+    }
+
+    const anchorId = safeStr(reaction?.validTargets?.[0]?.pieceId || battle?.target_id);
+    const anchorPiece = (this.getPieces() || []).find((piece) => safeStr(piece?.id) === anchorId);
+    const pos = anchorPiece ? this._pieceScreenPos(anchorPiece) : { x: 220, y: 220 };
+    const el = document.createElement("div");
+    el.className = "ac-prompt";
+    const cpos = this._clampPos(pos.x + 42, pos.y - 34, 292, 230);
+    el.style.left = `${cpos.x}px`;
+    el.style.top = `${cpos.y}px`;
+
+    const validTargets = (reaction.validTargets || [])
+      .map((target) => safeStr(target.label || target.pieceId || target.pid))
+      .filter(Boolean)
+      .join(", ") || "alvo do ataque";
+    el.innerHTML = `
+      <div class="ac-prompt-title">Reacao disponivel</div>
+      <div class="ac-prompt-dc">${escHtml(reaction.powerName || "Power")}</div>
+      <div style="font-size:11px;color:rgba(148,163,184,.78);margin-bottom:8px">
+        ${escHtml(reaction.eventSummary || "Ataque recebido")}<br>
+        Custo/limite: ${escHtml(reaction.cost || "sem limite fixo")}<br>
+        Alvos validos: ${escHtml(validTargets)}
+      </div>
+      <div class="ac-prompt-grid">
+        <button class="ac-prompt-btn ac-special" data-act="accept">${escHtml(reaction.accept?.label || "Ativar")}</button>
+        <button class="ac-prompt-btn" data-act="ignore">${escHtml(reaction.ignore?.label || "Ignorar")}</button>
+      </div>
+    `;
+    this._overlayRoot.appendChild(el);
+    this._currentPrompt = el;
+
+    el.querySelector('[data-act="ignore"]')?.addEventListener("click", async () => {
+      el.querySelectorAll("button").forEach((btn) => { btn.disabled = true; });
+      const nextReactions = reactions.map((item) => (
+        safeStr(item?.id) === safeStr(reaction.id)
+          ? { ...item, status: "ignored", resolvedAtLocal: new Date().toISOString() }
+          : item
+      ));
+      this._closePrompt();
+      await this._advanceOrContinuePendingAttack(battle, nextReactions, [this._reactionLogLine(reaction, null, "ignored")]);
+    });
+
+    el.querySelector('[data-act="accept"]')?.addEventListener("click", async () => {
+      el.querySelectorAll("button").forEach((btn) => { btn.disabled = true; });
+      const roll = await this._rollD20Animated(`Reacao - ${safeStr(reaction.powerName || "Power")}`);
+      this._publishRoll(roll, `Reacao • ${safeStr(reaction.powerName || "Power")}`);
+      const resolution = resolveCombatEvent({
+        type: "reactionDecision",
+        reaction,
+        attack: battle?.pending_attack || {},
+      }, {}, {
+        accept: true,
+        reaction,
+        attack: battle?.pending_attack || {},
+        d20: roll,
+      }, mmRuntimeEnv());
+      const resolutionId = await this._persistMmResolution(resolution, { applied: true, reaction: true });
+      this._showResolutionToast(resolution, resolutionId);
+      const nextReactions = reactions.map((item) => (
+        safeStr(item?.id) === safeStr(reaction.id)
+          ? {
+              ...item,
+              status: resolution?.blocked ? "blocked" : "failed",
+              resolutionId: resolutionId || null,
+              result: firestoreSafeValue(resolution?.effectResults?.[0] || {}),
+              resolvedAtLocal: new Date().toISOString(),
+            }
+          : item
+      ));
+      const line = this._reactionLogLine(reaction, resolution, "accepted");
+      this._closePrompt();
+      if (resolution?.blocked) {
+        await this._writeBattle({
+          status: "idle",
+          pending_reactions: firestoreSafeValue(nextReactions),
+          pending_attack: null,
+          last_resolution_id: resolutionId || null,
+          pendingFor: null,
+          prompt: null,
+          logs: (Array.isArray(battle?.logs) ? battle.logs : []).concat([line, resolution.summary]),
+        });
+        const targetPiece = (this.getPieces() || []).find((piece) => safeStr(piece?.id) === safeStr(battle?.target_id));
+        if (targetPiece) this._showFloat(targetPiece, "Ataque bloqueado", "resist");
+        return;
+      }
+      await this._advanceOrContinuePendingAttack(battle, nextReactions, [line]);
+    });
+  }
+
   _renderSecondaryEffectPrompt(battle) {
     const tId = safeStr(battle.target_id);
     const pieces = this.getPieces() || [];
@@ -3165,7 +3937,7 @@ export class ArenaCombatUI {
         const tStats = this._getEffectiveStats(by, tPid);
         const statVal = safeInt(tStats[defType]);
 
-        const roll = d20Roll();
+        const roll = await this._rollD20Animated(`Defesa - ${defType.toUpperCase()}`);
         this._publishRoll(roll, `Defesa • ${defType.toUpperCase()}`);
         const checkTotal = roll + statVal;
 
@@ -3195,6 +3967,8 @@ export class ArenaCombatUI {
           await this._writeBattle({
             status: "waiting_defense",
             dmg_base: finalRank,
+            unreliable_roll: safeInt(battle?.unreliable_roll, 0) || null,
+            unreliable_gate: firestoreSafeValue(battle?.unreliable_gate || null),
             pendingFor: by,
             resistance_queue: resistanceQueue,
             prompt: { type: "ROLL_RESIST", options: { dc: newDc, isEffect: isEff, isAoe: false, powerRule, resistanceQueue } },
@@ -3354,7 +4128,7 @@ export class ArenaCombatUI {
     const battle = this.getBattle();
     if (!battle) return;
 
-    const roll = d20Roll();
+    const roll = await this._rollD20Animated("Re-roll");
     this._publishRoll(roll, "Re-roll");
 
     const atkMod = safeInt(battle.atk_mod);
@@ -3362,17 +4136,19 @@ export class ArenaCombatUI {
     const extraAccMod = safeInt(battle.extra_acc_mod, 0);
     const totalAtk = atkMod + aceiroBonus + roll;
     const needed = safeInt(battle.needed);
-    
-    let hit, critBonus;
-    if (roll === 1) { hit = false; critBonus = 0; }
-    else if (roll === 20) { hit = true; critBonus = 5; }
-    else { hit = totalAtk >= needed; critBonus = 0; }
+    const powerRule = battle?.power_rule || battle?.attack_move?.power_rule || {};
+    const attackerStats = this._getEffectiveStats(safeStr(battle.attacker), safeStr(battle.attacker_pid));
+    const attackOutcome = resolveAttackHitAndCritical({ roll, totalAtk, needed, powerRule, attackerStats });
+    const hit = attackOutcome.hit;
+    const critBonus = attackOutcome.critBonus;
 
     const tId = safeStr(battle.target_id);
     const pieces = this.getPieces() || [];
     const targetPiece = pieces.find(p => safeStr(p.id) === tId);
 
-    const atkModStr = buildAttackRollText(atkMod - extraAccMod, extraAccMod, aceiroBonus);
+    const ruleAttackMod = safeInt(battle.rule_attack_mod, 0);
+    const atkBaseMod = safeInt(battle.atk_base_mod, atkMod - extraAccMod - ruleAttackMod);
+    const atkModStr = buildAttackRollText(atkBaseMod, extraAccMod, aceiroBonus, ruleAttackMod);
     const rollText = `Re-roll d20=${roll}+${atkModStr}=${totalAtk} vs DEF ${needed}`;
     
     if (hit) {
@@ -3383,6 +4159,9 @@ export class ArenaCombatUI {
       await this._writeBattle({
         status: "waiting_defense",
         d20: roll, total_atk: totalAtk, crit_bonus: critBonus,
+        attack_modifier_summary: firestoreSafeValue(attackOutcome || null),
+        unreliable_roll: safeInt(battle?.unreliable_roll, 0) || null,
+        unreliable_gate: firestoreSafeValue(battle?.unreliable_gate || null),
         pendingFor: safeStr(battle.target_owner),
         prompt: { type: "ROLL_RESIST", options: { dc: dcTotal, isEffect: false } },
         logs: arrayUnion(`Re-roll: ${roll}+${atkModStr}=${totalAtk} vs ${needed}. ACERTOU!`),
@@ -3392,6 +4171,9 @@ export class ArenaCombatUI {
       await this._writeBattle({
         status: "idle",
         d20: roll, total_atk: totalAtk, crit_bonus: 0,
+        attack_modifier_summary: firestoreSafeValue(attackOutcome || null),
+        unreliable_roll: null,
+        unreliable_gate: null,
         pendingFor: null, prompt: null,
         logs: arrayUnion(`Re-roll: ${roll}+${atkModStr}=${totalAtk} vs ${needed}. ERROU!`),
       });
@@ -3506,6 +4288,8 @@ export class ArenaCombatUI {
   }
 
   _closeAll() {
+    try { this._currentRollAnimation?.remove?.(); } catch {}
+    this._currentRollAnimation = null;
     this._closeOverlay();
     this._closeRadial();
     this._closePrompt();

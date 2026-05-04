@@ -1,0 +1,107 @@
+{
+  "schema": "MmPowerExamples",
+  "schemaVersion": 2,
+  "engineVersion": "20260504-mm-engine-v2",
+  "examples": [
+    {
+      "schema": "PowerRule",
+      "schemaVersion": 2,
+      "id": "example:linked-damage-affliction",
+      "name": "Raio Paralisante",
+      "action": "standard",
+      "range": "ranged",
+      "duration": "instant",
+      "descriptors": ["electric"],
+      "targeting": { "mode": "target", "range": "ranged" },
+      "effects": [
+        {
+          "id": "e0",
+          "type": "damage",
+          "rank": { "source": "fixed", "value": 6 },
+          "resistance": "thg",
+          "linked": true,
+          "descriptors": ["electric"]
+        },
+        {
+          "id": "e1",
+          "type": "affliction",
+          "rank": { "source": "fixed", "value": 6 },
+          "resistance": "fort",
+          "linked": true,
+          "cumulative": true,
+          "conditions": [
+            { "degree": 1, "condition": "impaired" },
+            { "degree": 2, "condition": "disabled" },
+            { "degree": 3, "condition": "incapacitated" }
+          ],
+          "descriptors": ["electric"]
+        }
+      ]
+    },
+    {
+      "schema": "PowerRule",
+      "schemaVersion": 2,
+      "id": "example:deflect-reflect",
+      "name": "Barreira Refletora",
+      "action": "reaction",
+      "range": "ranged",
+      "duration": "instant",
+      "descriptors": ["psychic", "barrier"],
+      "targeting": { "mode": "target", "range": "ranged" },
+      "effects": [
+        {
+          "id": "e0",
+          "type": "deflect",
+          "rank": { "source": "fixed", "value": 8 },
+          "range": "ranged",
+          "reaction": true,
+          "extras": ["Reflect", "Redirect"],
+          "parameters": {
+            "protectedTarget": "attack.target",
+            "rangeSquares": 6
+          },
+          "descriptors": ["psychic", "barrier"]
+        }
+      ]
+    },
+    {
+      "schema": "PowerRule",
+      "schemaVersion": 2,
+      "id": "example:create-wall",
+      "name": "Muralha de Pedra",
+      "action": "standard",
+      "range": "ranged",
+      "duration": "sustained",
+      "descriptors": ["rock", "create"],
+      "effects": [
+        {
+          "id": "e0",
+          "type": "create",
+          "rank": { "source": "fixed", "value": 5 },
+          "parameters": {
+            "shape": "wall",
+            "location": "selectedCells",
+            "toughness": 5
+          }
+        }
+      ]
+    },
+    {
+      "schema": "PowerRule",
+      "schemaVersion": 2,
+      "id": "example:variable-missing-data",
+      "name": "Adaptação Instintiva",
+      "action": "free",
+      "range": "personal",
+      "duration": "sustained",
+      "descriptors": ["variable"],
+      "effects": [
+        {
+          "id": "e0",
+          "type": "variable",
+          "rank": { "source": "fixed", "value": 2 }
+        }
+      ]
+    }
+  ]
+}

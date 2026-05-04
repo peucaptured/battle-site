@@ -437,6 +437,7 @@ function expectedEffectBehavior(rule, resolution, scenario, checks) {
 function expectedModifierBehavior(rule, resolution, checks) {
   const validation = validatePowerRule(rule);
   const validationCodes = new Set((resolution.adjudications || []).filter((item) => item.kind === "rule_validation").map((item) => item.code));
+  const resultByEffect = new Map((resolution.effectResults || []).map((result) => [safeStr(result.effectId), result]));
 
   for (const issue of validation.issues || []) {
     if (issue.severity !== "warning" && issue.severity !== "error") continue;
@@ -451,8 +452,14 @@ function expectedModifierBehavior(rule, resolution, checks) {
 
   const needsReview = (rule.effects || []).some((effect) => {
     const meta = getMmEffectMeta(effect.type);
+    const result = resultByEffect.get(safeStr(effect.id));
+    if (isMmResistanceEffect(effect.type) && result?.success) return false;
     if (meta.automation === "ignored") return false;
-    return effect.requiresChoice || effect.reaction || effect.fades || meta.automation === "choice" || meta.automation === "adjudication";
+    const hasValidationWarning = (validation.issues || []).some((issue) => (
+      safeStr(issue.effectId) === safeStr(effect.id)
+      && (issue.severity === "warning" || issue.severity === "error")
+    ));
+    return effect.requiresChoice || effect.reaction || hasValidationWarning || meta.automation === "choice" || meta.automation === "adjudication";
   });
   if (needsReview) {
     checkCondition(

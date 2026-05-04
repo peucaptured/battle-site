@@ -1,0 +1,474 @@
+{
+  "tempId": "codex_tmp_eneias_monhgjqt",
+  "initial": {
+    "Ezenek": {
+      "by": "Ezenek",
+      "role": "—",
+      "status": "conectado",
+      "pieceCount": 2,
+      "targetHp": null,
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "last_resolution_id": "battle:ac_monhdyrn_",
+        "fallback_id": "battle:ac_monhdyrn_",
+        "fallback_undone": false,
+        "historyCount": 1,
+        "logs": [
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)",
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+          {
+            "t": "log",
+            "by": "Eneias",
+            "text": "💢 Codex Tmp Target perdeu 4 HP (6→2)",
+            "at": {
+              "seconds": 1777674302,
+              "nanoseconds": 985000000
+            }
+          },
+          {
+            "text": "↩️ Codex Tmp Target foi recolhido do campo",
+            "at": {
+              "seconds": 1777674336,
+              "nanoseconds": 517000000
+            },
+            "t": "log",
+            "by": "Eneias"
+          }
+        ]
+      },
+      "prompt": false,
+      "undo": false
+    },
+    "Eneias": {
+      "by": "Eneias",
+      "role": "—",
+      "status": "conectado",
+      "pieceCount": 2,
+      "targetHp": null,
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "last_resolution_id": "battle:ac_monhdyrn_",
+        "fallback_id": "battle:ac_monhdyrn_",
+        "fallback_undone": false,
+        "historyCount": 1,
+        "logs": [
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)",
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+          {
+            "t": "log",
+            "by": "Eneias",
+            "text": "💢 Codex Tmp Target perdeu 4 HP (6→2)",
+            "at": {
+              "seconds": 1777674302,
+              "nanoseconds": 985000000
+            }
+          },
+          {
+            "at": {
+              "seconds": 1777674336,
+              "nanoseconds": 517000000
+            },
+            "text": "↩️ Codex Tmp Target foi recolhido do campo",
+            "by": "Eneias",
+            "t": "log"
+          }
+        ]
+      },
+      "prompt": false,
+      "undo": false
+    }
+  },
+  "afterAttack": {
+    "Ezenek": {
+      "by": "Ezenek",
+      "role": "—",
+      "status": "conectado",
+      "pieceCount": 3,
+      "targetHp": 6,
+      "battle": {
+        "status": "waiting_defense",
+        "pendingFor": "Eneias",
+        "last_resolution_id": "battle:ac_monhdyrn_",
+        "fallback_id": "battle:ac_monhdyrn_",
+        "fallback_undone": false,
+        "historyCount": 1,
+        "logs": [
+          "Ezenek rolou 16+40=56 (vs Def 10 [0+10])... ACERTOU! ✅",
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)"
+        ]
+      },
+      "prompt": false,
+      "undo": false
+    },
+    "Eneias": {
+      "by": "Eneias",
+      "role": "—",
+      "status": "ação enviada: ADD_LOG",
+      "pieceCount": 3,
+      "targetHp": 6,
+      "battle": {
+        "status": "waiting_defense",
+        "pendingFor": "Eneias",
+        "last_resolution_id": "battle:ac_monhdyrn_",
+        "fallback_id": "battle:ac_monhdyrn_",
+        "fallback_undone": false,
+        "historyCount": 1,
+        "logs": [
+          "Ezenek rolou 16+40=56 (vs Def 10 [0+10])... ACERTOU! ✅",
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)"
+        ]
+      },
+      "prompt": true,
+      "undo": false
+    }
+  },
+  "afterDefense": {
+    "Ezenek": {
+      "by": "Ezenek",
+      "role": "—",
+      "status": "conectado",
+      "pieceCount": 3,
+      "targetHp": 2,
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "last_resolution_id": "battle:ac_monhgvqx_",
+        "fallback_id": "battle:ac_monhgvqx_",
+        "fallback_undone": false,
+        "historyCount": 2,
+        "logs": [
+          "Ezenek rolou 16+40=56 (vs Def 10 [0+10])... ACERTOU! ✅",
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)",
+          {
+            "at": {
+              "seconds": 1777674438,
+              "nanoseconds": 400000000
+            },
+            "text": "💢 Codex Tmp Target perdeu 4 HP (6→2)",
+            "by": "Eneias",
+            "t": "log"
+          },
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)"
+        ]
+      },
+      "prompt": true,
+      "undo": false
+    },
+    "Eneias": {
+      "by": "Eneias",
+      "role": "—",
+      "status": "condições atualizadas",
+      "pieceCount": 3,
+      "targetHp": 2,
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "last_resolution_id": "battle:ac_monhgvqx_",
+        "fallback_id": "battle:ac_monhgvqx_",
+        "fallback_undone": false,
+        "historyCount": 2,
+        "logs": [
+          "Ezenek rolou 16+40=56 (vs Def 10 [0+10])... ACERTOU! ✅",
+          "Rank/Dano: 5. Aguardando resistência... (CD 20)",
+          {
+            "t": "log",
+            "by": "Eneias",
+            "at": {
+              "seconds": 1777674438,
+              "nanoseconds": 400000000
+            },
+            "text": "💢 Codex Tmp Target perdeu 4 HP (6→2)"
+          },
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)"
+        ]
+      },
+      "prompt": false,
+      "undo": true
+    }
+  },
+  "resolution": {
+    "id": "battle:ac_monhgvqx_",
+    "storage": "battle_doc_fallback",
+    "summary": "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+    "persistError": "permission-denied",
+    "patchCount": 2,
+    "undoCount": 2
+  },
+  "afterUndo": {
+    "Ezenek": {
+      "by": "Ezenek",
+      "role": "—",
+      "status": "conectado",
+      "pieceCount": 3,
+      "targetHp": 6,
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "last_resolution_id": "battle:ac_monhgvqx_",
+        "fallback_id": "battle:ac_monhgvqx_",
+        "fallback_undone": true,
+        "historyCount": 2,
+        "logs": [
+          {
+            "by": "Eneias",
+            "t": "log",
+            "at": {
+              "seconds": 1777674438,
+              "nanoseconds": 400000000
+            },
+            "text": "💢 Codex Tmp Target perdeu 4 HP (6→2)"
+          },
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+          "↩ Resolução battle:ac_monhgvqx_ desfeita por Eneias.",
+          {
+            "by": "Eneias",
+            "t": "log",
+            "at": {
+              "seconds": 1777674441,
+              "nanoseconds": 520000000
+            },
+            "text": "💚 Codex Tmp Target recuperou 4 HP (2→6)"
+          }
+        ]
+      },
+      "prompt": true,
+      "undo": false
+    },
+    "Eneias": {
+      "by": "Eneias",
+      "role": "—",
+      "status": "ação enviada: ADD_LOG",
+      "pieceCount": 3,
+      "targetHp": 6,
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "last_resolution_id": "battle:ac_monhgvqx_",
+        "fallback_id": "battle:ac_monhgvqx_",
+        "fallback_undone": true,
+        "historyCount": 2,
+        "logs": [
+          {
+            "by": "Eneias",
+            "text": "💢 Codex Tmp Target perdeu 4 HP (6→2)",
+            "at": {
+              "seconds": 1777674438,
+              "nanoseconds": 400000000
+            },
+            "t": "log"
+          },
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+          "↩ Resolução battle:ac_monhgvqx_ desfeita por Eneias.",
+          {
+            "t": "log",
+            "text": "💚 Codex Tmp Target recuperou 4 HP (2→6)",
+            "at": {
+              "seconds": 1777674441,
+              "nanoseconds": 520000000
+            },
+            "by": "Eneias"
+          }
+        ]
+      },
+      "prompt": false,
+      "undo": false
+    }
+  },
+  "cleanup": {
+    "pieceRemoved": true,
+    "hpDeleted": true,
+    "battleIdle": true
+  },
+  "afterCleanup": {
+    "Ezenek": {
+      "by": "Ezenek",
+      "role": "—",
+      "status": "conectado",
+      "pieceCount": 2,
+      "targetHp": null,
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "last_resolution_id": "battle:ac_monhgvqx_",
+        "fallback_id": "battle:ac_monhgvqx_",
+        "fallback_undone": true,
+        "historyCount": 2,
+        "logs": [
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+          "↩ Resolução battle:ac_monhgvqx_ desfeita por Eneias.",
+          {
+            "t": "log",
+            "by": "Eneias",
+            "text": "💚 Codex Tmp Target recuperou 4 HP (2→6)",
+            "at": {
+              "seconds": 1777674441,
+              "nanoseconds": 520000000
+            }
+          },
+          {
+            "by": "Eneias",
+            "t": "log",
+            "at": {
+              "seconds": 1777674443,
+              "nanoseconds": 225000000
+            },
+            "text": "↩️ Codex Tmp Target foi recolhido do campo"
+          }
+        ]
+      },
+      "prompt": false,
+      "undo": false
+    },
+    "Eneias": {
+      "by": "Eneias",
+      "role": "—",
+      "status": "ação enviada: ADD_LOG",
+      "pieceCount": 2,
+      "targetHp": null,
+      "battle": {
+        "status": "idle",
+        "pendingFor": null,
+        "last_resolution_id": "battle:ac_monhgvqx_",
+        "fallback_id": "battle:ac_monhgvqx_",
+        "fallback_undone": true,
+        "historyCount": 2,
+        "logs": [
+          "🛡️ 1+0=1 (THG) vs CD 20. FALHA por 19 — 4 barra(s)",
+          "Thunderbolt: 4 HP perdido, 1 condicao(oes)",
+          "↩ Resolução battle:ac_monhgvqx_ desfeita por Eneias.",
+          {
+            "text": "💚 Codex Tmp Target recuperou 4 HP (2→6)",
+            "at": {
+              "seconds": 1777674441,
+              "nanoseconds": 520000000
+            },
+            "by": "Eneias",
+            "t": "log"
+          },
+          {
+            "by": "Eneias",
+            "at": {
+              "seconds": 1777674443,
+              "nanoseconds": 225000000
+            },
+            "text": "↩️ Codex Tmp Target foi recolhido do campo",
+            "t": "log"
+          }
+        ]
+      },
+      "prompt": false,
+      "undo": false
+    }
+  },
+  "console": {
+    "Ezenek": [
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold arena_wrap encontrado ✓"
+      },
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold ✅ Inicializado"
+      },
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold   db: OK"
+      },
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold   rid: (vazio)"
+      },
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold   by: Ezenek"
+      },
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold   role: —"
+      },
+      {
+        "type": "log",
+        "text": "[field-zones-patch] ready"
+      },
+      {
+        "type": "log",
+        "text": "%c[combat] color:#38bdf8;font-weight:bold Conectando battle listener, rid = 949"
+      },
+      {
+        "type": "log",
+        "text": "%c[combat] color:#38bdf8;font-weight:bold ✅ Conectado"
+      },
+      {
+        "type": "log",
+        "text": "%c[initiative] color:#a78bfa;font-weight:bold InitiativeUI iniciado {rid: 949, by: Ezenek, role: —}"
+      },
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold Conectando battle listener, rid = 949"
+      },
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold ✅ Conectado"
+      }
+    ],
+    "Eneias": [
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold arena_wrap encontrado ✓"
+      },
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold ✅ Inicializado"
+      },
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold   db: OK"
+      },
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold   rid: (vazio)"
+      },
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold   by: Eneias"
+      },
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold   role: —"
+      },
+      {
+        "type": "log",
+        "text": "[field-zones-patch] ready"
+      },
+      {
+        "type": "log",
+        "text": "%c[combat] color:#38bdf8;font-weight:bold Conectando battle listener, rid = 949"
+      },
+      {
+        "type": "log",
+        "text": "%c[combat] color:#38bdf8;font-weight:bold ✅ Conectado"
+      },
+      {
+        "type": "log",
+        "text": "%c[initiative] color:#a78bfa;font-weight:bold InitiativeUI iniciado {rid: 949, by: Eneias, role: —}"
+      },
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold Conectando battle listener, rid = 949"
+      },
+      {
+        "type": "log",
+        "text": "%c[arena-combat] color:#a78bfa;font-weight:bold ✅ Conectado"
+      }
+    ]
+  }
+}

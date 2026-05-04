@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="96" viewBox="0 0 1536 96">
+  <defs>
+    <radialGradient id="coinGold" cx="35%" cy="28%" r="70%">
+      <stop offset="0" stop-color="#fff7ad"/>
+      <stop offset=".42" stop-color="#facc15"/>
+      <stop offset="1" stop-color="#a16207"/>
+    </radialGradient>
+    <linearGradient id="coinEdge" x1="0" x2="1">
+      <stop offset="0" stop-color="#713f12"/>
+      <stop offset=".5" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#713f12"/>
+    </linearGradient>
+    <filter id="coinShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="6" stdDeviation="5" flood-color="#020617" flood-opacity=".45"/>
+    </filter>
+    <style>
+      .coinText{font-family:Arial,Helvetica,sans-serif;font-weight:900;text-anchor:middle;dominant-baseline:central;fill:#713f12}
+      .mark{fill:none;stroke:#713f12;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
+    </style>
+  </defs>
+  <rect width="1536" height="96" fill="none"/>
+  <g filter="url(#coinShadow)">
+    <g transform="translate(48 48)"><ellipse rx="34" ry="34" fill="url(#coinGold)" stroke="#fef3c7" stroke-width="3"/><circle r="24" fill="none" stroke="#92400e" stroke-width="3"/><path class="mark" d="M-9 2c0-13 18-16 23-4M14 14c-8 9-25 5-25-9"/><text class="coinText" font-size="16" y="-2">C</text></g>
+    <g transform="translate(144 48)"><ellipse rx="24" ry="35" fill="url(#coinGold)" stroke="#fde68a" stroke-width="3"/><ellipse rx="14" ry="27" fill="none" stroke="#92400e" stroke-width="3"/></g>
+    <g transform="translate(240 48)"><ellipse rx="10" ry="36" fill="url(#coinEdge)" stroke="#fef3c7" stroke-width="3"/></g>
+    <g transform="translate(336 48)"><ellipse rx="4" ry="37" fill="url(#coinEdge)" stroke="#fde68a" stroke-width="2"/></g>
+    <g transform="translate(432 48)"><ellipse rx="12" ry="36" fill="url(#coinEdge)" stroke="#fef3c7" stroke-width="3"/></g>
+    <g transform="translate(528 48)"><ellipse rx="25" ry="35" fill="url(#coinGold)" stroke="#fde68a" stroke-width="3"/><path class="mark" d="M-8 12h16M0-17v29M-14-2h28"/></g>
+    <g transform="translate(624 48)"><ellipse rx="34" ry="34" fill="url(#coinGold)" stroke="#fef3c7" stroke-width="3"/><circle r="24" fill="none" stroke="#92400e" stroke-width="3"/><path class="mark" d="M-12 10h24M0-16v26M-16-2h32"/><text class="coinText" font-size="13" y="20">R</text></g>
+    <g transform="translate(720 48)"><ellipse rx="27" ry="35" fill="url(#coinGold)" stroke="#fde68a" stroke-width="3"/><ellipse rx="16" ry="27" fill="none" stroke="#92400e" stroke-width="3"/></g>
+    <g transform="translate(816 48)"><ellipse rx="11" ry="36" fill="url(#coinEdge)" stroke="#fef3c7" stroke-width="3"/></g>
+    <g transform="translate(912 48)"><ellipse rx="4" ry="37" fill="url(#coinEdge)" stroke="#fde68a" stroke-width="2"/></g>
+    <g transform="translate(1008 48)"><ellipse rx="11" ry="36" fill="url(#coinEdge)" stroke="#fef3c7" stroke-width="3"/></g>
+    <g transform="translate(1104 48)"><ellipse rx="25" ry="35" fill="url(#coinGold)" stroke="#fde68a" stroke-width="3"/><path class="mark" d="M-9 2c0-13 18-16 23-4M14 14c-8 9-25 5-25-9"/></g>
+    <g transform="translate(1200 48)"><ellipse rx="34" ry="34" fill="url(#coinGold)" stroke="#fef3c7" stroke-width="3"/><circle r="24" fill="none" stroke="#92400e" stroke-width="3"/><path class="mark" d="M-9 2c0-13 18-16 23-4M14 14c-8 9-25 5-25-9"/><text class="coinText" font-size="16" y="-2">C</text></g>
+    <g transform="translate(1296 48)"><ellipse rx="24" ry="35" fill="url(#coinGold)" stroke="#fde68a" stroke-width="3"/><ellipse rx="14" ry="27" fill="none" stroke="#92400e" stroke-width="3"/></g>
+    <g transform="translate(1392 48)"><ellipse rx="10" ry="36" fill="url(#coinEdge)" stroke="#fef3c7" stroke-width="3"/></g>
+    <g transform="translate(1488 48)"><ellipse rx="34" ry="34" fill="url(#coinGold)" stroke="#fef3c7" stroke-width="3"/><circle r="24" fill="none" stroke="#92400e" stroke-width="3"/><path class="mark" d="M-12 10h24M0-16v26M-16-2h32"/><text class="coinText" font-size="13" y="20">R</text></g>
+  </g>
+</svg>

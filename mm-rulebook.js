@@ -11,6 +11,10 @@ function normalizeLabel(value) {
     .replace(/^_+|_+$/g, "");
 }
 
+export function normalizeMmLabel(value) {
+  return normalizeLabel(value);
+}
+
 function unique(values) {
   return Array.from(new Set((values || []).map(safeStr).filter(Boolean)));
 }
@@ -21,7 +25,7 @@ export const MM_EFFECTS = Object.freeze({
   communication: { kind: "active", automation: "tracked" },
   comprehend: { kind: "active", automation: "tracked" },
   concealment: { kind: "active", automation: "tracked" },
-  create: { kind: "active", automation: "ignored", choices: ["shape", "location", "toughness"] },
+  create: { kind: "active", automation: "choice", choices: ["shape", "location", "toughness"] },
   damage: { kind: "resistance", automation: "automatic" },
   deflect: { kind: "active", automation: "choice", choices: ["protectedTarget", "defenseRoll"] },
   elongation: { kind: "active", automation: "tracked" },
@@ -88,7 +92,10 @@ export const MM_EXTRAS = Object.freeze([
   "multiattack",
   "penetrating",
   "precise",
+  "progressive",
   "reach",
+  "redirect",
+  "reflect",
   "reaction",
   "reversible",
   "ricochet",
@@ -131,6 +138,7 @@ export const MM_FLAWS = Object.freeze([
   "resistible",
   "sense_dependent",
   "side_effect",
+  "progressive",
   "tiring",
   "uncontrolled",
   "unreliable",
@@ -326,7 +334,63 @@ export function inferMmDurationTurns(effect, powerRule) {
   return null;
 }
 
-export function makeMmActiveEffectId(prefix = "ae") {
-  const rand = Math.random().toString(36).slice(2, 8);
-  return `${prefix}_${Date.now().toString(36)}_${rand}`;
+function stableSerialize(value) {
+  if (value == null) return "null";
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+  if (typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function stableHash(value) {
+  const raw = stableSerialize(value);
+  let hash = 2166136261;
+  for (let i = 0; i < raw.length; i += 1) {
+    hash ^= raw.charCodeAt(i);
+    hash = (hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24))) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+export function normalizeRuleEnv(env = {}) {
+  if (typeof env === "function") return { rng: env, clock: null, idFactory: null };
+  const src = env?.env && typeof env.env === "object" ? env.env : env;
+  return {
+    rng: typeof src?.rng === "function" ? src.rng : null,
+    clock: typeof src?.clock === "function" ? src.clock : null,
+    idFactory: typeof src?.idFactory === "function" ? src.idFactory : null,
+  };
+}
+
+export function makeRuleId(prefix = "id", env = {}, parts = []) {
+  const resolved = normalizeRuleEnv(env);
+  const safePrefix = normalizeLabel(prefix) || "id";
+  if (resolved.idFactory) {
+    const provided = resolved.idFactory(safePrefix, parts);
+    if (safeStr(provided)) return safeStr(provided);
+  }
+  return `${safePrefix}_${stableHash([safePrefix, parts])}`;
+}
+
+export function readRuleClock(env = {}) {
+  const resolved = normalizeRuleEnv(env);
+  if (!resolved.clock) return null;
+  const value = resolved.clock();
+  if (value == null) return null;
+  if (typeof value === "string") return value;
+  if (typeof value?.toISOString === "function") return value.toISOString();
+  return value;
+}
+
+export function rollRuleDie(sides, env = {}) {
+  const resolved = normalizeRuleEnv(env);
+  if (!resolved.rng) return null;
+  const raw = resolved.rng();
+  if (!Number.isFinite(Number(raw))) return null;
+  return Math.max(1, Math.min(Math.floor(Number(raw) * sides) + 1, sides));
+}
+
+export function makeMmActiveEffectId(prefix = "ae", env = {}, parts = []) {
+  return makeRuleId(prefix, env, parts);
 }
