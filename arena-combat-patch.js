@@ -8,7 +8,7 @@
  *  - Chama render() a cada mudança
  */
 
-import { ArenaCombatUI } from "./arena-combat.js?v=20260505aoe-resist1";
+import { ArenaCombatUI } from "./arena-combat.js?v=20260505combat-tab1";
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
 import {
   getFirestore,
@@ -106,6 +106,7 @@ function init() {
   });
 
   window._arenaCombatUI = arenaCombatUI;
+  try { window._combatUI?.render?.(); } catch {}
 
   setInterval(checkConnection, 800);
 
@@ -138,6 +139,7 @@ function connect(db, rid) {
     battleUnsub = onSnapshot(ref, (snap) => {
       localBattle = snap.exists() ? snap.data() : null;
       if (arenaCombatUI) arenaCombatUI.render();
+      try { window._combatUI?.render?.(); } catch {}
     }, (err) => dbgErr("Snapshot erro:", err));
     if (arenaCombatUI) arenaCombatUI.startListening();
     dbg("✅ Conectado");

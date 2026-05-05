@@ -4459,7 +4459,7 @@ function _resolveRoomPiecesPartySlots(rawPieces = appState.piecesRaw) {
 }
 
 function _refreshResolvedRoomPieces() {
-  appState.pieces = _resolveRoomPiecesPartySlots(appState.piecesRaw);
+  appState.pieces = resolvePiecesSizeForRules(_resolveRoomPiecesPartySlots(appState.piecesRaw));
   return appState.pieces;
 }
 
@@ -8607,8 +8607,8 @@ function getPiecesAt(row, col) {
   const candidates = getPiecesOccupyingTile(row, col, pieces)
     .filter(p => isPieceVisibleToMe(p));
   candidates.sort((a, b) => {
-    const za = getSizeDimensions(a?.sizeCategory || "medium").zIndex;
-    const zb = getSizeDimensions(b?.sizeCategory || "medium").zIndex;
+    const za = getSizeDimensions(getPieceSizeCategory(a)).zIndex;
+    const zb = getSizeDimensions(getPieceSizeCategory(b)).zIndex;
     return zb - za; // maior z-index (menor peça) primeiro
   });
   return candidates;
@@ -9185,7 +9185,7 @@ function _normalizePokeApiSlug(raw) {
 function _getEffectivePokeApiSlug(ownerName, pidLike) {
   const effectiveSlug = _normalizePokeApiSlug(_getEffectivePokemonSlug(ownerName, pidLike));
   if (effectiveSlug) return effectiveSlug;
-  return _pokeApiSlugFromPid(pidLike);
+  return _pokeApiSlugFromPid(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
 }
 
 function getEffectivePokemonPresentationForTrainerPid(ownerName, pidLike, options = {}) {
@@ -9225,6 +9225,7 @@ function readSpeedFromStats(statsObj) {
 // ── PokeAPI unified cache & fetcher ──────────────────────────────
 // Unifica types, speed e height em um único fetch por slug.
 const _pokeApiCache = new Map(); // slug → { speed, types, height } | "pending" | "error"
+const _pokeApiPending = new Map(); // slug → Promise<{ speed, types, height } | null>
 
 function _pokeApiSlugFromPid(pid) {
   const k = safeStr(pid);
@@ -9240,6 +9241,25 @@ function _pokeApiSlugFromPid(pid) {
   return _normalizePokeApiSlug(name);
 }
 
+function _pushPokeApiSlugCandidate(out, value) {
+  const slug = _normalizePokeApiSlug(value);
+  if (slug && !out.includes(slug)) out.push(slug);
+}
+
+function _pokeApiSlugCandidatesFromPiece(piece) {
+  const out = [];
+  const owner = safeStr(piece?.owner);
+  if (owner) {
+    const effectiveSlug = _getEffectivePokeApiSlug(owner, piece);
+    _pushPokeApiSlugCandidate(out, effectiveSlug);
+    const rootSlug = _inferCanonicalFormRoot(effectiveSlug);
+    _pushPokeApiSlugCandidate(out, rootSlug);
+    if (rootSlug) _pushPokeApiSlugCandidate(out, _defaultFormSlugForRoot(rootSlug));
+  }
+  _pushPokeApiSlugCandidate(out, _pokeApiSlugFromPid(piece?.pid ?? piece?.pokemon?.id ?? piece));
+  return out;
+}
+
 function _getPokeApiCached(slug) {
   const v = _pokeApiCache.get(slug);
   return (v && v !== "pending" && v !== "error") ? v : null;
@@ -9247,12 +9267,14 @@ function _getPokeApiCached(slug) {
 
 async function fetchPokeApiData(slug) {
   if (!slug) return null;
-  if (_pokeApiCache.has(slug)) {
-    const v = _pokeApiCache.get(slug);
-    return (v === "pending" || v === "error") ? null : v;
-  }
-  _pokeApiCache.set(slug, "pending");
-  try {
+  const cached = _getPokeApiCached(slug);
+  if (cached) return cached;
+  if (_pokeApiCache.get(slug) === "error") return null;
+  const pending = _pokeApiPending.get(slug);
+  if (pending) return pending;
+
+  const request = (async () => {
+    _pokeApiCache.set(slug, "pending");
     const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(slug)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
@@ -9267,12 +9289,21 @@ async function fetchPokeApiData(slug) {
       height: Number(data.height) || 0,
     };
     _pokeApiCache.set(slug, entry);
+    try { _refreshResolvedRoomPieces(); } catch {}
     if (typeof updateSidePanels === "function") updateSidePanels();
     try { requestArenaRefresh(true); } catch {}
+    try { window.requestScoreboardRefresh?.(); } catch {}
     return entry;
+  })();
+
+  _pokeApiPending.set(slug, request);
+  try {
+    return await request;
   } catch {
     _pokeApiCache.set(slug, "error");
     return null;
+  } finally {
+    _pokeApiPending.delete(slug);
   }
 }
 
@@ -9300,17 +9331,45 @@ async function fetchPokeApiSpeed(pid) {
 
 // ── Size category resolver ───────────────────────────────────────
 function getPieceSizeCategory(piece) {
-  if (piece?.sizeCategory) return piece.sizeCategory;
   if (piece?.kind === "trainer") return SIZE_CATEGORIES.medium;
-  const pid = safeStr(piece?.pid || "");
-  const slug = _pokeApiSlugFromPid(pid);
-  if (slug) {
+  const slugs = _pokeApiSlugCandidatesFromPiece(piece);
+  for (const slug of slugs) {
     const cached = _getPokeApiCached(slug);
     if (cached && cached.height > 0) return getSizeCategory(cached.height);
-    const v = _pokeApiCache.get(slug);
-    if (v !== "pending") fetchPokeApiData(slug); // fire-and-forget
   }
+  const slugToFetch = slugs.find((slug) => {
+    const v = _pokeApiCache.get(slug);
+    return v !== "pending" && v !== "error";
+  });
+  if (slugToFetch) fetchPokeApiData(slugToFetch); // fire-and-forget
+  if (isKnownSizeCategory(piece?.sizeCategory)) return safeStr(piece.sizeCategory);
   return SIZE_CATEGORIES.medium;
+}
+
+function isKnownSizeCategory(value) {
+  return Object.values(SIZE_CATEGORIES).includes(safeStr(value));
+}
+
+function resolvePieceSizeForRules(piece) {
+  if (!piece || typeof piece !== "object") return piece;
+  const sizeCategory = getPieceSizeCategory(piece);
+  return piece.sizeCategory === sizeCategory ? piece : { ...piece, sizeCategory };
+}
+
+function resolvePiecesSizeForRules(pieces) {
+  return (pieces || []).map((piece) => resolvePieceSizeForRules(piece));
+}
+
+async function getPieceSizeCategoryAsync(piece) {
+  if (piece?.kind === "trainer") return SIZE_CATEGORIES.medium;
+  const slugs = _pokeApiSlugCandidatesFromPiece(piece);
+  for (const slug of slugs) {
+    const cached = _getPokeApiCached(slug);
+    if (cached && cached.height > 0) return getSizeCategory(cached.height);
+    const data = await fetchPokeApiData(slug);
+    if (data && data.height > 0) return getSizeCategory(data.height);
+  }
+  return getPieceSizeCategory(piece);
 }
 
 function getPieceSpeed(piece) {
@@ -9426,13 +9485,14 @@ function getReachableTileMap(piece) {
   const gs = Number(appState.gridSize) || 0;
   if (gs <= 0) return out;
 
-  const sizeCategory = piece?.sizeCategory || SIZE_CATEGORIES.medium;
+  const sizeCategory = getPieceSizeCategory(piece);
   const allPieces = appState.pieces || [];
+  const movingPiece = resolvePieceSizeForRules(piece);
 
   // Helper: checa se piece pode pousar no destino (footprint + stacking)
   const _canLand = (tr, tc) => {
     if (!isFootprintWithinGrid(tr, tc, sizeCategory, gs)) return false;
-    return canPieceLandOn(piece, tr, tc, allPieces).allowed;
+    return canPieceLandOn(movingPiece, tr, tc, allPieces).allowed;
   };
 
   if (pieceId && appState.movement?.freeByPieceId?.[pieceId]) {
@@ -9545,13 +9605,13 @@ async function sendMoveSelected(toRow, toCol) {
     const vec = clampDirection((pending.dr || 0) + first.dr, (pending.dc || 0) + first.dc);
     const targetRow = fromRow + vec.dr;
     const targetCol = fromCol + vec.dc;
-    const pSize = piece?.sizeCategory || SIZE_CATEGORIES.medium;
+    const pSize = getPieceSizeCategory(piece);
     if (!isFootprintWithinGrid(targetRow, targetCol, pSize, Number(appState.gridSize) || 10)) {
       setStatus("err", "vetor final de meio deslocamento saiu da arena");
       appState.movement.halfStepIntentByPieceId[pieceId] = { ...first, turnKey: appState.movement.turnKey };
       return;
     }
-    if (!canPieceLandOn(piece, targetRow, targetCol, appState.pieces || []).allowed) {
+    if (!canPieceLandOn(resolvePieceSizeForRules(piece), targetRow, targetCol, appState.pieces || []).allowed) {
       setStatus("err", "tile final ocupado para meio deslocamento");
       appState.movement.halfStepIntentByPieceId[pieceId] = { ...first, turnKey: appState.movement.turnKey };
       return;
@@ -9633,7 +9693,7 @@ async function placePokemonOnBoardAt(pidLike, row, col) {
 
   const r = Number(row);
   const c = Number(col);
-  const sizeCategory = getPieceSizeCategory({ pid: monPid });
+  const sizeCategory = await getPieceSizeCategoryAsync({ pid: monPid });
   const gs = Number(appState.gridSize) || 10;
 
   if (!isFootprintWithinGrid(r, c, sizeCategory, gs)) {
@@ -9689,11 +9749,12 @@ async function placePokemonOnBoardAt(pidLike, row, col) {
       const snap = await tx.get(stateRef);
       const data = snap.exists() ? snap.data() : {};
       const pieces = Array.isArray(data?.pieces) ? data.pieces : [];
+      const piecesForRules = resolvePiecesSizeForRules(pieces);
       const seen = Array.isArray(data?.seen) ? data.seen : [];
 
       // Revalida dentro da transaction com size-rules (evita corrida)
       const txFake = { id: "__placing__", pid: monPid, entry_id: entryId || null, party_slot: partySlot, sizeCategory };
-      const txCheck = canPieceLandOn(txFake, r, c, pieces);
+      const txCheck = canPieceLandOn(txFake, r, c, piecesForRules);
       if (!txCheck.allowed) throw new Error(txCheck.reason);
 
       const already = !!findBoardPieceForTrainer(by, identity, { pieces });
@@ -9829,11 +9890,12 @@ async function movePieceOnBoard(pieceId, row, col, options = {}) {
       const battleSnap = battleRef && !options.free ? await tx.get(battleRef) : null;
       const battleData = battleSnap?.exists?.() ? battleSnap.data() : {};
 
+      const piecesForRules = resolvePiecesSizeForRules(pieces);
       const nextPieces = pieces.map((p) => ({ ...(p || {}) }));
       const idx = nextPieces.findIndex((p) => safeStr(p?.id) === pid);
       if (idx < 0) throw new Error("peca nao encontrada no state");
 
-      const piece = nextPieces[idx] || {};
+      const piece = resolvePieceSizeForRules(nextPieces[idx] || {});
       if (safeStr(piece?.status || "active") !== "active") throw new Error("peca inativa");
       if (safeStr(piece?.owner).toLowerCase() !== by.toLowerCase()) throw new Error("voce so pode mover pecas suas");
 
@@ -9841,7 +9903,7 @@ async function movePieceOnBoard(pieceId, row, col, options = {}) {
         throw new Error("somente o jogador do turno pode mover");
       }
 
-      const sizeCategory = piece?.sizeCategory || getPieceSizeCategory(piece);
+      const sizeCategory = getPieceSizeCategory(piece);
       const gs = Number(data?.gridSize) || Number(appState.gridSize) || 10;
       if (!isFootprintWithinGrid(r, c, sizeCategory, gs)) {
         throw new Error("tile invalido ou peca nao cabe na borda da arena");
@@ -9857,7 +9919,7 @@ async function movePieceOnBoard(pieceId, row, col, options = {}) {
       }
 
       const movingPiece = { ...piece, sizeCategory };
-      const landing = canPieceLandOn(movingPiece, r, c, pieces);
+      const landing = canPieceLandOn(movingPiece, r, c, piecesForRules);
       if (!landing.allowed) throw new Error(landing.reason || "tile ocupado");
 
       movingPiece.row = r;
@@ -10348,7 +10410,7 @@ function openPiecePickerMenu(piecesArr, clientX, clientY, opts) {
   _pickerState = { pieces: piecesArr, afterPick: (opts && opts.afterPick) || "select", clientX, clientY };
   el.innerHTML = piecesArr.map(p => {
     const name = (p?.revealed ? (dexNameFromPid(safeStr(p.pid)) || safeStr(p.pid)) : "???").slice(0, 16);
-    const size = p?.sizeCategory || "medium";
+    const size = getPieceSizeCategory(p);
     const mine = isPieceMine(p);
     return `<button type="button" data-picker-id="${safeStr(p.id)}" style="text-align:left;padding:4px 8px;font-size:13px;">${mine ? "★ " : ""}${name} <span style="opacity:0.5;font-size:11px;">(${size})</span></button>`;
   }).join("");
@@ -10997,7 +11059,7 @@ function getArenaDomRenderKey() {
       safeStr(p?.status || "active"),
       Number(p?.row),
       Number(p?.col),
-      safeStr(p?.sizeCategory || "medium"),
+      safeStr(getPieceSizeCategory(p)),
       p?.revealed ? "1" : "0",
     ].join(":"))
     .join("|");
@@ -11116,8 +11178,8 @@ function renderArenaDom() {
   const domSortedPieces = [...(appState.pieces || [])].filter(p =>
     safeStr(p?.status || "active") === "active" && isPieceVisibleToMe(p)
   ).sort((a, b) => {
-    const za = getSizeDimensions(a?.sizeCategory || "medium").zIndex;
-    const zb = getSizeDimensions(b?.sizeCategory || "medium").zIndex;
+    const za = getSizeDimensions(getPieceSizeCategory(a)).zIndex;
+    const zb = getSizeDimensions(getPieceSizeCategory(b)).zIndex;
     return za - zb;
   });
   for (const p of domSortedPieces) {
@@ -11134,7 +11196,7 @@ function renderArenaDom() {
     applyPieceConditionFxToElement(token, p);
     syncPieceEnteringClass(token, safeStr(p?.id), frameNow);
     if (getMegaEvolutionFxState(p?.owner, p?.pid)) token.classList.add("mega-evolving");
-    const sizeCategory = p?.sizeCategory || "medium";
+    const sizeCategory = getPieceSizeCategory(p);
     const { tileW, tileH } = getSizeDimensions(sizeCategory);
     const label = p?.revealed ? shortLabelFromPiece(p, 4) : "?";
     const spriteUrl = p?.revealed
@@ -11151,7 +11213,7 @@ function renderArenaDom() {
     let tokenHeight = board.tile - pad * 2;
     if (sizeCategory === SIZE_CATEGORIES.tiny) {
       const tinyOnTile = getPiecesOccupyingTile(r, c, appState.pieces || [])
-        .filter((q) => (q?.sizeCategory || SIZE_CATEGORIES.medium) === SIZE_CATEGORIES.tiny && isPieceVisibleToMe(q));
+        .filter((q) => getPieceSizeCategory(q) === SIZE_CATEGORIES.tiny && isPieceVisibleToMe(q));
       const slotIndex = Math.max(0, tinyOnTile.findIndex((q) => safeStr(q?.id) === safeStr(p?.id)));
       const slot = getTinySlotPosition(slotIndex);
       tokenLeft = Math.round(slot.offsetXRatio * board.tile);
@@ -13284,7 +13346,7 @@ drawTraps(ctx, ox, oy, tile);
   for (const p of visiblePieces) {
     const r = Number(p?.row);
     if (!Number.isFinite(r)) continue;
-    const { tileH } = getSizeDimensions(p?.sizeCategory || "medium");
+    const { tileH } = getSizeDimensions(getPieceSizeCategory(p));
     _yStack.push({ _isObj: false, piece: p, sortY: r + tileH });
   }
 
@@ -13368,7 +13430,7 @@ drawTraps(ctx, ox, oy, tile);
     if (sizeCategory === SIZE_CATEGORIES.tiny) {
       // Quadrante: encontra slot entre tinies no mesmo tile
       const tinyOnTile = getPiecesOccupyingTile(row, col, visiblePieces)
-        .filter(q => (q?.sizeCategory || "medium") === SIZE_CATEGORIES.tiny && isPieceVisibleToMe(q));
+        .filter(q => getPieceSizeCategory(q) === SIZE_CATEGORIES.tiny && isPieceVisibleToMe(q));
       const slotIndex = Math.max(0, tinyOnTile.findIndex(q => safeStr(q.id) === id));
       const slot = getTinySlotPosition(slotIndex);
       spriteX = x + slot.offsetXRatio * tile;
@@ -13522,7 +13584,7 @@ drawTraps(ctx, ox, oy, tile);
   // drag ghost — retângulo para large/huge, círculo para tiny/medium
   if (appState.drag.active && appState.selectedPieceId) {
     const dragPiece = (appState.pieces || []).find(q => safeStr(q?.id) === safeStr(appState.selectedPieceId));
-    const dragSize = dragPiece?.sizeCategory || SIZE_CATEGORIES.medium;
+    const dragSize = getPieceSizeCategory(dragPiece);
     const { tileW: dw, tileH: dh } = getSizeDimensions(dragSize);
     ctx.fillStyle = "rgba(56,189,248,0.10)";
     if (dw > 1 || dh > 1) {

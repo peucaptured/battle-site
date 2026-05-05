@@ -3924,6 +3924,336 @@ export class ArenaCombatUI {
     });
   }
 
+  renderCombatTab(root, battle = this.getBattle()) {
+    if (!root || !battle) return false;
+
+    const by = safeStr(this.getBy());
+    const status = safeStr(battle.status) || "idle";
+    const prompt = battle.prompt || null;
+    const pendingFor = safeStr(battle.pendingFor);
+    const canSecondary = status === "idle" && canOfferSecondaryEffect(battle, by);
+    const arenaStatuses = new Set([
+      "aoe_defense",
+      "waiting_defense",
+      "pending_reaction",
+      "pending_reaction_review",
+    ]);
+    const shouldHandle = canSecondary || !!prompt || !!pendingFor || arenaStatuses.has(status);
+    if (!shouldHandle || status === "setup") return false;
+
+    this._syncBattlePrompts(battle);
+    root.innerHTML = this._renderCombatTabArenaFlow(battle, {
+      by,
+      status,
+      prompt,
+      pendingFor,
+      canSecondary,
+    });
+    this._bindCombatTabArenaFlow(root, battle);
+    return true;
+  }
+
+  _renderCombatTabArenaFlow(battle, ctx = {}) {
+    const logs = Array.isArray(battle?.logs) ? battle.logs : [];
+    const lastLog = safeStr(logs[logs.length - 1] || "");
+    const moveName = safeStr(battle?.attack_move?.name || battle?.power_rule?.name || "Golpe");
+    const attacker = safeStr(battle?.attacker) || "-";
+    const targetOwner = safeStr(battle?.target_owner) || "-";
+    const targetName = displayName(battle?.target_pid || battle?.target_id || "");
+    const status = safeStr(ctx.status) || "idle";
+    const pendingFor = safeStr(ctx.pendingFor);
+    const prompt = ctx.prompt || null;
+
+    let actionHtml = "";
+    if (ctx.canSecondary) {
+      actionHtml = this._renderCombatTabSecondaryPrompt();
+    } else if (pendingFor && pendingFor === safeStr(ctx.by) && prompt) {
+      actionHtml = this._renderCombatTabPrompt(battle, prompt);
+    } else if (pendingFor) {
+      actionHtml = `
+        <div class="card" style="margin-top:10px">
+          <div style="font-weight:950;margin-bottom:6px">Aguardando acao</div>
+          <div class="muted">Aguardando <strong>${escHtml(pendingFor)}</strong> responder pelo fluxo da arena.</div>
+        </div>
+      `;
+    } else if (status === "pending_reaction_review") {
+      actionHtml = `
+        <div class="card" style="margin-top:10px">
+          <div style="font-weight:950;margin-bottom:6px">Reacao aguardando revisao</div>
+          <div class="muted">A resolucao precisa de revisao antes de continuar.</div>
+        </div>
+      `;
+    } else {
+      actionHtml = `
+        <div class="card" style="margin-top:10px">
+          <div style="font-weight:950;margin-bottom:6px">Fluxo da arena ativo</div>
+          <div class="muted">As regras e o estado estao sincronizados com a arena.</div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="card">
+        <div style="font-weight:950;margin-bottom:8px">Fluxo unificado da arena</div>
+        <div class="muted" style="margin-bottom:8px">
+          Status: <strong>${escHtml(status)}</strong> &bull;
+          Ataque: <strong>${escHtml(moveName)}</strong>
+        </div>
+        <div class="muted" style="margin-bottom:8px">
+          ${escHtml(attacker)} -> ${escHtml(targetOwner)}${targetName && targetName !== "???" ? ` (${escHtml(targetName)})` : ""}
+        </div>
+        ${lastLog ? `<div class="cb-log-msg">${escHtml(lastLog)}</div>` : ""}
+      </div>
+      ${actionHtml}
+    `;
+  }
+
+  _renderCombatTabPrompt(battle, prompt) {
+    const type = safeStr(prompt?.type);
+    if (type === "ROLL_RESIST") return this._renderCombatTabResistPrompt(prompt);
+    if (type === "CONFIRM_HIT_RANK") return this._renderCombatTabRankPrompt(battle);
+    if (type === "MM_REACTION") return this._renderCombatTabReactionPrompt(battle, prompt);
+    if (type === "REROLL") return this._renderCombatTabRerollPrompt();
+    return `
+      <div class="card" style="margin-top:10px">
+        <div style="font-weight:950;margin-bottom:6px">Opcao pendente</div>
+        <div class="muted">Prompt da arena: ${escHtml(type || "desconhecido")}</div>
+      </div>
+    `;
+  }
+
+  _renderCombatTabResistPrompt(prompt) {
+    const dc = safeInt(prompt?.options?.dc);
+    const isEffect = !!prompt?.options?.isEffect;
+    const isAoe = !!prompt?.options?.isAoe;
+    return `
+      <div class="card" style="margin-top:10px">
+        <div style="font-weight:950;margin-bottom:6px">Resistir ao ataque</div>
+        <div class="muted" style="margin-bottom:10px">
+          CD ${dc} ${isEffect ? "(Efeito)" : "(Dano)"}${isAoe ? " - Area" : ""}
+        </div>
+        <div class="cb-defense-grid">
+          <button class="btn secondary" data-ac-tab-def="dodge">Dodge</button>
+          ${isAoe ? "" : `
+          <button class="btn secondary" data-ac-tab-def="parry">Parry</button>
+          <button class="btn secondary" data-ac-tab-def="fort">Fort</button>
+          <button class="btn secondary" data-ac-tab-def="will">Will</button>
+          <button class="btn secondary" data-ac-tab-def="thg">THG</button>
+          `}
+        </div>
+      </div>
+    `;
+  }
+
+  _renderCombatTabRankPrompt(battle) {
+    const atk = battle?.attack_move || {};
+    const moveDmg = safeInt(atk?.damage, safeInt(battle?.dmg_base));
+    const parts = [];
+    if (atk && atk.rank != null) {
+      parts.push(`R${safeInt(atk.rank)} base`);
+      if (atk.stat_value) parts.push(`+${safeInt(atk.stat_value)} ${safeStr(atk.based_stat)}`);
+      if (atk.stab_bonus) parts.push(`+${safeInt(atk.stab_bonus)} STAB`);
+      if (atk.type_bonus && safeInt(atk.type_bonus) !== 0) parts.push(`${signedMod(safeInt(atk.type_bonus))} tipo`);
+      if (safeInt(atk.modDano, 0) !== 0) parts.push(`${signedMod(safeInt(atk.modDano, 0))} mod`);
+      if (safeInt(battle?.crit_bonus)) parts.push(`+${safeInt(battle.crit_bonus)} crit`);
+    }
+    return `
+      <div class="card" style="margin-top:10px">
+        <div style="font-weight:950;margin-bottom:8px">Confirmar rank</div>
+        ${parts.length ? `<div class="muted" style="margin-bottom:8px">${escHtml(parts.join(" "))}</div>` : ""}
+        <label class="label" for="ac_tab_rank_input">Rank do Dano / Efeito</label>
+        <input class="input" id="ac_tab_rank_input" type="number" value="${moveDmg}" min="0" style="margin-bottom:10px" />
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+          <input type="checkbox" id="ac_tab_rank_effect" />
+          <label for="ac_tab_rank_effect" style="font-size:13px;font-weight:700">E efeito? (Affliction)</label>
+        </div>
+        <button class="btn" data-ac-tab-rank-confirm style="width:100%">Confirmar Rank</button>
+      </div>
+    `;
+  }
+
+  _renderCombatTabReactionPrompt(battle, prompt) {
+    const reactions = Array.isArray(battle?.pending_reactions) ? battle.pending_reactions : [];
+    const reaction = reactions.find((item) => safeStr(item?.id) === safeStr(prompt?.reactionId)) || this._firstPendingReaction(reactions);
+    if (!reaction) {
+      return `
+        <div class="card" style="margin-top:10px">
+          <div style="font-weight:950;margin-bottom:6px">Reacao pendente</div>
+          <div class="muted">Fila de reacao vazia ou ja resolvida.</div>
+        </div>
+      `;
+    }
+    const validTargets = (reaction.validTargets || [])
+      .map((target) => safeStr(target.label || target.pieceId || target.pid))
+      .filter(Boolean)
+      .join(", ") || "alvo do ataque";
+    return `
+      <div class="card" style="margin-top:10px">
+        <div style="font-weight:950;margin-bottom:6px">Reacao disponivel</div>
+        <div style="font-weight:800;margin-bottom:6px">${escHtml(reaction.powerName || "Power")}</div>
+        <div class="muted" style="margin-bottom:10px">
+          ${escHtml(reaction.eventSummary || "Ataque recebido")}<br>
+          Custo/limite: ${escHtml(reaction.cost || "sem limite fixo")}<br>
+          Alvos validos: ${escHtml(validTargets)}
+        </div>
+        <div class="cb-defense-grid">
+          <button class="btn" data-ac-tab-reaction="accept">${escHtml(reaction.accept?.label || "Ativar")}</button>
+          <button class="btn secondary" data-ac-tab-reaction="ignore">${escHtml(reaction.ignore?.label || "Ignorar")}</button>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderCombatTabRerollPrompt() {
+    return `
+      <div class="card" style="margin-top:10px">
+        <div style="font-weight:950;margin-bottom:6px">Deseja usar Re-roll?</div>
+        <div class="cb-defense-grid">
+          <button class="btn" data-ac-tab-reroll="yes">Rerollar</button>
+          <button class="btn secondary" data-ac-tab-reroll="no">Manter</button>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderCombatTabSecondaryPrompt() {
+    return `
+      <div class="card" style="margin-top:10px">
+        <div style="font-weight:950;margin-bottom:6px">Efeito secundario?</div>
+        <div class="muted" style="margin-bottom:10px">Ative se o ataque tambem causar envenenar, paralisar ou outro efeito.</div>
+        <div class="cb-defense-grid">
+          <button class="btn" data-ac-tab-secondary="yes">Ativar Efeito</button>
+          <button class="btn secondary" data-ac-tab-secondary="no">Encerrar</button>
+        </div>
+      </div>
+    `;
+  }
+
+  _bindCombatTabArenaFlow(root, battle) {
+    root.querySelectorAll("[data-ac-tab-def]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this._disableCombatTabButtons(root, "Rolando...");
+        const clicked = this._clickArenaPromptControl(battle, `[data-def="${btn.dataset.acTabDef}"]`);
+        if (!clicked) this._restoreCombatTabButtons(root);
+      });
+    });
+
+    root.querySelector("[data-ac-tab-rank-confirm]")?.addEventListener("click", () => {
+      this._disableCombatTabButtons(root, "Confirmando...");
+      const rankValue = safeInt(root.querySelector("#ac_tab_rank_input")?.value);
+      const isEffect = !!root.querySelector("#ac_tab_rank_effect")?.checked;
+      this._clickArenaPromptControl(battle, "#ac-rank-confirm", {
+        prepare: (promptEl) => {
+          const input = promptEl.querySelector("#ac-rank-input");
+          const check = promptEl.querySelector("#ac-rank-effect");
+          if (input) input.value = String(rankValue);
+          if (check) check.checked = isEffect;
+        },
+      }) || this._restoreCombatTabButtons(root);
+    });
+
+    root.querySelectorAll("[data-ac-tab-reaction]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this._disableCombatTabButtons(root, btn.dataset.acTabReaction === "accept" ? "Ativando..." : "Ignorando...");
+        const clicked = this._clickArenaPromptControl(battle, `[data-act="${btn.dataset.acTabReaction}"]`);
+        if (!clicked) this._restoreCombatTabButtons(root);
+      });
+    });
+
+    root.querySelectorAll("[data-ac-tab-reroll]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this._disableCombatTabButtons(root, btn.dataset.acTabReroll === "yes" ? "Rerolando..." : "Mantendo...");
+        this._syncBattlePrompts(battle);
+        const selector = btn.dataset.acTabReroll === "yes" ? "#ac-reroll-yes" : "#ac-reroll-no";
+        const sourceBtn = this._currentReroll?.querySelector(selector);
+        if (sourceBtn) sourceBtn.click();
+        else if (btn.dataset.acTabReroll === "yes") this._doReroll();
+        else this._keepRoll();
+      });
+    });
+
+    root.querySelectorAll("[data-ac-tab-secondary]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this._disableCombatTabButtons(root, btn.dataset.acTabSecondary === "yes" ? "Ativando..." : "Encerrando...");
+        const selector = btn.dataset.acTabSecondary === "yes" ? "#ac-sec-yes" : "#ac-sec-no";
+        const clicked = this._clickArenaPromptControl(battle, selector);
+        if (!clicked) this._restoreCombatTabButtons(root);
+      });
+    });
+  }
+
+  _disableCombatTabButtons(root, text = "...") {
+    root.querySelectorAll("button").forEach((button) => {
+      button.disabled = true;
+      if (!button.dataset.acOriginalText) button.dataset.acOriginalText = button.textContent || "";
+      button.textContent = text;
+      button.style.opacity = "0.6";
+    });
+  }
+
+  _restoreCombatTabButtons(root) {
+    root.querySelectorAll("button").forEach((button) => {
+      button.disabled = false;
+      if (button.dataset.acOriginalText) button.textContent = button.dataset.acOriginalText;
+      button.style.opacity = "";
+    });
+  }
+
+  _clickArenaPromptControl(battle, selector, opts = {}) {
+    this._syncBattlePrompts(battle);
+    const promptEl = this._currentPrompt;
+    const sourceBtn = promptEl?.querySelector(selector);
+    if (!sourceBtn) return false;
+    if (typeof opts.prepare === "function") opts.prepare(promptEl, sourceBtn);
+    sourceBtn.click();
+    return true;
+  }
+
+  _syncBattlePrompts(battle) {
+    if (!battle) {
+      this._clearPendingFloats();
+      this._closePrompt();
+      this._closeReroll();
+      return;
+    }
+
+    const by = this.getBy();
+    const pendingFor = safeStr(battle.pendingFor);
+    const prompt = battle.prompt;
+    const status = safeStr(battle.status);
+
+    if (status === "idle") {
+      this._clearPendingFloats();
+      this._closePrompt();
+      this._closeReroll();
+
+      const canSecondary = canOfferSecondaryEffect(battle, by);
+      if (canSecondary && !this._currentPrompt) {
+        this._renderSecondaryEffectPrompt(battle);
+      }
+      return;
+    }
+
+    if (pendingFor === by && prompt) {
+      const promptKey = this._battlePromptKey(battle, prompt);
+      if (this._currentPrompt && this._currentPrompt._acPromptKey !== promptKey) {
+        this._closePrompt();
+      }
+      if (prompt.type === "ROLL_RESIST" && !this._currentPrompt) {
+        this._renderResistPrompt(battle, prompt);
+      } else if (prompt.type === "CONFIRM_HIT_RANK" && !this._currentPrompt) {
+        this._renderRankPrompt(battle, prompt);
+      } else if (prompt.type === "MM_REACTION" && !this._currentPrompt) {
+        this._renderReactionPrompt(battle, prompt);
+      } else if (prompt.type === "REROLL" && !this._currentReroll) {
+        this._renderRerollToast(battle, prompt);
+      }
+    } else if (pendingFor && pendingFor !== by) {
+      this._closePrompt();
+      this._closeReroll();
+    }
+  }
+
   render() {
     const battle = this.getBattle();
     if (!battle) { this._clearPendingFloats(); this._closePrompt(); this._closeReroll(); return; }
@@ -3950,7 +4280,7 @@ export class ArenaCombatUI {
 
     if (pendingFor === by && prompt) {
       const promptKey = this._battlePromptKey(battle, prompt);
-      if (this._currentPrompt?._acPromptKey && this._currentPrompt._acPromptKey !== promptKey) {
+      if (this._currentPrompt && this._currentPrompt._acPromptKey !== promptKey) {
         this._closePrompt();
       }
       if (prompt.type === "ROLL_RESIST" && !this._currentPrompt) {
@@ -3968,7 +4298,37 @@ export class ArenaCombatUI {
     }
   }
 
-  // Novo prompt que aparece para o Atacante ativar efeitos secundários
+  _battlePromptKey(battle, prompt) {
+    const options = prompt?.options || {};
+    const queue = Array.isArray(options.resistanceQueue)
+      ? options.resistanceQueue.map((item) => [
+          safeStr(item?.effectId),
+          safeStr(item?.type),
+          safeStr(item?.resistance),
+          safeInt(item?.dc),
+          safeInt(item?.rank),
+        ].join(":")).join(",")
+      : "";
+    return [
+      safeStr(battle?.status),
+      safeStr(battle?.pendingFor),
+      safeStr(prompt?.type),
+      safeStr(prompt?.reactionId),
+      prompt?.secondary === true ? "secondary" : "",
+      safeInt(options.dc),
+      options.isEffect ? "effect" : "damage",
+      options.isAoe ? "aoe" : "single",
+      safeStr(options.aoePhase),
+      safeInt(options.rank, safeInt(battle?.dmg_base)),
+      safeInt(options.critBonus, safeInt(battle?.crit_bonus)),
+      queue,
+    ].join("|");
+  }
+
+  _markBattlePrompt(el, battle, prompt) {
+    if (el) el._acPromptKey = this._battlePromptKey(battle, prompt);
+  }
+
   _renderReactionPrompt(battle, prompt) {
     this._closePrompt();
     const reactions = Array.isArray(battle?.pending_reactions) ? battle.pending_reactions : [];
@@ -4006,6 +4366,7 @@ export class ArenaCombatUI {
     `;
     this._overlayRoot.appendChild(el);
     this._currentPrompt = el;
+    this._markBattlePrompt(el, battle, prompt);
 
     el.querySelector('[data-act="ignore"]')?.addEventListener("click", async () => {
       el.querySelectorAll("button").forEach((btn) => { btn.disabled = true; });
@@ -4176,6 +4537,7 @@ export class ArenaCombatUI {
 
     this._overlayRoot.appendChild(el);
     this._currentPrompt = el;
+    this._markBattlePrompt(el, battle, prompt);
 
     el.querySelectorAll("[data-def]").forEach(btn => {
       btn.addEventListener("click", async () => {
@@ -4329,6 +4691,7 @@ export class ArenaCombatUI {
 
     this._overlayRoot.appendChild(el);
     this._currentPrompt = el;
+    this._markBattlePrompt(el, battle, prompt);
 
     el.querySelector("#ac-rank-confirm").addEventListener("click", async () => {
       const btn = el.querySelector("#ac-rank-confirm");

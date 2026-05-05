@@ -1167,12 +1167,28 @@ export class CombatUI {
         status,
         by,
         role,
+        safeInt(battle.rev),
+        safeStr(battle.pendingFor),
+        safeStr(battle.prompt?.type),
+        safeStr(battle.prompt?.reactionId),
+        battle.prompt?.secondary === true ? "secondary" : "",
+        safeInt(battle.prompt?.options?.dc),
+        safeInt(battle.prompt?.options?.rank),
+        safeInt(battle.prompt?.options?.critBonus),
+        battle.prompt?.options?.isEffect ? "effect" : "damage",
+        battle.prompt?.options?.isAoe ? "aoe" : "single",
+        safeStr(battle.prompt?.options?.aoePhase),
+        battle.secondary_available ? "secondary-available" : "",
+        battle.secondary_active ? "secondary-active" : "",
         safeStr(battle.attacker),
         safeStr(battle.target_owner),
         safeStr(battle.target_pid),
         safeInt(battle.dmg_base),
         safeInt(battle.crit_bonus),
         battle.is_effect ? "1" : "0",
+        Array.isArray(battle.pending_reactions)
+          ? battle.pending_reactions.map((r) => `${safeStr(r?.id)}:${safeStr(r?.status || "pending")}`).join(",")
+          : "",
         (battle.logs || []).length,
       ].join("|");
 
@@ -1189,6 +1205,15 @@ export class CombatUI {
 
       // ensure sheets loaded for current player
       if (isPlayer && by) await this._loadSheets(by);
+
+      const arenaUnified = window._arenaCombatUI;
+      if (arenaUnified && typeof arenaUnified.renderCombatTab === "function") {
+        const handledByArenaFlow = arenaUnified.renderCombatTab(this._body, battle);
+        if (handledByArenaFlow) {
+          this._renderWhatIfPanel(battle, { isPlayer, by, role });
+          return;
+        }
+      }
 
       switch (status) {
         case "idle":       this._renderIdle(isPlayer, by, battle); break;
