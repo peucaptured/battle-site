@@ -219,6 +219,15 @@ function pushLookupKey(out, value) {
 function partyLookupKeys(value) {
   const out = [];
   if (value && typeof value === "object") {
+    pushLookupKey(out, value?.entry_id);
+    pushLookupKey(out, value?.entryId);
+    pushLookupKey(out, value?.hub_entry_id);
+    pushLookupKey(out, value?.hubEntryId);
+    pushLookupKey(out, value?.party_slot);
+    pushLookupKey(out, value?.partySlot);
+    pushLookupKey(out, value?._party_slot);
+    pushLookupKey(out, value?.sheet_id);
+    pushLookupKey(out, value?._sheet_id);
     pushLookupKey(out, value?.pid);
     pushLookupKey(out, value?.pokemon?.id);
     pushLookupKey(out, value?.pokemon?.name);
@@ -227,6 +236,12 @@ function partyLookupKeys(value) {
   }
   pushLookupKey(out, value);
   return out;
+}
+
+function sheetIdFromEntryId(value) {
+  const raw = safeStr(value);
+  const match = raw.match(/^sheet:(.+)$/i);
+  return match ? safeStr(match[1]) : "";
 }
 
 function getTrainerBucket(source, trainerName) {
@@ -244,9 +259,13 @@ function getPartyStateEntry(partyStates, trainerName, pidLike) {
   const targetKeys = partyLookupKeys(pidLike);
   if (!targetKeys.length) return null;
   const bucket = getTrainerBucket(partyStates, trainerName);
+  const payloadMatches = [];
   for (const [rawKey, entry] of Object.entries(bucket || {})) {
     if (targetKeys.includes(pidKey(rawKey))) return entry || {};
+    const entryKeys = partyLookupKeys(entry);
+    if (entryKeys.some((key) => targetKeys.includes(key))) payloadMatches.push(entry || {});
   }
+  if (payloadMatches.length === 1) return payloadMatches[0];
   return null;
 }
 
@@ -264,6 +283,40 @@ function getSnapshotEntry(trainerName, pidLike) {
     }
   }
   return null;
+}
+
+function sheetLookupValuesForTrainer(partyStates, trainerName, pidLike) {
+  const out = [];
+  const push = (value) => {
+    if (value == null || value === "") return;
+    if (!out.includes(value)) out.push(value);
+    const sheetId = sheetIdFromEntryId(value);
+    if (sheetId && !out.includes(sheetId)) out.push(sheetId);
+  };
+  const pushIdentity = (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      push(value);
+      return;
+    }
+    push(value);
+    push(value?.entry_id);
+    push(value?.entryId);
+    push(value?.hub_entry_id);
+    push(value?.hubEntryId);
+    push(value?.party_slot);
+    push(value?.partySlot);
+    push(value?._party_slot);
+    push(value?.sheet_id);
+    push(value?._sheet_id);
+    push(value?.pid);
+    push(value?.pokemon?.id);
+    push(value?.pokemon?.name);
+    push(value?.name);
+  };
+  pushIdentity(pidLike);
+  pushIdentity(getPartyStateEntry(partyStates, trainerName, pidLike));
+  pushIdentity(getSnapshotEntry(trainerName, pidLike));
+  return out;
 }
 
 function resolveTrainerPokemonTypes(trainerName, pidLike, options = {}) {
@@ -324,6 +377,8 @@ function buildSheetCollections(sheets) {
       pushMega(sheet?.linked_pid, sheet);
       continue;
     }
+    pushBase(docId, sheet);
+    if (docId) pushBase(`sheet:${docId}`, sheet);
     pushBase(sheet?.pokemon?.id, sheet);
     pushBase(sheet?.linked_pid, sheet);
     pushBase(sheet?.pokemon?.name, sheet);
@@ -332,9 +387,12 @@ function buildSheetCollections(sheets) {
 }
 
 function getBaseSheetFromCollections(collections, pidLike) {
-  const keys = partyLookupKeys(pidLike);
-  for (const key of keys) {
-    if (collections?.baseByKey?.has?.(key)) return collections.baseByKey.get(key);
+  const values = Array.isArray(pidLike) ? pidLike : [pidLike];
+  for (const value of values) {
+    const keys = partyLookupKeys(value);
+    for (const key of keys) {
+      if (collections?.baseByKey?.has?.(key)) return collections.baseByKey.get(key);
+    }
   }
   return null;
 }
@@ -885,10 +943,16 @@ export class CombatUI {
 
   _getSheet(trainerName, pid) {
     const collections = this._sheetCollections.get(trainerName) || null;
-    const baseSheet = getBaseSheetFromCollections(collections, pid);
+    const identity = (pid && typeof pid === "object" && !Array.isArray(pid))
+      ? pid
+      : (this._findPieceByOwnerPid(trainerName, pid) || pid);
+    const baseSheet = getBaseSheetFromCollections(
+      collections,
+      sheetLookupValuesForTrainer(this._partyStates, trainerName, identity)
+    );
     if (!baseSheet) return null;
-    const megaState = getBattleMegaState(this._partyStates, trainerName, pid);
-    const megaSheets = getMegaSheetsForBase(collections, baseSheet, pid);
+    const megaState = getBattleMegaState(this._partyStates, trainerName, identity);
+    const megaSheets = getMegaSheetsForBase(collections, baseSheet, identity);
     // Normalização numérica: "009" → "9" para não falhar por zero-padding
     const activeSlug = safeStr(megaState?.activeMegaSlug).toLowerCase();
     if (activeSlug) {
@@ -903,14 +967,28 @@ export class CombatUI {
     return baseSheet;
   }
 
+  _findPieceByOwnerPid(ownerName, pidLike) {
+    const owner = safeStr(ownerName);
+    const targetKeys = partyLookupKeys(pidLike);
+    if (!owner || !targetKeys.length) return null;
+    const pieces = this.getPieces?.() || [];
+    return pieces.find((piece) => (
+      safeStr(piece?.owner) === owner
+      && partyLookupKeys(piece).some((key) => targetKeys.includes(key))
+    )) || null;
+  }
+
   // ─── Get stats from party_states (mirror of get_poke_data) ───────
   // Fallback: se party_states não tiver dados, usa stats da ficha
   _getPokeStats(trainerName, pid) {
-    const tData = this._partyStates[trainerName] || {};
-    const key = safeStr(pid);
+    const identity = (pid && typeof pid === "object" && !Array.isArray(pid))
+      ? pid
+      : (this._findPieceByOwnerPid(trainerName, pid) || pid);
+    const tData = getTrainerBucket(this._partyStates, trainerName);
+    const key = safeStr(identity?.pid ?? identity?.pokemon?.id ?? pid);
 
     // Resolve pid key com normalização (espelha arena-combat.js)
-    let pData = tData[key];
+    let pData = getPartyStateEntry(this._partyStates, trainerName, identity) || tData[key];
     if (!pData && /^\d+$/.test(key)) pData = tData[String(Number(key))];
     if (!pData) {
       for (const k of Object.keys(tData)) {
@@ -925,7 +1003,7 @@ export class CombatUI {
     }
 
     // Fallback: stats da ficha carregada
-    const sheet = this._getSheet(trainerName, pid);
+    const sheet = this._getSheet(trainerName, identity);
     const rawStats =
       (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
         ? sheet.stats
@@ -953,11 +1031,14 @@ export class CombatUI {
   // boosts ficam em party_states[trainer][pid].stat_boosts = { dodge:+2, parry:-1, acerto:+2, ... }
   // Fallback para stats da ficha se party_states estiver vazio
   _getEffectiveStats(trainerName, pid) {
-    const tData = this._partyStates[trainerName] || {};
-    const key = safeStr(pid);
+    const identity = (pid && typeof pid === "object" && !Array.isArray(pid))
+      ? pid
+      : (this._findPieceByOwnerPid(trainerName, pid) || pid);
+    const tData = getTrainerBucket(this._partyStates, trainerName);
+    const key = safeStr(identity?.pid ?? identity?.pokemon?.id ?? pid);
 
     // Resolve pid key com normalização (espelha arena-combat.js)
-    let pData = tData[key];
+    let pData = getPartyStateEntry(this._partyStates, trainerName, identity) || tData[key];
     if (!pData && /^\d+$/.test(key)) pData = tData[String(Number(key))];
     if (!pData) {
       for (const k of Object.keys(tData)) {
@@ -983,7 +1064,7 @@ export class CombatUI {
       return result;
     }
 
-    const sheet = this._getSheet(trainerName, pid);
+    const sheet = this._getSheet(trainerName, identity);
     const sheetStats = (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats)) ? sheet.stats : {};
     const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
     const hasPartyStats = shouldUsePartyBaseStats(pData.stats, sheetStats, np > 0);

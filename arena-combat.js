@@ -350,6 +350,15 @@ function pushLookupKey(out, value) {
 function partyLookupKeys(value) {
   const out = [];
   if (value && typeof value === "object") {
+    pushLookupKey(out, value?.entry_id);
+    pushLookupKey(out, value?.entryId);
+    pushLookupKey(out, value?.hub_entry_id);
+    pushLookupKey(out, value?.hubEntryId);
+    pushLookupKey(out, value?.party_slot);
+    pushLookupKey(out, value?.partySlot);
+    pushLookupKey(out, value?._party_slot);
+    pushLookupKey(out, value?.sheet_id);
+    pushLookupKey(out, value?._sheet_id);
     pushLookupKey(out, value?.pid);
     pushLookupKey(out, value?.pokemon?.id);
     pushLookupKey(out, value?.pokemon?.name);
@@ -358,6 +367,12 @@ function partyLookupKeys(value) {
   }
   pushLookupKey(out, value);
   return out;
+}
+
+function sheetIdFromEntryId(value) {
+  const raw = safeStr(value);
+  const match = raw.match(/^sheet:(.+)$/i);
+  return match ? safeStr(match[1]) : "";
 }
 
 function getTrainerBucket(source, trainerName) {
@@ -375,9 +390,13 @@ function getPartyStateEntry(partyStates, trainerName, pidLike) {
   const targetKeys = partyLookupKeys(pidLike);
   if (!targetKeys.length) return null;
   const bucket = getTrainerBucket(partyStates, trainerName);
+  const payloadMatches = [];
   for (const [rawKey, entry] of Object.entries(bucket || {})) {
     if (targetKeys.includes(pidKey(rawKey))) return entry || {};
+    const entryKeys = partyLookupKeys(entry);
+    if (entryKeys.some((key) => targetKeys.includes(key))) payloadMatches.push(entry || {});
   }
+  if (payloadMatches.length === 1) return payloadMatches[0];
   return null;
 }
 
@@ -395,6 +414,40 @@ function getSnapshotEntry(trainerName, pidLike) {
     }
   }
   return null;
+}
+
+function sheetLookupValuesForTrainer(partyStates, trainerName, pidLike) {
+  const out = [];
+  const push = (value) => {
+    if (value == null || value === "") return;
+    if (!out.includes(value)) out.push(value);
+    const sheetId = sheetIdFromEntryId(value);
+    if (sheetId && !out.includes(sheetId)) out.push(sheetId);
+  };
+  const pushIdentity = (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      push(value);
+      return;
+    }
+    push(value);
+    push(value?.entry_id);
+    push(value?.entryId);
+    push(value?.hub_entry_id);
+    push(value?.hubEntryId);
+    push(value?.party_slot);
+    push(value?.partySlot);
+    push(value?._party_slot);
+    push(value?.sheet_id);
+    push(value?._sheet_id);
+    push(value?.pid);
+    push(value?.pokemon?.id);
+    push(value?.pokemon?.name);
+    push(value?.name);
+  };
+  pushIdentity(pidLike);
+  pushIdentity(getPartyStateEntry(partyStates, trainerName, pidLike));
+  pushIdentity(getSnapshotEntry(trainerName, pidLike));
+  return out;
 }
 
 function resolveTrainerPokemonTypes(trainerName, pidLike, options = {}) {
@@ -453,6 +506,8 @@ function buildSheetCollections(sheets) {
       pushMega(sheet?.linked_pid, sheet);
       continue;
     }
+    pushBase(docId, sheet);
+    if (docId) pushBase(`sheet:${docId}`, sheet);
     pushBase(sheet?.pokemon?.id, sheet);
     pushBase(sheet?.linked_pid, sheet);
     pushBase(sheet?.pokemon?.name, sheet);
@@ -461,9 +516,12 @@ function buildSheetCollections(sheets) {
 }
 
 function getBaseSheetFromCollections(collections, pidLike) {
-  const keys = partyLookupKeys(pidLike);
-  for (const key of keys) {
-    if (collections?.baseByKey?.has?.(key)) return collections.baseByKey.get(key);
+  const values = Array.isArray(pidLike) ? pidLike : [pidLike];
+  for (const value of values) {
+    const keys = partyLookupKeys(value);
+    for (const key of keys) {
+      if (collections?.baseByKey?.has?.(key)) return collections.baseByKey.get(key);
+    }
   }
   return null;
 }
@@ -1424,7 +1482,7 @@ export class ArenaCombatUI {
     const tid = safeDocId(trainerName);
     try {
       const col = collection(db, "trainers", tid, "sheets");
-      const q = query(col, orderBy("updated_at", "desc"), fbLimit(50));
+      const q = query(col, orderBy("updated_at", "desc"), fbLimit(200));
       const snap = await getDocs(q);
       const sheets = [];
       const map = new Map();
@@ -1454,10 +1512,16 @@ export class ArenaCombatUI {
 
   _getSheet(trainerName, pid) {
     const collections = this._sheetCollections.get(trainerName) || null;
-    const baseSheet = getBaseSheetFromCollections(collections, pid);
+    const identity = (pid && typeof pid === "object" && !Array.isArray(pid))
+      ? pid
+      : (this._findPieceByOwnerPid(trainerName, pid) || pid);
+    const baseSheet = getBaseSheetFromCollections(
+      collections,
+      sheetLookupValuesForTrainer(this._partyStates, trainerName, identity)
+    );
     if (!baseSheet) return null;
-    const megaState = getBattleMegaState(this._partyStates, trainerName, pid);
-    const megaSheets = getMegaSheetsForBase(collections, baseSheet, pid);
+    const megaState = getBattleMegaState(this._partyStates, trainerName, identity);
+    const megaSheets = getMegaSheetsForBase(collections, baseSheet, identity);
     const activeSlug = safeStr(megaState?.activeMegaSlug).toLowerCase();
     if (activeSlug) {
       const megaSheet = megaSheets.find((sheet) => safeStr(sheet?.mega_slug).toLowerCase() === activeSlug);
@@ -1473,10 +1537,13 @@ export class ArenaCombatUI {
 
   // Novo _getEffectiveStats incluindo boosts temporários (espelha o combat.js)
   _getEffectiveStats(trainerName, pid) {
-    const tData = this._partyStates[trainerName] || {};
-    const key = safeStr(pid);
+    const identity = (pid && typeof pid === "object" && !Array.isArray(pid))
+      ? pid
+      : (this._findPieceByOwnerPid(trainerName, pid) || pid);
+    const tData = getTrainerBucket(this._partyStates, trainerName);
+    const key = safeStr(identity?.pid ?? identity?.pokemon?.id ?? pid);
     
-    let pData = tData[key];
+    let pData = getPartyStateEntry(this._partyStates, trainerName, identity) || tData[key];
     if (!pData && /^\d+$/.test(key)) pData = tData[String(Number(key))];
     if (!pData) {
       for (const k of Object.keys(tData)) {
@@ -1503,7 +1570,7 @@ export class ArenaCombatUI {
       return result;
     }
 
-    const sheet = this._getSheet(trainerName, pid);
+    const sheet = this._getSheet(trainerName, identity);
     const sheetStats = (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats)) ? sheet.stats : {};
     const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
     const hasPartyStats = shouldUsePartyBaseStats(pData.stats, sheetStats, np > 0);
@@ -1540,7 +1607,9 @@ export class ArenaCombatUI {
 
   // Calculador centralizado de dano com STAB, Tipo e mods temporários do golpe
   _calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid, opts = {}) {
-    const atkSheet = opts.atkSheet || this._getSheet(by, atkPid);
+    const atkIdentity = opts.atkIdentity || this._findPieceByOwnerPid(by, atkPid) || atkPid;
+    const targetIdentity = opts.targetIdentity || this._findPieceByOwnerPid(tOwner, tPid) || tPid;
+    const atkSheet = opts.atkSheet || this._getSheet(by, atkIdentity);
     const moveIdx = resolveMoveIndex(atkSheet?.moves || [], move, opts.moveIdx);
     const tempMods = getMoveTempMods(atkPid, moveIdx, atkSheet);
     const mData = opts.moveData || getMoveData(move, tempMods);
@@ -1552,9 +1621,9 @@ export class ArenaCombatUI {
     const moveName = safeStr(move.name) || "Golpe";
     const moveType = getMoveType(moveName) || safeStr(move.meta?.type) || safeStr(move.type) || "";
 
-    const atkTypes = resolveTrainerPokemonTypes(by, atkPid, { sheet: atkSheet });
-    const tSheet = this._getSheet(tOwner, tPid);
-    const tgtTypes = resolveTrainerPokemonTypes(tOwner, tPid, { sheet: tSheet });
+    const atkTypes = resolveTrainerPokemonTypes(by, atkIdentity, { sheet: atkSheet, piece: atkIdentity });
+    const tSheet = this._getSheet(tOwner, targetIdentity);
+    const tgtTypes = resolveTrainerPokemonTypes(tOwner, targetIdentity, { sheet: tSheet, piece: targetIdentity });
 
     const typeBonus = moveType && tgtTypes.length > 0 ? getTypeDamageBonus(moveType, tgtTypes) : 0;
     const stabBonus = (moveType && atkTypes.some(t => normalizeType(t) === moveType)) ? 2 : 0;
@@ -2506,23 +2575,24 @@ export class ArenaCombatUI {
 
   _findPieceByOwnerPid(ownerName, pidLike) {
     const owner = safeStr(ownerName);
-    const pid = safeStr(pidLike);
+    const targetKeys = partyLookupKeys(pidLike);
+    if (!owner || !targetKeys.length) return null;
     const pieces = this.getPieces() || [];
     return pieces.find((piece) => (
       safeStr(piece?.owner) === owner
-      && (
-        safeStr(piece?.pid) === pid
-        || safeStr(piece?.id) === pid
-        || safeStr(piece?.party_slot) === pid
-        || safeStr(piece?.entry_id) === pid
-      )
+      && partyLookupKeys(piece).some((key) => targetKeys.includes(key))
     )) || null;
   }
 
   _partyStateFor(ownerName, pidLike) {
     const owner = safeStr(ownerName);
-    const pid = safeStr(pidLike);
-    const bucket = this._partyStates?.[owner] || {};
+    const identity = (pidLike && typeof pidLike === "object" && !Array.isArray(pidLike))
+      ? pidLike
+      : (this._findPieceByOwnerPid(ownerName, pidLike) || pidLike);
+    const pid = safeStr(identity?.pid ?? identity?.pokemon?.id ?? pidLike);
+    const bucket = getTrainerBucket(this._partyStates, owner);
+    const resolved = getPartyStateEntry(this._partyStates, owner, identity);
+    if (resolved) return resolved || {};
     if (bucket[pid]) return bucket[pid] || {};
     if (/^\d+$/.test(pid) && bucket[String(Number(pid))]) return bucket[String(Number(pid))] || {};
     return {};

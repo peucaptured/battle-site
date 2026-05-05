@@ -1287,7 +1287,7 @@ function displayNameFromPiece(piece, opts = {}) {
   if (!opts.allowHiddenIdentity && !mine && !revealed) return "???";
   const owner = safeStr(opts.owner || p?.owner);
   if (isTrainerPiece(p)) return owner || displayNameFromPid(p?.pid, { owner });
-  return displayNameFromPid({ pid: p?.pid, party_slot: _getPartySlot(p) }, { owner });
+  return displayNameFromPid({ pid: p?.pid, entry_id: _getEntryId(p), party_slot: _getPartySlot(p) }, { owner });
 }
 
 function pieceTypeLabel(piece) {
@@ -8979,6 +8979,8 @@ function _buildSheetCollections(sheets) {
       continue;
     }
     baseSheets.push(sheet);
+    pushBase(docId, sheet);
+    if (docId) pushBase(`sheet:${docId}`, sheet);
     pushBase(sheet?.pokemon?.id, sheet);
     pushBase(sheet?.linked_pid, sheet);
     pushBase(sheet?.pokemon?.name, sheet);
@@ -10797,7 +10799,7 @@ function bindArenaInteractionsCanvas() {
     if (appState.placingTrainer) return; // handled by scoreboard-patch.js capture
     const placingPid = getPlacingPokemonPid();
     if (placingPid) {
-      placePokemonOnBoardAt(placingPid, tile.row, tile.col);
+      placePokemonOnBoardAt(appState.placing || placingPid, tile.row, tile.col);
       return;
     }
 
@@ -10902,7 +10904,7 @@ function bindArenaInteractionsDom() {
     if (appState.placingTrainer) return; // handled by scoreboard-patch.js capture
     const placingPid = getPlacingPokemonPid();
     if (placingPid) {
-      placePokemonOnBoardAt(placingPid, row, col);
+      placePokemonOnBoardAt(appState.placing || placingPid, row, col);
       return;
     }
 
