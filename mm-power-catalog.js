@@ -251,6 +251,7 @@ function effectTypeFromSegment(segment, moveName = "") {
 function parseModifiers(segment) {
   const extras = [];
   const flaws = [];
+  const canonicalModifierText = (value) => safeStr(value).replace(/\bUnrealible\b/gi, "Unreliable");
   const pushMatchedModifier = (bucket, label) => {
     const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
     const match = segment.match(new RegExp(`\\b${escaped}(?:\\s+\\d+)?\\b`, "i"));
@@ -263,7 +264,7 @@ function parseModifiers(segment) {
     linked: /\bLinked\b/i.test(segment),
     secondaryEffect: /\bSecondary Effect\b/i.test(segment),
     fades: /\bFades\b/i.test(segment),
-    unreliable: /\bUnreliable\b/i.test(segment),
+    unreliable: /\b(?:Unreliable|Unrealible)\b/i.test(segment),
     reaction: /\bReaction\b/i.test(segment),
     selective: /\bSelective\b/i.test(segment),
     limited: /\bLimited\b/i.test(segment),
@@ -272,7 +273,7 @@ function parseModifiers(segment) {
     multiattack: /\bMultiattack\b/i.test(segment),
   };
   for (const match of segment.matchAll(/\[Extra:\s*([^\]]+)\]/gi)) extras.push(match[1].trim());
-  for (const match of segment.matchAll(/\[Flaw:\s*([^\]]+)\]/gi)) flaws.push(match[1].trim());
+  for (const match of segment.matchAll(/\[Flaw:\s*([^\]]+)\]/gi)) flaws.push(canonicalModifierText(match[1].trim()));
   for (const [key, label] of [
     ["secondaryEffect", "Secondary Effect"],
     ["reaction", "Reaction"],

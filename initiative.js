@@ -21,6 +21,14 @@ function d20() {
   return Math.floor(Math.random() * 20) + 1;
 }
 
+async function playDiceRollAnimation(label, value) {
+  try {
+    if (typeof window !== "undefined" && typeof window.playDiceRollAnimation === "function") {
+      await window.playDiceRollAnimation({ label, value });
+    }
+  } catch {}
+}
+
 function normalizeOwnerName(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -626,6 +634,7 @@ export class InitiativeUI {
       const out = { ...this._initStore };
       for (const rec of pokemon) {
         const roll = d20();
+        await playDiceRollAnimation(`Iniciativa - ${rec.display || "Pokemon"}`, roll);
         const bonus = safeInt(this._bonusEdits[rec.key] ?? out[rec.key]?.bonus_input, 0);
         out[rec.key] = {
           d20_roll: roll,
@@ -653,6 +662,7 @@ export class InitiativeUI {
       }
 
       const roll = d20();
+      await playDiceRollAnimation(`Iniciativa - ${rec.display || "Pokemon"}`, roll);
       const out = { ...this._initStore };
       const bonus = safeInt(this._bonusEdits[rec.key] ?? out[rec.key]?.bonus_input, 0);
       out[rec.key] = {

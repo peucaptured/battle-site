@@ -19,6 +19,7 @@ import {
 } from "../mm-power-catalog.js";
 import {
   getAttackModifierSummary,
+  resolveAttackStatValue,
   resolveAttackHitAndCritical,
 } from "../mm-attack-modifiers.js";
 
@@ -600,6 +601,40 @@ test("linked effects use the saved move rank instead of their local rank", () =>
     { type: "weaken", rank: 10, rankBase: 10, damageBonus: 0 },
     { type: "affliction", rank: 10, rankBase: 10, damageBonus: 0 },
   ]);
+});
+
+test("attack damage stat is inferred from live build before catalog or category fallback", () => {
+  assert.deepEqual(resolveAttackStatValue(
+    {
+      name: "Custom Stgr Strike",
+      build: "Damage 10 [Custom 0/r: Stgr Based]",
+      meta: { category: "Especial" },
+    },
+    {},
+    { stgr: 6, int: 2 },
+  ), ["Stgr", 6]);
+
+  assert.deepEqual(resolveAttackStatValue(
+    { name: "Custom Int Beam" },
+    { buildText: "Damage 10 [Custom 0/r: Intelect Based]", audit: { build: "Damage 10 [Custom 0/r: Stgr Based]" } },
+    { stgr: 6, int: 4 },
+  ), ["Int", 4]);
+
+  assert.deepEqual(resolveAttackStatValue(
+    { name: "Status Move", meta: { category: "Status" } },
+    {},
+    { stgr: 6, int: 4 },
+  ), ["-", 0]);
+});
+
+test("catalog fallback supplies the attack stat when the live build does not override it", () => {
+  const rule = mergeLiveMoveIntoPowerRule(catalogPower("Hydro Pump"), {
+    name: "Hydro Pump",
+    rank: 10,
+  });
+  const [based, statVal] = resolveAttackStatValue({ name: "Hydro Pump" }, rule, { stgr: 1, int: 5 });
+  assert.equal(based, "Int");
+  assert.equal(statVal, 5);
 });
 
 test("attack modifiers automate Accurate, Inaccurate and Improved Critical", () => {

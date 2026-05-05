@@ -2601,6 +2601,125 @@ document.getElementById("log_subtabs")?.addEventListener("click", (ev) => {
 
 // Expor no console (compatibilidade com debug antigo)
 window.sendAddLog = async (by, text) => sendAction("ADD_LOG", by || "Anon", { text: text || "teste" });
+
+const ROLL_FX_D20_MS = 2000;
+const ROLL_FX_D20_FRAME_BY_VALUE = Object.freeze({
+  1: 0, 7: 1, 13: 2, 4: 3, 18: 4,
+  2: 5, 9: 6, 15: 7, 5: 8, 20: 9,
+  3: 10, 11: 11, 6: 12, 17: 13, 8: 14,
+  14: 15, 10: 16, 16: 17, 12: 18, 19: 19,
+});
+let currentRollFxLayer = null;
+
+function sleepRollFx(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function ensureRollFxStyles() {
+  if (document.getElementById("roll_fx_styles")) return;
+  const st = document.createElement("style");
+  st.id = "roll_fx_styles";
+  st.textContent = `
+.roll-fx-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2,6,23,.28);
+}
+.roll-fx-panel {
+  width: min(290px, calc(100% - 28px));
+  border-radius: 14px;
+  border: 1px solid rgba(148,163,184,.28);
+  background: rgba(10,18,32,.95);
+  box-shadow: 0 18px 46px rgba(2,6,23,.55);
+  backdrop-filter: blur(12px);
+  padding: 14px;
+  text-align: center;
+  animation: rollFxFadeIn .16s ease-out;
+}
+.roll-fx-title {
+  font-size: 13px;
+  font-weight: 900;
+  color: rgba(226,232,240,.95);
+  margin-bottom: 8px;
+}
+.roll-fx-sprite {
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 10px;
+  image-rendering: auto;
+  background-repeat: no-repeat;
+  background-position: 0 0;
+}
+.roll-fx-d20 {
+  background-image: url("./assets/ui/d20-roll-sprite.svg");
+  background-size: 1920px 96px;
+}
+.roll-fx-d20.roll-fx-rolling {
+  animation: rollFxD20 1s steps(19) 2;
+}
+.roll-fx-value {
+  min-height: 38px;
+  font-size: 30px;
+  font-weight: 1000;
+  color: rgba(248,250,252,.96);
+  margin-top: -4px;
+}
+@keyframes rollFxFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes rollFxD20 {
+  from { background-position: 0 0; }
+  to { background-position: -1824px 0; }
+}`;
+  document.head.appendChild(st);
+}
+
+function d20FrameForRollFx(value) {
+  const roll = safeInt(value, 0);
+  return ROLL_FX_D20_FRAME_BY_VALUE[roll] ?? Math.max(0, Math.min(19, roll - 1));
+}
+
+async function playDiceRollAnimation({ label = "d20", value = null } = {}) {
+  try {
+    ensureRollFxStyles();
+    try { currentRollFxLayer?.remove?.(); } catch {}
+
+    const layer = document.createElement("div");
+    layer.className = "roll-fx-layer";
+    layer.innerHTML = `
+      <div class="roll-fx-panel">
+        <div class="roll-fx-title">${escapeHtml(safeStr(label) || "d20")}</div>
+        <div class="roll-fx-sprite roll-fx-d20 roll-fx-rolling" data-roll-fx-sprite></div>
+        <div class="roll-fx-value" data-roll-fx-value></div>
+      </div>
+    `;
+    document.body.appendChild(layer);
+    currentRollFxLayer = layer;
+
+    await sleepRollFx(ROLL_FX_D20_MS);
+    const sprite = layer.querySelector("[data-roll-fx-sprite]");
+    const valueEl = layer.querySelector("[data-roll-fx-value]");
+    if (sprite) {
+      sprite.classList.remove("roll-fx-rolling");
+      sprite.style.animation = "none";
+      sprite.style.backgroundPosition = `-${d20FrameForRollFx(value) * 96}px 0`;
+    }
+    if (valueEl && value != null) valueEl.textContent = String(safeInt(value, 0));
+    await sleepRollFx(420);
+
+    if (currentRollFxLayer === layer) currentRollFxLayer = null;
+    try { layer.remove(); } catch {}
+  } catch {}
+  return value;
+}
+
+window.playDiceRollAnimation = playDiceRollAnimation;
 // window.sendMovePiece removido (debug antigo) — mover agora é por clique/arrasto no grid.
 
 topRollBtn?.addEventListener("click", async () => {
@@ -2624,6 +2743,8 @@ topRollBtn?.addEventListener("click", async () => {
   topRollBtn.textContent = "⏳ Rolando...";
 
   try {
+    await playDiceRollAnimation({ label: "Dado", value });
+
     // Sempre rola o dado
     await addDoc(collection(currentDb, "rooms", currentRid, "rolls"), {
       by,
@@ -7029,6 +7150,8 @@ async function rollPieceTest(pieceId, choiceKey) {
     catalogVersion: state.catalogVersion,
     sheetId: state.sheetId,
   };
+
+  await playDiceRollAnimation({ label: `Teste - ${choice.label}`, value: natural });
 
   await addDoc(collection(currentDb, "rooms", currentRid, "rolls"), {
     ...result,

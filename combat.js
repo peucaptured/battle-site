@@ -43,6 +43,13 @@ function safeDocId(name) {
   return s.replace(/[^a-zA-Z0-9_\-\.]/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "user";
 }
 function d20Roll() { return Math.floor(Math.random() * 20) + 1; }
+async function playDiceRollAnimation(label, value) {
+  try {
+    if (typeof window !== "undefined" && typeof window.playDiceRollAnimation === "function") {
+      await window.playDiceRollAnimation({ label, value });
+    }
+  } catch {}
+}
 function escHtml(s) {
   const d = document.createElement("div"); d.textContent = s; return d.innerHTML;
 }
@@ -97,6 +104,24 @@ function normalizeStats(stats) {
   norm.fortitude = norm.fort;
   norm.toughness = norm.thg;
   return { ...raw, ...norm };
+}
+
+function hasMeaningfulBaseStats(stats) {
+  if (!stats || typeof stats !== "object" || Array.isArray(stats)) return false;
+  const keys = ["stgr", "strg", "int", "intel", "intelligence", "dodge", "parry", "fort", "fortitude", "will", "thg", "toughness", "cap", "capability"];
+  return keys.some((key) => {
+    const raw = stats[key];
+    if (raw == null || raw === "") return false;
+    const n = Number(raw);
+    return Number.isFinite(n) && n !== 0;
+  });
+}
+
+function shouldUsePartyBaseStats(partyStats, sheetStats, hasSheetFallback = false) {
+  const hasPartyStats = !!(partyStats && typeof partyStats === "object" && !Array.isArray(partyStats) && Object.keys(partyStats).length > 0);
+  if (!hasPartyStats) return false;
+  if (hasMeaningfulBaseStats(partyStats)) return true;
+  return !hasSheetFallback && !(sheetStats && typeof sheetStats === "object" && !Array.isArray(sheetStats) && Object.keys(sheetStats).length > 0);
 }
 
 function isTrainerPiece(pieceOrPid) {
@@ -899,18 +924,16 @@ export class CombatUI {
       return normalizeStats(this._getTrainerRpgSheet(trainerName)?.stats || {});
     }
 
-    const stats = (pData || {}).stats;
-    if (stats && Object.keys(stats).length > 0) return normalizeStats(stats);
-
     // Fallback: stats da ficha carregada
     const sheet = this._getSheet(trainerName, pid);
-
     const rawStats =
       (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
         ? sheet.stats
         : {};
-
+    const stats = (pData || {}).stats;
     const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
+    if (shouldUsePartyBaseStats(stats, rawStats, np > 0)) return normalizeStats(stats);
+
     const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
     const baseStats = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
 
@@ -961,20 +984,16 @@ export class CombatUI {
     }
 
     const sheet = this._getSheet(trainerName, pid);
-
-    const hasPartyStats = (pData.stats && Object.keys(pData.stats).length > 0);
-    const base = hasPartyStats ? pData.stats : (sheet?.stats || {});
+    const sheetStats = (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats)) ? sheet.stats : {};
+    const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
+    const hasPartyStats = shouldUsePartyBaseStats(pData.stats, sheetStats, np > 0);
+    const base = hasPartyStats ? pData.stats : sheetStats;
 
     // Se base veio da ficha e não tem cap, derive cap = 2*np
     let baseFixed = base;
     if (!hasPartyStats) {
-      const rawStats =
-        (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats))
-          ? sheet.stats
-          : {};
-      const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
-      const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
-      baseFixed = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
+      const hasCap = safeInt(sheetStats.cap ?? sheetStats.capability) > 0;
+      baseFixed = (!hasCap && np > 0) ? { ...sheetStats, cap: 2 * np } : sheetStats;
     }
 
     const boosts = pData.stat_boosts || {};
@@ -993,7 +1012,6 @@ export class CombatUI {
     result.toughness = safeInt(result.thg);
 
     // THG fallback: se vier 0, THG = 2*NP - Dodge (usa Dodge já boostado)
-    const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
     if (safeInt(result.thg) <= 0 && np > 0) {
       result.thg = Math.max(0, (2 * np) - safeInt(result.dodge));
       result.toughness = safeInt(result.thg);
@@ -1094,10 +1112,11 @@ export class CombatUI {
       switch (status) {
         case "idle":       this._renderIdle(isPlayer, by, battle); break;
         case "setup":      await this._renderSetup(battle, isPlayer, by); break;
-        case "hit_confirmed": this._renderHitConfirmed(battle, by); break;
+        case "hit_confirmed": this._renderArenaOnlyState("Acerto confirmado", battle); break;
         case "missed":     this._renderMissed(battle, by); break;
-        case "aoe_defense": this._renderAoeDefense(battle, by); break;
-        case "waiting_defense": this._renderWaitingDefense(battle, by); break;
+        case "aoe_defense": this._renderArenaOnlyState("Defesa de area", battle); break;
+        case "waiting_defense": this._renderArenaOnlyState("Resistencia pendente", battle); break;
+        case "pending_reaction_review": this._renderArenaOnlyState("Reacao aguardando revisao", battle); break;
         default:           this._body.innerHTML = `<div class="card"><div class="muted">Status desconhecido: ${escHtml(status)}</div></div>`;
       }
 
@@ -1111,6 +1130,22 @@ export class CombatUI {
   // ───────────────────────────────────────────────────────────────
   // What‑If panel (local only)
   // ───────────────────────────────────────────────────────────────
+  _renderArenaOnlyState(title, battle) {
+    const logs = Array.isArray(battle?.logs) ? battle.logs : [];
+    const lastLog = safeStr(logs[logs.length - 1] || "");
+    const pendingFor = safeStr(battle?.pendingFor);
+    const pendingTxt = pendingFor ? `Aguardando: ${escHtml(pendingFor)}` : "Aguardando arena/mapa";
+    this._body.innerHTML = `
+      <div class="card">
+        <div style="font-weight:950;margin-bottom:8px">${escHtml(title)}</div>
+        ${lastLog ? `<div class="cb-log-msg">${escHtml(lastLog)}</div>` : ""}
+        <div class="muted" style="margin-top:10px">
+          ${pendingTxt}. Resolva esta etapa pelos controles do mapa/arena.
+        </div>
+      </div>
+    `;
+  }
+
   _wiLoad() {
     const rid = safeStr(this.getRid()) || "";
     this._wiOverrides = _wiLoadOverrides(rid);
@@ -1390,9 +1425,8 @@ export class CombatUI {
     }
 
     // Detecta se o combate anterior acabou de terminar (logs existem e o jogador era o atacante)
-    const prevAttacker = safeStr(battle.attacker);
     const prevLogs = battle.logs || [];
-    const canSecondary = (prevAttacker === by) && prevLogs.length > 0 && safeStr(battle.target_id);
+    const canSecondary = false;
 
     let secondaryHtml = "";
     if (canSecondary) {
@@ -1934,6 +1968,7 @@ export class CombatUI {
 
       // roll
       const roll = d20Roll();
+      await playDiceRollAnimation(`Ataque - ${attackerPid || "Pokemon"}`, roll);
       this._publishRoll(roll, `Ataque • ${attackerPid || "—"}`);
       const totalAtk = atkMod + aceiroBonus + roll;
       let hit, critBonus;
@@ -2099,10 +2134,12 @@ export class CombatUI {
 
           const defType = btn.dataset.def;
           const tPid = safeStr(battle.target_pid);
-          const tStats = this._getEffectiveStats(by, tPid);
+          const tOwner = safeStr(battle.target_owner) || by;
+          const tStats = this._getEffectiveStats(tOwner, tPid);
           const statVal = safeInt(tStats[defType]);
 
           const roll = d20Roll();
+          await playDiceRollAnimation(`Defesa area - ${defType.toUpperCase()}`, roll);
           this._publishRoll(roll, `Defesa área • ${defType.toUpperCase()}`);
           const totalRoll = roll + statVal;
           const dc = safeInt(battle.aoe_dc, 10);
@@ -2256,7 +2293,8 @@ export class CombatUI {
 
     if (isDefender) {
       const tPid = safeStr(battle.target_pid);
-      const tStats = this._getEffectiveStats(by, tPid);
+      const tOwner = safeStr(battle.target_owner) || by;
+      const tStats = this._getEffectiveStats(tOwner, tPid);
       const sv = (k) => { const v = safeInt(tStats[k]); return v ? ` <span style="font-size:11px;opacity:.7">(+${v})</span>` : ""; };
       html += `
         <div style="margin-top:12px;font-weight:900;font-size:13px">🛡️ Resistir com:</div>
@@ -2284,10 +2322,12 @@ export class CombatUI {
 
           const defType = btn.dataset.def;
           const tPid = safeStr(battle.target_pid);
-          const tStats = this._getEffectiveStats(by, tPid);
+          const tOwner = safeStr(battle.target_owner) || by;
+          const tStats = this._getEffectiveStats(tOwner, tPid);
           const statVal = safeInt(tStats[defType]);
 
           const roll = d20Roll();
+          await playDiceRollAnimation(`Defesa - ${defType.toUpperCase()}`, roll);
           this._publishRoll(roll, `Defesa • ${defType.toUpperCase()}`);
           const checkTotal = roll + statVal;
           const diff = dcTotal - checkTotal;

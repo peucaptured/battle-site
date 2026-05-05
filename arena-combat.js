@@ -27,7 +27,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
 import { getMoveType, getTypeDamageBonus, normalizeType } from "./type-data.js";
-import { getPowerRuleForMove, isSelfPowerRule, hasResolvableImmediateEffects } from "./mm-power-catalog.js?v=20260504mm10";
+import { getPowerRuleForMove, isSelfPowerRule, hasResolvableImmediateEffects } from "./mm-power-catalog.js?v=20260505rollfx1";
 import {
   buildResistanceQueue,
   resolveMmImmediatePower,
@@ -39,8 +39,9 @@ import {
 } from "./mm-rules-engine.js?v=20260504mm10";
 import {
   getAttackModifierSummary,
+  resolveAttackStatValue,
   resolveAttackHitAndCritical,
-} from "./mm-attack-modifiers.js?v=20260504mm10";
+} from "./mm-attack-modifiers.js?v=20260504mm11";
 
 // ─── helpers ──────────────────────────────────────────────────────
 function safeStr(x) { return (x == null ? "" : String(x)).trim(); }
@@ -137,6 +138,69 @@ function describeExtraAttackMods(accMod = 0, dmgMod = 0) {
   if (dmgMod !== 0) parts.push(`Dano ${signedMod(dmgMod)}`);
   return parts.join(" • ");
 }
+function buildManualSecondaryPowerRule(rank, isEffect) {
+  const resolvedRank = Math.max(0, safeInt(rank, 0));
+  const type = isEffect ? "affliction" : "damage";
+  const label = isEffect ? "Secondary Affliction" : "Secondary Damage";
+  const effect = {
+    id: "secondary_effect",
+    type,
+    label,
+    raw: label,
+    rank: { source: "fixed", value: resolvedRank },
+    range: "close",
+    action: "standard",
+    duration: "instant",
+    resistance: isEffect ? "fort" : "thg",
+    target: "target",
+    descriptors: ["secondary"],
+    extras: [],
+    flaws: [],
+    linked: false,
+    area: null,
+  };
+  if (isEffect) {
+    effect.conditions = [
+      { degree: 1, condition: "dazed" },
+      { degree: 2, condition: "stunned" },
+      { degree: 3, condition: "incapacitated" },
+    ];
+  }
+  return {
+    schema: "PowerRule",
+    schemaVersion: 2,
+    id: `manual:secondary:${type}`,
+    name: label,
+    mode: "target",
+    range: "close",
+    extras: [],
+    flaws: [],
+    flags: { manual: true, secondary: true },
+    effects: [effect],
+    linkedEffects: [],
+    live: { rank: resolvedRank },
+  };
+}
+function canOfferSecondaryEffect(battle, by) {
+  const logs = Array.isArray(battle?.logs) ? battle.logs : [];
+  return !!battle
+    && safeStr(battle.status) === "idle"
+    && safeStr(battle.attacker) === safeStr(by)
+    && !!safeStr(battle.target_id)
+    && logs.length > 0
+    && battle.secondary_available === true
+    && battle.secondary_active !== true;
+}
+function isAreaBattleState(battle) {
+  const range = safeStr(battle?.attack_range).toLowerCase();
+  return !!(battle?.aoe_source || safeInt(battle?.aoe_dc, 0) || range.includes("area"));
+}
+function shouldOfferSecondaryAfterResistance(battle) {
+  if (!battle || battle.secondary_active === true) return false;
+  if (battle.secondary_available === false) return false;
+  if (isAreaBattleState(battle)) return false;
+  return true;
+}
 function buildAttackRollText(baseAtkMod, extraAccMod, aceiroBonus, ruleAttackMod = 0) {
   const parts = [`${safeInt(baseAtkMod, 0)}`];
   if (safeInt(extraAccMod, 0) !== 0) parts.push(signedMod(safeInt(extraAccMod, 0)));
@@ -171,6 +235,24 @@ function normalizeStats(stats) {
   norm.fortitude = norm.fort;
   norm.toughness = norm.thg;
   return { ...raw, ...norm };
+}
+
+function hasMeaningfulBaseStats(stats) {
+  if (!stats || typeof stats !== "object" || Array.isArray(stats)) return false;
+  const keys = ["stgr", "strg", "int", "intel", "intelligence", "dodge", "parry", "fort", "fortitude", "will", "thg", "toughness", "cap", "capability"];
+  return keys.some((key) => {
+    const raw = stats[key];
+    if (raw == null || raw === "") return false;
+    const n = Number(raw);
+    return Number.isFinite(n) && n !== 0;
+  });
+}
+
+function shouldUsePartyBaseStats(partyStats, sheetStats, hasSheetFallback = false) {
+  const hasPartyStats = !!(partyStats && typeof partyStats === "object" && !Array.isArray(partyStats) && Object.keys(partyStats).length > 0);
+  if (!hasPartyStats) return false;
+  if (hasMeaningfulBaseStats(partyStats)) return true;
+  return !hasSheetFallback && !(sheetStats && typeof sheetStats === "object" && !Array.isArray(sheetStats) && Object.keys(sheetStats).length > 0);
 }
 
 function isTrainerPiece(pieceOrPid) {
@@ -865,10 +947,10 @@ const CSS_TEXT = `
   background-size: 1920px 96px;
 }
 .ac-coin-sprite.ac-rolling {
-  animation: acCoinFlip .9s steps(15) 2;
+  animation: acCoinFlip 1s steps(15) 2;
 }
 .ac-d20-sprite.ac-rolling {
-  animation: acD20Roll .8s steps(19) 2;
+  animation: acD20Roll 1s steps(19) 2;
 }
 @keyframes acCoinFlip {
   from { background-position: 0 0; }
@@ -1422,15 +1504,15 @@ export class ArenaCombatUI {
     }
 
     const sheet = this._getSheet(trainerName, pid);
-    const hasPartyStats = (pData.stats && Object.keys(pData.stats).length > 0);
-    const base = hasPartyStats ? pData.stats : (sheet?.stats || {});
+    const sheetStats = (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats)) ? sheet.stats : {};
+    const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
+    const hasPartyStats = shouldUsePartyBaseStats(pData.stats, sheetStats, np > 0);
+    const base = hasPartyStats ? pData.stats : sheetStats;
 
     let baseFixed = base;
     if (!hasPartyStats) {
-      const rawStats = (sheet && sheet.stats && typeof sheet.stats === "object" && !Array.isArray(sheet.stats)) ? sheet.stats : {};
-      const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
-      const hasCap = safeInt(rawStats.cap ?? rawStats.capability) > 0;
-      baseFixed = (!hasCap && np > 0) ? { ...rawStats, cap: 2 * np } : rawStats;
+      const hasCap = safeInt(sheetStats.cap ?? sheetStats.capability) > 0;
+      baseFixed = (!hasCap && np > 0) ? { ...sheetStats, cap: 2 * np } : sheetStats;
     }
 
     const boosts = pData.stat_boosts || {};
@@ -1448,7 +1530,6 @@ export class ArenaCombatUI {
     result.toughness = safeInt(result.thg);
 
     // THG Fallback baseado no dodge já boostado
-    const np = safeInt(sheet?.np ?? sheet?.pokemon?.np ?? sheet?.pokemon?.NP);
     if (safeInt(result.thg) <= 0 && np > 0) {
       result.thg = Math.max(0, (2 * np) - safeInt(result.dodge));
       result.toughness = safeInt(result.thg);
@@ -1466,7 +1547,7 @@ export class ArenaCombatUI {
     const rank = mData.rank;
     const extraDmg = mData.modDano;
 
-    const [based, statVal] = moveStatValue(move.meta || {}, atkStats);
+    const [based, statVal] = resolveAttackStatValue(move || {}, opts.powerRule || {}, atkStats);
 
     const moveName = safeStr(move.name) || "Golpe";
     const moveType = getMoveType(moveName) || safeStr(move.meta?.type) || safeStr(move.type) || "";
@@ -2091,6 +2172,10 @@ export class ArenaCombatUI {
         aoe_dc: lvl + 10,
         dmg_base: lvl,
         is_effect: isEff,
+        aoe_source: true,
+        last_attack_outcome: "area_pending",
+        secondary_available: false,
+        secondary_active: false,
         pendingFor: tOwner,
         prompt: { type: "ROLL_RESIST", options: { dc: lvl + 10, isEffect: isEff, isAoe: true, aoePhase: "dodge" } },
         logs: [`${by} lançou Área (Rank ${lvl}). Defensor rola Dodge obrigatório (CD ${lvl + 10}).`],
@@ -2154,6 +2239,10 @@ export class ArenaCombatUI {
           aoe_dc: rank + 10,
           dmg_base: rank,
           is_effect: isEffect,
+          aoe_source: true,
+          last_attack_outcome: "area_pending",
+          secondary_available: false,
+          secondary_active: false,
           pendingFor: tOwner,
           prompt: { type: "ROLL_RESIST", options: { dc: rank + 10, isEffect, isAoe: true, aoePhase: "dodge" } },
           logs: [`${by} lançou Área manual (Rank ${rank}, Acc ${acc}). Defensor rola Dodge obrigatório (CD ${rank + 10}).`],
@@ -2542,10 +2631,22 @@ export class ArenaCombatUI {
     return value === "heads" ? "Cara" : "Coroa";
   }
 
-  _hasUnreliablePowerRule(powerRule) {
-    const hasUnreliableText = (items = []) => (Array.isArray(items) ? items : [])
-      .some((item) => safeStr(item).toLowerCase().includes("unreliable"));
+  _hasUnreliablePowerRule(powerRule, move = null) {
+    const hasUnreliableText = (items = []) => (Array.isArray(items) ? items : [items])
+      .some((item) => /\b(?:unreliable|unrealible)\b/i.test(safeStr(item)));
     if (powerRule?.flags?.unreliable || hasUnreliableText(powerRule?.flaws)) return true;
+    if (hasUnreliableText([
+      powerRule?.name,
+      powerRule?.build,
+      powerRule?.raw,
+      powerRule?.description,
+      move?.name,
+      move?.build,
+      move?.description,
+      move?.desc,
+      move?.notes,
+      move?.efeito,
+    ])) return true;
     return (Array.isArray(powerRule?.effects) ? powerRule.effects : []).some((effect) => (
       !!effect?.unreliable ||
       hasUnreliableText(effect?.flaws) ||
@@ -2600,7 +2701,7 @@ export class ArenaCombatUI {
 
           const result = Math.random() < 0.5 ? "heads" : "tails";
           sprite?.classList.add("ac-rolling");
-          await this._sleep(1850);
+          await this._sleep(2000);
           if (sprite) {
             sprite.classList.remove("ac-rolling");
             sprite.style.animation = "none";
@@ -2630,7 +2731,7 @@ export class ArenaCombatUI {
 
   async _runUnreliableGate({ move, powerRule, actorPiece, targetPiece, opts = {} } = {}) {
     if (opts.unreliableGateResult) return opts.unreliableGateResult;
-    if (!this._hasUnreliablePowerRule(powerRule)) {
+    if (!this._hasUnreliablePowerRule(powerRule, move)) {
       return { applies: false, success: true, unreliableRoll: null };
     }
     const gate = await this._promptUnreliableCoin({ move, powerRule, actorPiece, targetPiece });
@@ -2652,6 +2753,9 @@ export class ArenaCombatUI {
       power_rule: firestoreSafeValue(powerRule || null),
       unreliable_roll: safeInt(gate?.unreliableRoll, 100),
       unreliable_gate: firestoreSafeValue(gate || null),
+      last_attack_outcome: "unreliable_failed",
+      secondary_available: false,
+      secondary_active: false,
       pendingFor: null,
       prompt: null,
       logs: arrayUnion(line),
@@ -2681,7 +2785,7 @@ export class ArenaCombatUI {
     (this._overlayRoot || document.body).appendChild(layer);
     this._currentRollAnimation = layer;
 
-    await this._sleep(1650);
+    await this._sleep(2000);
     const sprite = layer.querySelector("[data-d20-sprite]");
     const valueEl = layer.querySelector("[data-d20-value]");
     const frame = frameByRoll[roll] ?? Math.max(0, Math.min(19, roll - 1));
@@ -2813,6 +2917,9 @@ export class ArenaCombatUI {
         is_effect: isEffect,
         extra_acc_mod: safeInt(pending.extra_acc_mod),
         extra_dmg_mod: safeInt(pending.extra_dmg_mod),
+        last_attack_outcome: "hit_pending_resistance",
+        secondary_available: true,
+        secondary_active: false,
         pending_reactions: [],
         pending_attack: null,
         pendingFor: tOwner,
@@ -2854,6 +2961,9 @@ export class ArenaCombatUI {
         is_effect: isEffect,
         extra_acc_mod: safeInt(pending.extra_acc_mod),
         extra_dmg_mod: safeInt(pending.extra_dmg_mod),
+        last_attack_outcome: "miss",
+        secondary_available: false,
+        secondary_active: false,
         pending_reactions: [],
         pending_attack: null,
         pendingFor: null,
@@ -2871,11 +2981,12 @@ export class ArenaCombatUI {
     const atkStats = Object.keys(stats || {}).length > 0 ? stats : this._getEffectiveStats(by, atkPid);
     const atkSheet = this._getSheet(by, atkPid);
     const moveIdx = resolveMoveIndex(atkSheet?.moves || [], move, opts.moveIdx);
+    const powerRule = opts.powerRule || await getPowerRuleForMove({ ...move, _move_idx: moveIdx });
     const ctx = this._calcMoveContext(move, atkStats, by, atkPid, by, atkPid, {
       moveIdx,
       atkSheet,
+      powerRule,
     });
-    const powerRule = opts.powerRule || await getPowerRuleForMove({ ...move, _move_idx: moveIdx });
     const actorPiece = this._findPieceByOwnerPid(by, atkPid);
     const actor = this._combatantSnapshot(by, atkPid, actorPiece);
     const unreliableGate = await this._runUnreliableGate({ move, powerRule, actorPiece, targetPiece: actorPiece, opts });
@@ -2912,10 +3023,31 @@ export class ArenaCombatUI {
       target_pid: atkPid,
       target_id: safeStr(actorPiece?.id),
       power_rule: powerRule,
+      attack_move: firestoreSafeValue(move || null),
+      attack_range: null,
+      resistance_queue: null,
+      pending_attack: null,
+      pending_reactions: null,
+      pending_reaction_log: null,
+      aoe_dc: null,
+      dmg_base: null,
+      is_effect: false,
+      atk_mod: null,
+      atk_base_mod: null,
+      rule_attack_mod: null,
+      attack_modifier_summary: null,
+      d20: null,
+      defense_val: null,
+      needed: null,
+      total_atk: null,
+      crit_bonus: 0,
       unreliable_roll: unreliableGate?.unreliableRoll || null,
       unreliable_gate: firestoreSafeValue(unreliableGate?.applies ? unreliableGate : null),
       last_resolution_id: resolutionId || null,
       pending_review: !!resolution.requiresAdjudication,
+      last_attack_outcome: "immediate_power",
+      secondary_available: false,
+      secondary_active: false,
       pendingFor: null,
       prompt: null,
       logs,
@@ -3158,14 +3290,16 @@ export class ArenaCombatUI {
 
     const atkStats = Object.keys(stats || {}).length > 0 ? stats : this._getEffectiveStats(by, atkPid);
     const atkSheet = this._getSheet(by, atkPid);
+    const moveIdx = resolveMoveIndex(atkSheet?.moves || [], move, opts.moveIdx);
+    const powerRule = opts.powerRule || await getPowerRuleForMove({ ...move, _move_idx: moveIdx });
     const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid, {
-      moveIdx: opts.moveIdx,
+      moveIdx,
       atkSheet,
+      powerRule,
     });
     const resolved = this._buildResolvedMovePayload(move, ctx, extraAttackMods);
     const totalDmg = resolved.totalDmg;
     const aoeDc = totalDmg + 10;
-    const powerRule = opts.powerRule || await getPowerRuleForMove({ ...move, _move_idx: ctx.moveIdx });
     const firstEffectType = safeStr(powerRule?.effects?.[0]?.type);
     const isEffect = this._isEffectMove(move) || (!!firstEffectType && firstEffectType !== "damage");
     const extraModsTxt = describeExtraAttackMods(0, resolved.extraDmgMod);
@@ -3212,6 +3346,10 @@ export class ArenaCombatUI {
       is_effect: isEffect,
       extra_acc_mod: 0,
       extra_dmg_mod: resolved.extraDmgMod,
+      aoe_source: true,
+      last_attack_outcome: "area_pending",
+      secondary_available: false,
+      secondary_active: false,
       pendingFor: tOwner,
       prompt: { type: "ROLL_RESIST", options: { dc: aoeDc, isEffect, isAoe: true, aoePhase: "dodge" } },
       logs,
@@ -3253,11 +3391,13 @@ export class ArenaCombatUI {
     const needed = defenseVal + 10;
 
     const atkSheet = this._getSheet(by, atkPid);
+    const moveIdx = resolveMoveIndex(atkSheet?.moves || [], move, opts.moveIdx);
+    const powerRule = opts.powerRule || await getPowerRuleForMove({ ...move, _move_idx: moveIdx });
     const ctx = this._calcMoveContext(move, atkStats, by, atkPid, tOwner, tPid, {
-      moveIdx: opts.moveIdx,
+      moveIdx,
       atkSheet,
+      powerRule,
     });
-    const powerRule = opts.powerRule || await getPowerRuleForMove({ ...move, _move_idx: ctx.moveIdx });
     const attackModifierSummary = getAttackModifierSummary(powerRule, atkStats);
     const resolved = this._buildResolvedMovePayload(move, ctx, extraAttackMods);
     if (attackModifierSummary.attackBonus) {
@@ -3398,6 +3538,9 @@ export class ArenaCombatUI {
           pending_attack: firestoreSafeValue(pendingAttack),
           pending_reactions: firestoreSafeValue(reactionResolution.pendingReactions),
           pending_reaction_log: firestoreSafeValue(reactionResolution.combatLog),
+          last_attack_outcome: "pending_reaction",
+          secondary_available: false,
+          secondary_active: false,
           pendingFor: safeStr(firstReaction?.reactor?.owner),
           prompt: { type: "MM_REACTION", reactionId: safeStr(firstReaction?.id) },
           logs,
@@ -3455,6 +3598,9 @@ export class ArenaCombatUI {
         is_effect: isEffect,
         extra_acc_mod: extraAccMod,
         extra_dmg_mod: extraDmgMod,
+        last_attack_outcome: "hit_pending_resistance",
+        secondary_available: true,
+        secondary_active: false,
         pendingFor: tOwner,
         prompt: {
           type: "ROLL_RESIST",
@@ -3498,6 +3644,9 @@ export class ArenaCombatUI {
         is_effect: isEffect,
         extra_acc_mod: extraAccMod,
         extra_dmg_mod: extraDmgMod,
+        last_attack_outcome: "miss",
+        secondary_available: false,
+        secondary_active: false,
         pendingFor: null,
         prompt: null,
         logs,
@@ -3722,9 +3871,7 @@ export class ArenaCombatUI {
       this._closeReroll();
 
       // Verifica se há combate anterior para Efeito Secundário
-      const prevAttacker = safeStr(battle.attacker);
-      const prevLogs = battle.logs || [];
-      const canSecondary = (prevAttacker === by) && prevLogs.length > 0 && safeStr(battle.target_id);
+      const canSecondary = canOfferSecondaryEffect(battle, by);
       if (canSecondary && !this._currentPrompt) {
         this._renderSecondaryEffectPrompt(battle);
       }
@@ -3813,11 +3960,13 @@ export class ArenaCombatUI {
       }, mmRuntimeEnv());
       const resolutionId = await this._persistMmResolution(resolution, { applied: true, reaction: true });
       this._showResolutionToast(resolution, resolutionId);
+      const reactionNeedsReview = !resolution?.blocked
+        && (!!resolution?.requiresAdjudication || (Array.isArray(resolution?.pendingDecisions) && resolution.pendingDecisions.length > 0));
       const nextReactions = reactions.map((item) => (
         safeStr(item?.id) === safeStr(reaction.id)
           ? {
               ...item,
-              status: resolution?.blocked ? "blocked" : "failed",
+              status: resolution?.blocked ? "blocked" : (reactionNeedsReview ? "awaiting_decision" : "resolved"),
               resolutionId: resolutionId || null,
               result: firestoreSafeValue(resolution?.effectResults?.[0] || {}),
               resolvedAtLocal: new Date().toISOString(),
@@ -3832,12 +3981,35 @@ export class ArenaCombatUI {
           pending_reactions: firestoreSafeValue(nextReactions),
           pending_attack: null,
           last_resolution_id: resolutionId || null,
+          last_attack_outcome: "blocked",
+          secondary_available: false,
+          secondary_active: false,
+          pending_review: false,
           pendingFor: null,
           prompt: null,
           logs: (Array.isArray(battle?.logs) ? battle.logs : []).concat([line, resolution.summary]),
         });
         const targetPiece = (this.getPieces() || []).find((piece) => safeStr(piece?.id) === safeStr(battle?.target_id));
         if (targetPiece) this._showFloat(targetPiece, "Ataque bloqueado", "resist");
+        return;
+      }
+      if (reactionNeedsReview) {
+        await this._writeBattle({
+          status: "pending_reaction_review",
+          pending_reactions: firestoreSafeValue(nextReactions),
+          pending_attack: firestoreSafeValue(battle?.pending_attack || null),
+          pending_decisions: firestoreSafeValue(resolution?.pendingDecisions || []),
+          last_resolution_id: resolutionId || null,
+          last_attack_outcome: "reaction_pending_review",
+          secondary_available: false,
+          secondary_active: false,
+          pending_review: true,
+          pendingFor: null,
+          prompt: null,
+          logs: (Array.isArray(battle?.logs) ? battle.logs : []).concat([line, resolution.summary]),
+        });
+        const targetPiece = (this.getPieces() || []).find((piece) => safeStr(piece?.id) === safeStr(battle?.target_id));
+        if (targetPiece) this._showFloat(targetPiece, "Reacao aguardando revisao", "pending");
         return;
       }
       await this._advanceOrContinuePendingAttack(battle, nextReactions, [line]);
@@ -3874,8 +4046,12 @@ export class ArenaCombatUI {
       const ref = this._battleRef(); if (!ref) return;
       await this._writeBattle({
         status: "hit_confirmed",
+        secondary_active: true,
+        secondary_available: false,
+        secondary_parent_power_rule: firestoreSafeValue(battle?.power_rule || battle?.attack_move?.power_rule || null),
+        last_attack_outcome: "secondary_pending_rank",
         pendingFor: this.getBy(),
-        prompt: { type: "CONFIRM_HIT_RANK" },
+        prompt: { type: "CONFIRM_HIT_RANK", secondary: true },
         logs: arrayUnion("⚡ Efeito secundário ativado — defina o rank do efeito.")
       });
       this._closePrompt();
@@ -3884,7 +4060,7 @@ export class ArenaCombatUI {
     el.querySelector("#ac-sec-no").addEventListener("click", () => {
       this._closePrompt();
       const ref = this._battleRef();
-      if (ref) this._writeBattle({ target_id: "" });
+      if (ref) this._writeBattle({ target_id: "", secondary_available: false, secondary_active: false });
     });
   }
 
@@ -3934,7 +4110,8 @@ export class ArenaCombatUI {
 
         const defType = btn.dataset.def;
         const by = this.getBy();
-        const tStats = this._getEffectiveStats(by, tPid);
+        const tOwner = safeStr(battle?.target_owner) || by;
+        const tStats = this._getEffectiveStats(tOwner, tPid);
         const statVal = safeInt(tStats[defType]);
 
         const roll = await this._rollD20Animated(`Defesa - ${defType.toUpperCase()}`);
@@ -3971,6 +4148,10 @@ export class ArenaCombatUI {
             unreliable_gate: firestoreSafeValue(battle?.unreliable_gate || null),
             pendingFor: by,
             resistance_queue: resistanceQueue,
+            aoe_source: true,
+            last_attack_outcome: "area_dodge_resolved",
+            secondary_available: false,
+            secondary_active: false,
             prompt: { type: "ROLL_RESIST", options: { dc: newDc, isEffect: isEff, isAoe: false, powerRule, resistanceQueue } },
             logs: arrayUnion(`${msg}. Agora escolha como resistir (CD ${newDc}).`),
           });
@@ -4007,11 +4188,15 @@ export class ArenaCombatUI {
           const reviewMsg = resolution?.requiresAdjudication
             ? `${resolution.summary}. RevisÃ£o do mestre necessÃ¡ria.`
             : resolution.summary;
+          const allowSecondaryAfterResistance = shouldOfferSecondaryAfterResistance(battle);
 
           await this._writeBattle({
             status: "idle",
             last_resolution_id: resolutionId || null,
             pending_review: !!resolution?.requiresAdjudication,
+            last_attack_outcome: battle?.secondary_active ? "secondary_resolved" : "hit_resolved",
+            secondary_available: allowSecondaryAfterResistance,
+            secondary_active: false,
             pendingFor: null,
             prompt: null,
             logs: arrayUnion(finalMsg, reviewMsg),
@@ -4077,15 +4262,44 @@ export class ArenaCombatUI {
       const dmg = safeInt(el.querySelector("#ac-rank-input").value);
       const isEff = el.querySelector("#ac-rank-effect").checked;
       const tOwner = safeStr(battle.target_owner);
-      const baseVal = isEff ? 10 : 15;
-      const dcTotal = baseVal + dmg + safeInt(battle.crit_bonus);
+      const isSecondary = battle?.secondary_active === true || prompt?.secondary === true;
+      const critBonus = isSecondary ? 0 : safeInt(battle.crit_bonus);
+      const powerRule = isSecondary
+        ? buildManualSecondaryPowerRule(dmg, isEff)
+        : (battle?.power_rule || battle?.attack_move?.power_rule || null);
+      const resistanceQueue = buildResistanceQueue(powerRule, {
+        rank: dmg,
+        critBonus,
+        fallbackIsEffect: isEff,
+        fallbackResistance: isEff ? "fort" : "thg",
+      });
+      const dcTotal = safeInt(resistanceQueue?.[0]?.dc, (isEff ? 10 : 15) + dmg + critBonus);
+      const secondaryMove = isSecondary ? {
+        name: isEff ? "Secondary Affliction" : "Secondary Damage",
+        accuracy: 0,
+        damage: dmg,
+        rank: dmg,
+        based_stat: "",
+        stat_value: 0,
+        modDano: 0,
+        source_attack_name: safeStr(atk?.name),
+        meta: { secondary: true, category: isEff ? "Status" : "Physical", is_effect: isEff },
+        power_rule: powerRule,
+      } : null;
 
       await this._writeBattle({
         status: "waiting_defense",
+        ...(isSecondary ? { attack_move: firestoreSafeValue(secondaryMove) } : {}),
+        power_rule: firestoreSafeValue(powerRule || null),
+        resistance_queue: firestoreSafeValue(resistanceQueue),
         dmg_base: dmg,
         is_effect: isEff,
+        crit_bonus: critBonus,
+        last_attack_outcome: isSecondary ? "secondary_pending_resistance" : "hit_pending_resistance",
+        secondary_active: isSecondary,
+        secondary_available: false,
         pendingFor: tOwner,
-        prompt: { type: "ROLL_RESIST", options: { dc: dcTotal, isEffect: isEff } },
+        prompt: { type: "ROLL_RESIST", options: { dc: dcTotal, isEffect: isEff, rank: dmg, critBonus, powerRule, resistanceQueue } },
         logs: arrayUnion(`Rank/Dano: ${dmg} (${isEff ? "Efeito" : "Dano"}). CD ${dcTotal}. Aguardando resistência...`),
       });
       this._closePrompt();
@@ -4162,6 +4376,9 @@ export class ArenaCombatUI {
         attack_modifier_summary: firestoreSafeValue(attackOutcome || null),
         unreliable_roll: safeInt(battle?.unreliable_roll, 0) || null,
         unreliable_gate: firestoreSafeValue(battle?.unreliable_gate || null),
+        last_attack_outcome: "hit_pending_resistance",
+        secondary_available: true,
+        secondary_active: false,
         pendingFor: safeStr(battle.target_owner),
         prompt: { type: "ROLL_RESIST", options: { dc: dcTotal, isEffect: false } },
         logs: arrayUnion(`Re-roll: ${roll}+${atkModStr}=${totalAtk} vs ${needed}. ACERTOU!`),
@@ -4174,6 +4391,9 @@ export class ArenaCombatUI {
         attack_modifier_summary: firestoreSafeValue(attackOutcome || null),
         unreliable_roll: null,
         unreliable_gate: null,
+        last_attack_outcome: "miss",
+        secondary_available: false,
+        secondary_active: false,
         pendingFor: null, prompt: null,
         logs: arrayUnion(`Re-roll: ${roll}+${atkModStr}=${totalAtk} vs ${needed}. ERROU!`),
       });

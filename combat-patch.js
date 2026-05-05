@@ -5,7 +5,7 @@
  * Logging: tudo logado no console para debug.
  */
 
-import { CombatUI } from "./combat.js";
+import { CombatUI } from "./combat.js?v=20260505rollfx1";
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
 import {
   getFirestore,
