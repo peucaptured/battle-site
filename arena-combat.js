@@ -3949,6 +3949,10 @@ export class ArenaCombatUI {
     }
 
     if (pendingFor === by && prompt) {
+      const promptKey = this._battlePromptKey(battle, prompt);
+      if (this._currentPrompt?._acPromptKey && this._currentPrompt._acPromptKey !== promptKey) {
+        this._closePrompt();
+      }
       if (prompt.type === "ROLL_RESIST" && !this._currentPrompt) {
         this._renderResistPrompt(battle, prompt);
       } else if (prompt.type === "CONFIRM_HIT_RANK" && !this._currentPrompt) {
@@ -4114,6 +4118,7 @@ export class ArenaCombatUI {
     el.querySelector("#ac-sec-yes").addEventListener("click", async () => {
       el.querySelector("#ac-sec-yes").disabled = true;
       const ref = this._battleRef(); if (!ref) return;
+      this._closePrompt();
       await this._writeBattle({
         status: "hit_confirmed",
         secondary_active: true,
@@ -4124,7 +4129,6 @@ export class ArenaCombatUI {
         prompt: { type: "CONFIRM_HIT_RANK", secondary: true },
         logs: arrayUnion("⚡ Efeito secundário ativado — defina o rank do efeito.")
       });
-      this._closePrompt();
     });
 
     el.querySelector("#ac-sec-no").addEventListener("click", () => {
@@ -4358,6 +4362,7 @@ export class ArenaCombatUI {
         power_rule: powerRule,
       } : null;
 
+      this._closePrompt();
       await this._writeBattle({
         status: "waiting_defense",
         ...(isSecondary ? { attack_move: firestoreSafeValue(secondaryMove) } : {}),
@@ -4373,7 +4378,6 @@ export class ArenaCombatUI {
         prompt: { type: "ROLL_RESIST", options: { dc: dcTotal, isEffect: isEff, rank: dmg, critBonus, powerRule, resistanceQueue } },
         logs: arrayUnion(`Rank/Dano: ${dmg} (${isEff ? "Efeito" : "Dano"}). CD ${dcTotal}. Aguardando resistência...`),
       });
-      this._closePrompt();
     });
   }
 
