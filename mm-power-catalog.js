@@ -1,4 +1,5 @@
 const CATALOG_URL = "./assets/rules/moves-mm.json";
+const POKEMON_MOVE_CORE_URL = "./assets/rules/pokemon-move-core.json";
 
 import { isMmSupportEffect, isMmTrackableActiveEffect, validatePowerRule } from "./mm-rulebook.js?v=20260504mm10";
 import {
@@ -6,9 +7,87 @@ import {
   getPokemonMoveBasePower,
 } from "./pokemon-move-power-bonus.js?v=20260504mm1";
 
+const POKEMON_MOVE_CORE_CATALOG = Object.freeze({
+  schema: "PokemonMoveCoreCatalog",
+  schemaVersion: 1,
+  source: "local_table",
+  moves: {
+    "overheat": {
+      name: "Overheat",
+      mandatorySelfStatShifts: [{ traits: ["int"], delta: -2, pokemonStats: ["special-attack"] }],
+      allowedConditions: [],
+    },
+    "draco-meteor": {
+      name: "Draco Meteor",
+      mandatorySelfStatShifts: [{ traits: ["int"], delta: -2, pokemonStats: ["special-attack"] }],
+      allowedConditions: [],
+    },
+    "leaf-storm": {
+      name: "Leaf Storm",
+      mandatorySelfStatShifts: [{ traits: ["int"], delta: -2, pokemonStats: ["special-attack"] }],
+      allowedConditions: [],
+    },
+    "superpower": {
+      name: "Superpower",
+      mandatorySelfStatShifts: [{ traits: ["stgr", "thg"], delta: -1, pokemonStats: ["attack", "defense"] }],
+      allowedConditions: [],
+    },
+    "close-combat": {
+      name: "Close Combat",
+      mandatorySelfStatShifts: [{ traits: ["thg", "will"], delta: -1, pokemonStats: ["defense", "special-defense"] }],
+      allowedConditions: [],
+    },
+    "ice-hammer": {
+      name: "Ice Hammer",
+      mandatorySelfStatShifts: [{ traits: ["initiative", "dodge"], delta: -1, pokemonStats: ["speed"] }],
+      allowedConditions: [],
+    },
+    "v-create": {
+      name: "V-create",
+      mandatorySelfStatShifts: [{ traits: ["thg", "will", "initiative", "dodge"], delta: -1, pokemonStats: ["defense", "special-defense", "speed"] }],
+      allowedConditions: [],
+    },
+    "thunder-shock": {
+      name: "Thunder Shock",
+      optionalTargetConditions: ["paralyzed"],
+      allowedConditions: ["paralyzed"],
+    },
+    "thunderbolt": {
+      name: "Thunderbolt",
+      optionalTargetConditions: ["paralyzed"],
+      allowedConditions: ["paralyzed"],
+    },
+  },
+});
+
+const POKEMON_STATUS_CONDITION_ALIASES = Object.freeze({
+  burn: "burn",
+  burned: "burn",
+  brn: "burn",
+  paralyze: "paralyzed",
+  paralyzed: "paralyzed",
+  paralysis: "paralyzed",
+  para: "paralyzed",
+  poison: "poisoned",
+  poisoned: "poisoned",
+  badly: "badly-poisoned",
+  "badly-poisoned": "badly-poisoned",
+  toxic: "badly-poisoned",
+  sleep: "asleep",
+  asleep: "asleep",
+  freeze: "frozen",
+  frozen: "frozen",
+  confuse: "confused",
+  confused: "confused",
+  flinch: "flinch",
+  flinched: "flinch",
+});
+
 let catalogPromise = null;
 let catalogCache = null;
 let nameIndex = null;
+let pokemonCorePromise = null;
+let pokemonCoreCache = POKEMON_MOVE_CORE_CATALOG;
 
 function safeStr(value) {
   return value == null ? "" : String(value).trim();
@@ -536,6 +615,230 @@ function moveNameCandidates(move, baseRule, rule) {
   return Array.from(new Set(out.map(safeStr).filter(Boolean)));
 }
 
+function pokemonMoveCoreFor(move, baseRule, rule) {
+  const moves = (pokemonCoreCache?.moves && typeof pokemonCoreCache.moves === "object")
+    ? pokemonCoreCache.moves
+    : POKEMON_MOVE_CORE_CATALOG.moves;
+  for (const candidate of moveNameCandidates(move, baseRule, rule)) {
+    const key = normalizePowerName(candidate);
+    const core = moves[key];
+    if (core) return { key, ...core };
+  }
+  return null;
+}
+
+function ensurePokemonCoreMetadata(rule, core) {
+  const previous = rule.pokemonCore && typeof rule.pokemonCore === "object" ? rule.pokemonCore : {};
+  rule.pokemonCore = {
+    ...previous,
+    source: "local_table",
+    move: core.name,
+    key: core.key,
+    normalizations: Array.isArray(previous.normalizations) ? previous.normalizations : [],
+    conflicts: Array.isArray(previous.conflicts) ? previous.conflicts : [],
+    suppressedEffects: Array.isArray(previous.suppressedEffects) ? previous.suppressedEffects : [],
+  };
+  return rule.pokemonCore;
+}
+
+function effectTypeKey(effect) {
+  return normalizePowerName(effect?.type).replace(/-/g, "_");
+}
+
+function effectTraitList(effect) {
+  return Array.isArray(effect?.traits) ? effect.traits.map(normalizeStatLabel).filter(Boolean) : [];
+}
+
+function statDeltaFromEffect(effect, trait, fallback = 0) {
+  const key = normalizeStatLabel(trait);
+  const statDeltas = effect?.statDeltas && typeof effect.statDeltas === "object" ? effect.statDeltas : {};
+  const raw = statDeltas[key]
+    ?? statDeltas[key.replace(/_/g, "-")]
+    ?? statDeltas[key.replace(/-/g, "_")]
+    ?? effect?.statDelta
+    ?? effect?.delta;
+  return Number.isFinite(Number(raw)) ? safeInt(raw, fallback) : fallback;
+}
+
+function uniqueEffectId(effects, preferred) {
+  const base = normalizePowerName(preferred).replace(/-/g, "_") || "pokemon_core_effect";
+  const used = new Set((effects || []).map((effect) => safeStr(effect?.id)).filter(Boolean));
+  if (!used.has(base)) return base;
+  let index = 1;
+  while (used.has(`${base}_${index}`)) index += 1;
+  return `${base}_${index}`;
+}
+
+function refreshRuleEffectDerivedFields(rule, move = {}) {
+  if (!rule || !Array.isArray(rule.effects)) return rule;
+  rule.linkedEffects = rule.effects.filter((effect) => effect.linked).map((effect) => effect.id);
+  rule.targeting = deriveTargetingFromEffects(rule.effects, { build: rule.buildText || move?.build || move?.buildText || "" });
+  rule.range = rule.targeting.range;
+  rule.area = rule.targeting.area;
+  rule.extras = Array.from(new Set(rule.effects.flatMap((effect) => Array.isArray(effect?.extras) ? effect.extras : [])));
+  rule.flaws = Array.from(new Set(rule.effects.flatMap((effect) => Array.isArray(effect?.flaws) ? effect.flaws : [])));
+  rule.flags = {
+    ...(rule.flags || {}),
+    linkedEffects: rule.effects.some((effect) => effect.linked),
+    reaction: rule.effects.some((effect) => effect.reaction || effect.type === "deflect"),
+    limited: rule.effects.some((effect) => effect.limited),
+    secondaryEffect: rule.effects.some((effect) => effect.secondaryEffect),
+  };
+  return rule;
+}
+
+function existingSelfStatShift(effects, trait, delta) {
+  const wanted = normalizeStatLabel(trait);
+  return (effects || []).find((effect) => (
+    effectTypeKey(effect) === "enhanced_trait"
+    && safeStr(effect?.target).toLowerCase() === "self"
+    && effectTraitList(effect).includes(wanted)
+    && statDeltaFromEffect(effect, wanted, delta) === safeInt(delta, 0)
+  ));
+}
+
+function normalizePokemonStatusCondition(value) {
+  const key = normalizePowerName(value);
+  return POKEMON_STATUS_CONDITION_ALIASES[key] || "";
+}
+
+function allowedPokemonConditions(core) {
+  return new Set([
+    ...(Array.isArray(core?.allowedConditions) ? core.allowedConditions : []),
+    ...(Array.isArray(core?.optionalTargetConditions) ? core.optionalTargetConditions : []),
+  ].map(normalizePokemonStatusCondition).filter(Boolean));
+}
+
+function coreSelfShiftTraitSet(core) {
+  const traits = [];
+  for (const shift of Array.isArray(core?.mandatorySelfStatShifts) ? core.mandatorySelfStatShifts : []) {
+    for (const trait of Array.isArray(shift?.traits) ? shift.traits : []) {
+      const normalized = normalizeStatLabel(trait);
+      if (normalized) traits.push(normalized);
+    }
+  }
+  return new Set(traits);
+}
+
+function applyMandatoryCoreSelfStatShifts(rule, core, metadata) {
+  const shifts = Array.isArray(core?.mandatorySelfStatShifts) ? core.mandatorySelfStatShifts : [];
+  if (!shifts.length || !Array.isArray(rule?.effects)) return false;
+
+  const mandatoryTraits = coreSelfShiftTraitSet(core);
+  const kept = [];
+  const removedWeakens = [];
+  for (const effect of rule.effects) {
+    const type = effectTypeKey(effect);
+    const traits = effectTraitList(effect);
+    const representsMandatorySelfShift = type === "weaken" && traits.some((trait) => mandatoryTraits.has(trait));
+    if (representsMandatorySelfShift) {
+      removedWeakens.push(effect);
+    } else {
+      kept.push(effect);
+    }
+  }
+
+  const added = [];
+  const appliedTraits = [];
+  for (const shift of shifts) {
+    const delta = safeInt(shift?.delta, -1);
+    for (const rawTrait of Array.isArray(shift?.traits) ? shift.traits : []) {
+      const trait = normalizeStatLabel(rawTrait);
+      if (!trait) continue;
+      if (existingSelfStatShift(kept.concat(added), trait, delta)) continue;
+      const sourceEffect = removedWeakens.find((effect) => effectTraitList(effect).includes(trait)) || removedWeakens[0] || null;
+      const effect = supportShiftEffectFromWeaken(sourceEffect || {
+        raw: `${core.name}: Pokemon core self stat shift`,
+        linked: false,
+      }, trait, delta, added.length);
+      effect.id = uniqueEffectId(kept.concat(added), `pokemon_core_${core.key}_${trait}`);
+      effect.linked = false;
+      effect.pokemonCoreMandatory = true;
+      effect.pokemonCoreSource = "local_table";
+      added.push(effect);
+      appliedTraits.push(trait);
+    }
+  }
+
+  if (!removedWeakens.length && !added.length) return false;
+
+  rule.effects = kept.concat(added);
+  metadata.normalizations.push({
+    type: "mandatory_self_stat_shift",
+    move: core.name,
+    traits: Array.from(new Set(appliedTraits.length ? appliedTraits : Array.from(mandatoryTraits))),
+    delta: shifts.length === 1 ? safeInt(shifts[0]?.delta, -1) : null,
+    removedEffectIds: removedWeakens.map((effect) => safeStr(effect?.id)).filter(Boolean),
+    appliedEffectIds: added.map((effect) => safeStr(effect?.id)).filter(Boolean),
+    message: `${core.name}: self-debuff ${Array.from(new Set(appliedTraits.length ? appliedTraits : Array.from(mandatoryTraits))).join("/")} aplicado ao usuario.`,
+  });
+  return true;
+}
+
+function filterPokemonCoreConditionConflicts(rule, core, metadata) {
+  if (!Array.isArray(rule?.effects)) return false;
+  const allowed = allowedPokemonConditions(core);
+  let changed = false;
+  const filtered = [];
+
+  for (const effect of rule.effects) {
+    if (effectTypeKey(effect) !== "affliction" || !Array.isArray(effect?.conditions)) {
+      filtered.push(effect);
+      continue;
+    }
+
+    const incompatible = [];
+    const keptConditions = [];
+    for (const condition of effect.conditions) {
+      const normalizedStatus = normalizePokemonStatusCondition(condition?.condition);
+      if (normalizedStatus && !allowed.has(normalizedStatus)) {
+        incompatible.push({ ...condition, condition: normalizedStatus });
+      } else {
+        keptConditions.push(condition);
+      }
+    }
+
+    if (!incompatible.length) {
+      filtered.push(effect);
+      continue;
+    }
+
+    changed = true;
+    for (const condition of incompatible) {
+      const conflict = {
+        type: "pokemon_status_mismatch",
+        severity: "needs_decision",
+        move: core.name,
+        effectId: safeStr(effect?.id),
+        effectType: "affliction",
+        condition: condition.condition,
+        degree: safeInt(condition.degree, 0) || null,
+        allowedConditions: Array.from(allowed),
+        message: `${core.name}: ${condition.condition} nao faz parte do nucleo Pokemon deste golpe; aprove, troque ou ignore esse efeito custom.`,
+      };
+      metadata.conflicts.push(conflict);
+    }
+
+    metadata.suppressedEffects.push({
+      effectId: safeStr(effect?.id),
+      effectType: "affliction",
+      suppressedConditions: incompatible,
+      raw: safeStr(effect?.raw),
+    });
+
+    if (keptConditions.length) {
+      filtered.push({
+        ...effect,
+        conditions: keptConditions,
+        pokemonCoreSuppressedConditions: incompatible,
+      });
+    }
+  }
+
+  if (changed) rule.effects = filtered;
+  return changed;
+}
+
 function inferPokemonBasePower(move, baseRule, rule) {
   const explicit = firstPositiveInt([
     move?.basePower,
@@ -606,7 +909,7 @@ function applyPokemonGaAlMoveRules(rule, move, baseRule = null) {
 
   for (const effect of rule.effects) {
     const type = normalizePowerName(effect?.type).replace(/-/g, "_");
-    if (liveRank > 0 && effect?.linked) {
+    if (liveRank > 0 && effect?.linked && !effect?.pokemonCoreMandatory) {
       effect.rank = { source: "linked_main", value: liveRank };
       effect.linkedRankSource = "move.rank";
     }
@@ -691,6 +994,22 @@ function normalizeSelfStatShiftEffects(rule) {
   return rule;
 }
 
+export function applyPokemonMoveCore(rule, move, baseRule = null) {
+  if (!rule || !Array.isArray(rule.effects)) return rule;
+  const core = pokemonMoveCoreFor(move, baseRule, rule);
+  let changed = false;
+
+  if (core) {
+    const metadata = ensurePokemonCoreMetadata(rule, core);
+    changed = applyMandatoryCoreSelfStatShifts(rule, core, metadata) || changed;
+    changed = filterPokemonCoreConditionConflicts(rule, core, metadata) || changed;
+  }
+
+  normalizeSelfStatShiftEffects(rule);
+  if (changed) refreshRuleEffectDerivedFields(rule, move);
+  return rule;
+}
+
 function buildPowerRuleFromMoveBuild(move, baseRule = null) {
   const explicitBuild = safeStr(move?.build || move?.buildText || move?.raw || "");
   const moveName = safeStr(move?.name || move?.Nome || move?.nome);
@@ -745,7 +1064,7 @@ function buildPowerRuleFromMoveBuild(move, baseRule = null) {
     requiresChoices: [],
     source: baseRule ? "catalog+sheet_build" : (explicitBuild ? (nameHasEffect && !buildHasEffect ? "name_build+sheet_modifiers" : "sheet_build") : "name_build"),
   };
-  return applyPokemonGaAlMoveRules(normalizeSelfStatShiftEffects(rule), move, baseRule);
+  return applyPokemonGaAlMoveRules(applyPokemonMoveCore(rule, move, baseRule), move, baseRule);
 }
 
 function buildIndex(catalog) {
@@ -763,15 +1082,39 @@ function buildIndex(catalog) {
   return { byId, byName };
 }
 
-export async function loadMmPowerCatalog() {
-  if (catalogCache) return catalogCache;
-  if (!catalogPromise) {
-    catalogPromise = fetch(CATALOG_URL, { cache: "no-cache" })
+export async function loadPokemonMoveCoreCatalog() {
+  if (!pokemonCorePromise) {
+    pokemonCorePromise = fetch(POKEMON_MOVE_CORE_URL, { cache: "no-cache" })
       .then((res) => {
-        if (!res.ok) throw new Error(`moves-mm catalog HTTP ${res.status}`);
+        if (!res.ok) throw new Error(`pokemon-move-core catalog HTTP ${res.status}`);
         return res.json();
       })
       .then((json) => {
+        if (json?.moves && typeof json.moves === "object") {
+          pokemonCoreCache = json;
+        }
+        return pokemonCoreCache;
+      })
+      .catch((err) => {
+        console.warn("[pokemon-move-core] fallback:", err);
+        return pokemonCoreCache || POKEMON_MOVE_CORE_CATALOG;
+      });
+  }
+  return pokemonCorePromise;
+}
+
+export async function loadMmPowerCatalog() {
+  if (catalogCache) return catalogCache;
+  if (!catalogPromise) {
+    catalogPromise = Promise.all([
+      fetch(CATALOG_URL, { cache: "no-cache" })
+        .then((res) => {
+          if (!res.ok) throw new Error(`moves-mm catalog HTTP ${res.status}`);
+          return res.json();
+        }),
+      loadPokemonMoveCoreCatalog(),
+    ])
+      .then(([json]) => {
         catalogCache = json;
         nameIndex = buildIndex(json);
         return json;
@@ -827,7 +1170,7 @@ export function mergeLiveMoveIntoPowerRule(rule, move) {
   };
   if (liveType && !safeStr(cloned.type)) cloned.type = liveType;
   if (liveCategory && !safeStr(cloned.category)) cloned.category = liveCategory;
-  normalizeSelfStatShiftEffects(cloned);
+  applyPokemonMoveCore(cloned, move, rule);
   applyPokemonGaAlMoveRules(cloned, move, rule);
   cloned.validation = validatePowerRule(cloned);
   return cloned;
@@ -916,6 +1259,7 @@ export function fallbackPowerRuleFromMove(move) {
       category,
     },
   };
+  applyPokemonMoveCore(rule, move);
   applyPokemonGaAlMoveRules(rule, move);
   rule.validation = validatePowerRule(rule);
   return rule;

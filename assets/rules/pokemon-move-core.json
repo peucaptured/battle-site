@@ -1,0 +1,95 @@
+{
+  "schema": "PokemonMoveCoreCatalog",
+  "schemaVersion": 1,
+  "source": "local_table",
+  "notes": "Local canonical Pokemon move core used to validate M&M builds without inventing optional effects.",
+  "moves": {
+    "overheat": {
+      "name": "Overheat",
+      "mandatorySelfStatShifts": [
+        {
+          "traits": ["int"],
+          "delta": -2,
+          "pokemonStats": ["special-attack"]
+        }
+      ],
+      "allowedConditions": []
+    },
+    "draco-meteor": {
+      "name": "Draco Meteor",
+      "mandatorySelfStatShifts": [
+        {
+          "traits": ["int"],
+          "delta": -2,
+          "pokemonStats": ["special-attack"]
+        }
+      ],
+      "allowedConditions": []
+    },
+    "leaf-storm": {
+      "name": "Leaf Storm",
+      "mandatorySelfStatShifts": [
+        {
+          "traits": ["int"],
+          "delta": -2,
+          "pokemonStats": ["special-attack"]
+        }
+      ],
+      "allowedConditions": []
+    },
+    "superpower": {
+      "name": "Superpower",
+      "mandatorySelfStatShifts": [
+        {
+          "traits": ["stgr", "thg"],
+          "delta": -1,
+          "pokemonStats": ["attack", "defense"]
+        }
+      ],
+      "allowedConditions": []
+    },
+    "close-combat": {
+      "name": "Close Combat",
+      "mandatorySelfStatShifts": [
+        {
+          "traits": ["thg", "will"],
+          "delta": -1,
+          "pokemonStats": ["defense", "special-defense"]
+        }
+      ],
+      "allowedConditions": []
+    },
+    "ice-hammer": {
+      "name": "Ice Hammer",
+      "mandatorySelfStatShifts": [
+        {
+          "traits": ["initiative", "dodge"],
+          "delta": -1,
+          "pokemonStats": ["speed"]
+        }
+      ],
+      "allowedConditions": []
+    },
+    "v-create": {
+      "name": "V-create",
+      "mandatorySelfStatShifts": [
+        {
+          "traits": ["thg", "will", "initiative", "dodge"],
+          "delta": -1,
+          "pokemonStats": ["defense", "special-defense", "speed"]
+        }
+      ],
+      "allowedConditions": []
+    },
+    "thunder-shock": {
+      "name": "Thunder Shock",
+      "optionalTargetConditions": ["paralyzed"],
+      "allowedConditions": ["paralyzed"]
+    },
+    "thunderbolt": {
+      "name": "Thunderbolt",
+      "optionalTargetConditions": ["paralyzed"],
+      "allowedConditions": ["paralyzed"]
+    }
+  }
+}

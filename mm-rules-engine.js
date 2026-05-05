@@ -266,6 +266,38 @@ function pendingDecisionTemplate(powerRule, effect, choices, reason, env = {}, i
   };
 }
 
+function pokemonCoreDecisionTemplate(powerRule, conflict, env = {}, index = 0) {
+  return {
+    schema: "PendingDecision",
+    schemaVersion: 2,
+    id: uid("pd", env, [
+      "pokemon_core",
+      safeStr(powerRule?.id),
+      safeStr(conflict?.effectId) || `conflict${index}`,
+      safeStr(conflict?.condition),
+      safeStr(conflict?.type),
+    ]),
+    status: "pending",
+    decisionType: "pokemon_core_conflict",
+    powerRuleId: safeStr(powerRule?.id),
+    powerName: safeStr(powerRule?.name || "Power"),
+    effectId: safeStr(conflict?.effectId),
+    effectType: normalizeMmLabel(conflict?.effectType || "custom") || "custom",
+    conflictType: safeStr(conflict?.type || "pokemon_core_conflict"),
+    condition: safeStr(conflict?.condition),
+    choices: ["approve_custom_effect", "replace_with_canonical", "ignore_effect"],
+    reason: safeStr(conflict?.message || "Build M&M contradiz o nucleo Pokemon do golpe."),
+    acceptLabel: "Aprovar custom",
+    ignoreLabel: "Ignorar efeito",
+    data: conflict,
+  };
+}
+
+function pokemonCoreDecisionTemplates(powerRule, env = {}) {
+  const conflicts = Array.isArray(powerRule?.pokemonCore?.conflicts) ? powerRule.pokemonCore.conflicts : [];
+  return conflicts.map((conflict, index) => pokemonCoreDecisionTemplate(powerRule, conflict, env, index));
+}
+
 export function validatePowerRule(rule, context = {}) {
   const env = normalizeRuleEnv(context?.env);
   const legacy = validatePowerRuleLegacy(rule || {});
@@ -334,6 +366,22 @@ export function validatePowerRule(rule, context = {}) {
         env,
         effectIndex,
       ));
+    }
+  }
+
+  const pokemonCoreTemplates = pokemonCoreDecisionTemplates(rule, env);
+  if (pokemonCoreTemplates.length) {
+    needsReview = true;
+    pendingDecisionTemplates.push(...pokemonCoreTemplates);
+    for (const decision of pokemonCoreTemplates) {
+      issues.push({
+        severity: "warning",
+        code: "pokemon_core_conflict",
+        effectId: decision.effectId,
+        effectType: decision.effectType,
+        condition: decision.condition,
+        message: decision.reason,
+      });
     }
   }
 
@@ -736,6 +784,11 @@ function pendingDecisionsFromResolution(resolution, powerRule, event, env = {}) 
     }
   }
 
+  const validation = validatePowerRule(powerRule || {}, { env });
+  for (const decision of validation.pendingDecisionTemplates || []) {
+    add(decision);
+  }
+
   return decisions;
 }
 
@@ -793,6 +846,19 @@ export function buildCombatLog(input = {}) {
     actor: resolution?.actor || event?.actor || null,
     target: resolution?.target || event?.target || null,
   });
+
+  for (const normalization of input.powerRule?.pokemonCore?.normalizations || []) {
+    entries.push({
+      kind: "pokemonCoreNormalization",
+      type: safeStr(normalization?.type),
+      move: safeStr(normalization?.move || input.powerRule?.pokemonCore?.move),
+      traits: Array.isArray(normalization?.traits) ? normalization.traits : [],
+      delta: Number.isFinite(Number(normalization?.delta)) ? safeInt(normalization.delta, 0) : null,
+      removedEffectIds: Array.isArray(normalization?.removedEffectIds) ? normalization.removedEffectIds : [],
+      appliedEffectIds: Array.isArray(normalization?.appliedEffectIds) ? normalization.appliedEffectIds : [],
+      message: safeStr(normalization?.message),
+    });
+  }
 
   for (const roll of rollEntriesFromResolution(resolution)) {
     entries.push({ ...roll, rollKind: roll.kind, kind: "roll" });

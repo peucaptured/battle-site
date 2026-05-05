@@ -83,7 +83,10 @@ export function buildResistanceQueue(powerRule, options = {}) {
     });
   }
 
-  if (!queue.length) {
+  const pokemonCoreBlocksFallback = Array.isArray(powerRule?.pokemonCore?.conflicts)
+    && powerRule.pokemonCore.conflicts.length > 0
+    && effects.length === 0;
+  if (!queue.length && !pokemonCoreBlocksFallback) {
     const isEffect = !!options.fallbackIsEffect;
     const baseDc = isEffect ? 10 : 15;
     queue.push({

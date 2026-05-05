@@ -4201,6 +4201,8 @@ export class ArenaCombatUI {
 
           if (targetPiece) this._showFloat(targetPiece, `🛡️ ${msg}`, "resist");
 
+          this._closePrompt();
+
           const isEff = !!battle.is_effect;
           const powerRule = battle?.power_rule || battle?.attack_move?.power_rule || await getPowerRuleForMove(battle?.attack_move || {});
           const resistanceQueue = buildResistanceQueue(powerRule, {
@@ -4216,7 +4218,7 @@ export class ArenaCombatUI {
             dmg_base: finalRank,
             unreliable_roll: safeInt(battle?.unreliable_roll, 0) || null,
             unreliable_gate: firestoreSafeValue(battle?.unreliable_gate || null),
-            pendingFor: by,
+            pendingFor: tOwner,
             resistance_queue: resistanceQueue,
             aoe_source: true,
             last_attack_outcome: "area_dodge_resolved",
@@ -4225,7 +4227,6 @@ export class ArenaCombatUI {
             prompt: { type: "ROLL_RESIST", options: { dc: newDc, isEffect: isEff, isAoe: false, powerRule, resistanceQueue } },
             logs: arrayUnion(`${msg}. Agora escolha como resistir (CD ${newDc}).`),
           });
-          this._closePrompt();
         } else {
           const diff = dc - checkTotal;
           let barsLost, resMsg;

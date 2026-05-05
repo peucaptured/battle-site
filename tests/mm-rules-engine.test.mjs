@@ -419,13 +419,16 @@ test("Pokemon self debuff notes convert catalog Weaken into self stat shifts", (
   const cases = [
     ["Overheat", { int: -2 }],
     ["Draco Meteor", { int: -2 }],
+    ["Leaf Storm", { int: -2 }],
     ["Close Combat", { thg: -1, will: -1 }],
     ["Superpower", { stgr: -1, thg: -1 }],
     ["Ice Hammer", { initiative: -1, dodge: -1 }],
+    ["V-create", { thg: -1, will: -1, initiative: -1, dodge: -1 }],
   ];
 
   for (const [name, expected] of cases) {
     const rule = mergeLiveMoveIntoPowerRule(catalogPower(name), { name, rank: 10 });
+    assert.equal(rule.pokemonCore?.source, "local_table", `${name} should expose local Pokemon core metadata`);
     const badTargetWeakens = rule.effects.filter((effect) => effect.type === "weaken" && effect.target === "target");
     assert.deepEqual(badTargetWeakens, [], `${name} should not debuff the target`);
 
@@ -445,25 +448,34 @@ test("Pokemon self debuff notes convert catalog Weaken into self stat shifts", (
 });
 
 test("self debuffs from catalog apply to the actor, not the defender", () => {
-  const rule = mergeLiveMoveIntoPowerRule(catalogPower("Overheat"), { name: "Overheat", rank: 12 });
-  const resolution = resolveCombatEvent({
-    type: "resistanceCheck",
-    id: "event:overheat",
-    powerRule: rule,
-    actor: { owner: "A", pid: "1", pieceId: "A-1", hp: 6, statBoosts: {} },
-    target: { owner: "B", pid: "1", pieceId: "B-1", hp: 6, conditions: { deg1: [], deg2: [], deg3: [] }, statBoosts: {} },
-    d20: 20,
-    stats: { thg: 99 },
-    rank: 12,
-  });
+  const cases = [
+    { name: "Overheat", rank: 12, d20: 20, stats: { thg: 99 }, expected: { int: -2 } },
+    { name: "Ice Hammer", rank: 18, d20: 1, stats: { thg: 0 }, expected: { dodge: -1, initiative: -1 } },
+  ];
 
-  const statPatches = resolution.patches.filter((patch) => patch.kind === "stat_boost");
-  assert.deepEqual(statPatches.map((patch) => ({
-    owner: patch.owner,
-    pid: patch.pid,
-    stat: patch.stat,
-    delta: patch.delta,
-  })), [{ owner: "A", pid: "1", stat: "int", delta: -2 }]);
+  for (const item of cases) {
+    const rule = mergeLiveMoveIntoPowerRule(catalogPower(item.name), { name: item.name, rank: item.rank });
+    const resolution = resolveCombatEvent({
+      type: "resistanceCheck",
+      id: `event:${normalizePowerName(item.name)}`,
+      powerRule: rule,
+      actor: { owner: "A", pid: "1", pieceId: "A-1", hp: 6, statBoosts: {} },
+      target: { owner: "B", pid: "1", pieceId: "B-1", hp: 6, conditions: { deg1: [], deg2: [], deg3: [] }, statBoosts: {} },
+      d20: item.d20,
+      stats: item.stats,
+      rank: item.rank,
+    });
+
+    const statPatches = resolution.patches.filter((patch) => patch.kind === "stat_boost");
+    assert.equal(statPatches.some((patch) => patch.owner === "B" && patch.pid === "1"), false, `${item.name} should not stat-debuff the defender`);
+    for (const patch of statPatches) {
+      assert.ok(Math.abs(patch.delta) <= 2, `${item.name} stat delta should be fixed, not multiplied by resistance degree`);
+    }
+    for (const [stat, delta] of Object.entries(item.expected)) {
+      assert.ok(statPatches.some((patch) => patch.owner === "A" && patch.pid === "1" && patch.stat === stat && patch.delta === delta), `${item.name} should apply ${stat} ${delta} to the actor`);
+    }
+    assert.ok(resolution.combatLog?.entries?.some((entry) => entry.kind === "pokemonCoreNormalization" && entry.move === item.name), `${item.name} should log Pokemon core normalization`);
+  }
 });
 
 test("fallback schema parses sheet build effects instead of generic move-only damage", () => {
@@ -531,17 +543,62 @@ test("live sheet build wins over catalog while mandatory Pokemon self debuffs st
   const rule = mergeLiveMoveIntoPowerRule(catalogPower("Overheat"), {
     name: "Overheat",
     rank: 12,
-    build: "Affliction 12 (Dazed, Stunned, Paralyzed) (Resisted by Fortitude)",
+    build: "Affliction 12 (Dazed, Stunned, Incapacitated) (Resisted by Fortitude)",
   });
 
   assert.equal(rule.source, "catalog+sheet_build");
   assert.equal(rule.effects.some((effect) => effect.type === "damage"), false, "catalog Damage should not override the sheet build");
   assert.equal(rule.effects[0]?.type, "affliction");
-  assert.deepEqual(rule.effects[0]?.conditions.map((item) => item.condition), ["dazed", "stunned", "paralyzed"]);
+  assert.deepEqual(rule.effects[0]?.conditions.map((item) => item.condition), ["dazed", "stunned", "incapacitated"]);
 
   const selfDebuff = rule.effects.find((effect) => effect.type === "enhanced_trait" && effect.target === "self" && effect.traits?.includes("int"));
   assert.ok(selfDebuff, "Pokemon/Ga'Al self debuff should still be attached from the move identity");
   assert.equal(selfDebuff.statDeltas?.int, -2);
+});
+
+test("Pokemon core conflict suppresses incompatible Thunder Shock burn until adjudication", () => {
+  const rule = fallbackPowerRuleFromMove({
+    name: "Thunder Shock",
+    rank: 8,
+    type: "Electric",
+    category: "Especial",
+    build: "Affliction 8 (Dazed, Stunned, Burn; Resisted by Fortitude) [Extra: Cumulative]",
+  });
+
+  assert.ok(rule.pokemonCore?.conflicts?.some((conflict) => conflict.condition === "burn"));
+  assert.equal(rule.effects.some((effect) => effect.conditions?.some((condition) => condition.condition === "burn")), false);
+
+  const validation = validatePowerRule(rule);
+  assert.equal(validation.status, "needsReview");
+  assert.ok(validation.pendingDecisionTemplates.some((decision) => decision.decisionType === "pokemon_core_conflict"));
+
+  const resolution = resolveCombatEvent({
+    type: "resistanceCheck",
+    id: "event:thunder-shock-burn",
+    powerRule: rule,
+    actor: { owner: "A", pid: "1", pieceId: "A-1", hp: 6, statBoosts: {} },
+    target: { owner: "B", pid: "1", pieceId: "B-1", hp: 6, conditions: { deg1: [], deg2: [], deg3: [] }, statBoosts: {} },
+    d20: 1,
+    stats: { fort: 0 },
+    rank: 8,
+  });
+
+  assert.equal(JSON.stringify(resolution.patches).includes("burn"), false);
+  assert.ok(resolution.pendingDecisions.some((decision) => decision.decisionType === "pokemon_core_conflict"));
+});
+
+test("Pokemon core allows Cumulative on canonical Thunder Shock paralysis build", () => {
+  const rule = fallbackPowerRuleFromMove({
+    name: "Thunder Shock",
+    rank: 8,
+    type: "Electric",
+    category: "Especial",
+    build: "Affliction 8 (Dazed, Stunned, Paralyzed; Resisted by Fortitude) [Extra: Cumulative]",
+  });
+
+  assert.equal(rule.pokemonCore?.conflicts?.length || 0, 0);
+  assert.ok(rule.effects.some((effect) => effect.type === "affliction"));
+  assert.ok(rule.effects.some((effect) => effect.cumulative || effect.extras?.includes("Cumulative")));
 });
 
 test("Pokemon base power applies global damage bonus thresholds", () => {
