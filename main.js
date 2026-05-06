@@ -482,6 +482,8 @@ function getEffectiveMapTilePx() {
 function getActiveMapTerrainUrl() {
   const b = appState.board || {};
   const urls = [];
+  pushUniqueString(urls, b.mapTerrainTokenUrl);
+  pushUniqueString(urls, b.map_terrain_token_url);
   pushUniqueString(urls, b.mapTerrainUrl);
   pushUniqueString(urls, b.map_terrain_url);
   const storagePath = safeStr(b.mapTerrainStoragePath || b.map_terrain_storage_path);
@@ -492,6 +494,8 @@ function getActiveMapTerrainUrl() {
 function getActiveMapBaseDataUrl() {
   const b = appState.board || {};
   const urls = [];
+  pushUniqueString(urls, b.mapBaseDataTokenUrl);
+  pushUniqueString(urls, b.map_base_data_token_url);
   pushUniqueString(urls, b.mapBaseDataUrl);
   pushUniqueString(urls, b.map_base_data_url);
   const storagePath = safeStr(b.mapBaseDataStoragePath || b.map_base_data_storage_path);
@@ -11480,6 +11484,34 @@ function _initMapLayersFromData(data, jsonUrl) {
   mapLayersState._usedObjIds.clear();
 }
 
+const MAP_OBJECT_VISUAL_SCALE = 0.54;
+
+function getMapObjectVisualScale(obj) {
+  const assetMeta = obj?._assetMeta || getCatalogAssetMeta(obj?.assetPool, obj?.assetId) || null;
+  const rawScale = Number(assetMeta?.renderScale ?? assetMeta?.visualScale ?? obj?.renderScale ?? obj?.visualScale);
+  if (Number.isFinite(rawScale) && rawScale > 0) {
+    return Math.max(0.2, Math.min(1.5, rawScale));
+  }
+  return MAP_OBJECT_VISUAL_SCALE;
+}
+
+function scaleMapObjectRectToAnchor(rect, obj, ox, oy, tile) {
+  const visualScale = getMapObjectVisualScale(obj);
+  if (!Number.isFinite(visualScale) || visualScale === 1) return rect;
+  const fw = Number(obj?.footprint?.w || 1) || 1;
+  const fh = Number(obj?.footprint?.h || 1) || 1;
+  const ax = Number(obj?.anchor?.ax ?? 0.5) || 0.5;
+  const ay = Number(obj?.anchor?.ay ?? 1.0) || 1.0;
+  const anchorX = ox + (Number(obj?.x || 0) + ax * fw) * tile;
+  const anchorY = oy + (Number(obj?.y || 0) + ay * fh) * tile;
+  return {
+    x: anchorX - (anchorX - rect.x) * visualScale,
+    y: anchorY - (anchorY - rect.y) * visualScale,
+    w: rect.w * visualScale,
+    h: rect.h * visualScale,
+  };
+}
+
 /**
  * Draw one map object sprite onto ctx at grid position (ox/oy origin, tile px).
  * Returns false if the sprite isn't loaded yet.
@@ -11491,12 +11523,12 @@ function getMapObjectDrawRect(obj, ox, oy, tile) {
   const renderH = Number(render?.h || 0);
   if (renderW > 0 && renderH > 0 && mapTilePx > 0) {
     const scale = tile / mapTilePx;
-    return {
+    return scaleMapObjectRectToAnchor({
       x: ox + Number(render?.pxX || 0) * scale,
       y: oy + Number(render?.pxY || 0) * scale,
       w: renderW * scale,
       h: renderH * scale,
-    };
+    }, obj, ox, oy, tile);
   }
 
   const assetMeta = obj?._assetMeta || getCatalogAssetMeta(obj?.assetPool, obj?.assetId) || null;
@@ -11512,12 +11544,12 @@ function getMapObjectDrawRect(obj, ox, oy, tile) {
   const ay = Number(obj?.anchor?.ay ?? 1.0) || 1.0;
   const footX = ox + (Number(obj?.x || 0) + ax * fw) * tile;
   const footY = oy + (Number(obj?.y || 0) + ay * fh) * tile;
-  return {
+  return scaleMapObjectRectToAnchor({
     x: footX - ax * drawW,
     y: footY - ay * drawH,
     w: drawW,
     h: drawH,
-  };
+  }, obj, ox, oy, tile);
 }
 
 function _drawMapObject(ctx, obj, ox, oy, tile) {
@@ -11974,8 +12006,12 @@ function getActiveMapImageCandidates(options = {}) {
   const b = appState.board || {};
   if (!preferTerrain) {
     pushUniqueString(urls, mapUrlOverride);
+    pushUniqueString(urls, b.mapTokenUrl);
+    pushUniqueString(urls, b.map_token_url);
     pushUniqueString(urls, b.mapUrl);
     pushUniqueString(urls, b.map_url);
+    pushUniqueString(urls, b.backgroundTokenUrl);
+    pushUniqueString(urls, b.background_token_url);
     pushUniqueString(urls, b.backgroundUrl);
     pushUniqueString(urls, b.background_url);
     const storagePath = safeStr(
@@ -11997,6 +12033,8 @@ function getActiveMapUrl() {
 function getActiveMapDataUrl() {
   const b = appState.board || {};
   const urls = [];
+  pushUniqueString(urls, b.mapDataTokenUrl);
+  pushUniqueString(urls, b.map_data_token_url);
   pushUniqueString(urls, b.mapDataUrl);
   pushUniqueString(urls, b.map_data_url);
   const storagePath = safeStr(b.mapDataStoragePath || b.map_data_storage_path);
