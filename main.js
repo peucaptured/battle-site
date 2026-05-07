@@ -2614,9 +2614,42 @@ const ROLL_FX_D20_FRAME_BY_VALUE = Object.freeze({
   14: 15, 10: 16, 16: 17, 12: 18, 19: 19,
 });
 let currentRollFxLayer = null;
+const rollFxAnimationWaiters = new Map();
+const rollFxCompletedKeys = new Set();
+const rollFxPlayedKeys = new Set();
+const rollFxPlayingPromises = new Map();
+const recentLocalRollFxPlays = [];
+
+function d20Roll() {
+  return Math.floor(Math.random() * 20) + 1;
+}
+
+function makeRollRequestId(prefix = "roll") {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
 
 function sleepRollFx(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function rememberLocalRollFxPlay(value) {
+  const roll = safeInt(value, 0);
+  if (!roll) return;
+  const now = Date.now();
+  recentLocalRollFxPlays.push({ value: roll, at: now });
+  while (recentLocalRollFxPlays.length && now - recentLocalRollFxPlays[0].at > 8000) {
+    recentLocalRollFxPlays.shift();
+  }
+}
+
+function hasRecentLocalRollFxPlay(value) {
+  const roll = safeInt(value, 0);
+  if (!roll) return false;
+  const now = Date.now();
+  while (recentLocalRollFxPlays.length && now - recentLocalRollFxPlays[0].at > 8000) {
+    recentLocalRollFxPlays.shift();
+  }
+  return recentLocalRollFxPlays.some((entry) => entry.value === roll && now - entry.at <= 8000);
 }
 
 function ensureRollFxStyles() {
@@ -2673,6 +2706,59 @@ function ensureRollFxStyles() {
   color: rgba(248,250,252,.96);
   margin-top: -4px;
 }
+.roll-fx-note {
+  min-height: 18px;
+  margin-top: -2px;
+  color: rgba(203,213,225,.86);
+  font-size: 12px;
+  font-weight: 750;
+}
+.roll-fx-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.roll-fx-btn {
+  border: 1px solid rgba(148,163,184,.28);
+  border-radius: 999px;
+  background: rgba(15,23,42,.88);
+  color: rgba(226,232,240,.96);
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.roll-fx-btn:hover {
+  border-color: rgba(56,189,248,.56);
+  background: rgba(30,41,59,.94);
+}
+.roll-fx-btn.roll-fx-primary {
+  border-color: rgba(250,204,21,.55);
+  background: linear-gradient(180deg, rgba(250,204,21,.22), rgba(245,158,11,.16));
+  color: #fef3c7;
+}
+.roll-fx-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  border: 1px solid rgba(148,163,184,.22);
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: rgba(226,232,240,.94);
+  background: rgba(2,6,23,.34);
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.roll-fx-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: #f59e0b;
+}
 @keyframes rollFxFadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
@@ -2689,8 +2775,9 @@ function d20FrameForRollFx(value) {
   return ROLL_FX_D20_FRAME_BY_VALUE[roll] ?? Math.max(0, Math.min(19, roll - 1));
 }
 
-async function playDiceRollAnimation({ label = "d20", value = null } = {}) {
+async function playDiceRollAnimation({ label = "d20", value = null, shared = false } = {}) {
   try {
+    if (!shared) rememberLocalRollFxPlay(value);
     ensureRollFxStyles();
     try { currentRollFxLayer?.remove?.(); } catch {}
 
@@ -2724,6 +2811,218 @@ async function playDiceRollAnimation({ label = "d20", value = null } = {}) {
 }
 
 window.playDiceRollAnimation = playDiceRollAnimation;
+
+function resolveRollFxWaiter(key) {
+  const waitKey = safeStr(key);
+  if (!waitKey) return;
+  rollFxCompletedKeys.add(waitKey);
+  const waiter = rollFxAnimationWaiters.get(waitKey);
+  if (!waiter) return;
+  rollFxAnimationWaiters.delete(waitKey);
+  try { clearTimeout(waiter.timeout); } catch {}
+  try { waiter.resolve(); } catch {}
+}
+
+function waitForSharedRollAnimation(key, fallback = {}) {
+  const waitKey = safeStr(key);
+  if (!waitKey || rollFxCompletedKeys.has(waitKey)) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timeout = setTimeout(async () => {
+      rollFxAnimationWaiters.delete(waitKey);
+      try {
+        await playDiceRollAnimation(fallback);
+      } finally {
+        rollFxCompletedKeys.add(waitKey);
+        resolve();
+      }
+    }, Math.max(ROLL_FX_D20_MS + 1800, 3600));
+    rollFxAnimationWaiters.set(waitKey, { resolve, timeout });
+  });
+}
+
+async function playSharedRollAnimationFromDoc(docId, roll) {
+  const requestId = safeStr(roll?.requestId || roll?.rollId || docId);
+  const explicitRequestId = safeStr(roll?.requestId || roll?.rollId);
+  const playKey = requestId || safeStr(docId);
+  if (!playKey) return;
+  if (rollFxPlayingPromises.has(playKey)) return rollFxPlayingPromises.get(playKey);
+  if (rollFxPlayedKeys.has(playKey)) return;
+  const rawValue = roll?.rawValue != null ? roll.rawValue : roll?.value;
+  const value = safeInt(rawValue, 0);
+  const label = safeStr(roll?.animationLabel || roll?.label || "Dado") || "Dado";
+  const trainer = safeStr(roll?.trainer || roll?.by);
+  if (!explicitRequestId && trainer && trainer === safeStr(appState.by) && hasRecentLocalRollFxPlay(value)) {
+    rollFxPlayedKeys.add(playKey);
+    resolveRollFxWaiter(requestId);
+    resolveRollFxWaiter(docId);
+    return;
+  }
+  rollFxPlayedKeys.add(playKey);
+  const playPromise = (async () => {
+    try {
+      await playDiceRollAnimation({ label, value, shared: true });
+    } finally {
+      rollFxPlayingPromises.delete(playKey);
+      resolveRollFxWaiter(requestId);
+      resolveRollFxWaiter(docId);
+    }
+  })();
+  rollFxPlayingPromises.set(playKey, playPromise);
+  return playPromise;
+}
+
+function playLocalSharedRollAnimation(key, { label = "Dado", value = null } = {}) {
+  const playKey = safeStr(key);
+  if (!playKey) return playDiceRollAnimation({ label, value, shared: true });
+  if (rollFxPlayingPromises.has(playKey)) return rollFxPlayingPromises.get(playKey);
+  if (rollFxPlayedKeys.has(playKey)) return Promise.resolve();
+  rollFxPlayedKeys.add(playKey);
+  const playPromise = (async () => {
+    try {
+      await playDiceRollAnimation({ label, value, shared: true });
+    } finally {
+      rollFxPlayingPromises.delete(playKey);
+      resolveRollFxWaiter(playKey);
+    }
+  })();
+  rollFxPlayingPromises.set(playKey, playPromise);
+  return playPromise;
+}
+
+function removeRollDecisionLayer(layer) {
+  if (currentRollFxLayer === layer) currentRollFxLayer = null;
+  try { layer.remove(); } catch {}
+}
+
+function showRollRerollPrompt(value) {
+  return new Promise((resolve) => {
+    ensureRollFxStyles();
+    try { currentRollFxLayer?.remove?.(); } catch {}
+    const layer = document.createElement("div");
+    layer.className = "roll-fx-layer";
+    layer.innerHTML = `
+      <div class="roll-fx-panel">
+        <div class="roll-fx-title">Resultado do Dado</div>
+        <div class="roll-fx-value">${safeInt(value, 0)}</div>
+        <div class="roll-fx-note">Escolha se este resultado será mantido.</div>
+        <div class="roll-fx-actions">
+          <button type="button" class="roll-fx-btn roll-fx-primary" data-roll-decision="reroll">Rejogar Dado</button>
+          <button type="button" class="roll-fx-btn" data-roll-decision="keep">Manter Dado</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(layer);
+    currentRollFxLayer = layer;
+
+    layer.querySelector('[data-roll-decision="reroll"]')?.addEventListener("click", () => {
+      removeRollDecisionLayer(layer);
+      resolve(true);
+    });
+    layer.querySelector('[data-roll-decision="keep"]')?.addEventListener("click", () => {
+      removeRollDecisionLayer(layer);
+      resolve(false);
+    });
+  });
+}
+
+function applyHeroPointReroll(rawValue, heroPoint) {
+  const raw = safeInt(rawValue, 0);
+  return heroPoint && raw > 0 && raw <= 10 ? raw + 10 : raw;
+}
+
+function showRollHeroPointPrompt(rawValue) {
+  return new Promise((resolve) => {
+    ensureRollFxStyles();
+    try { currentRollFxLayer?.remove?.(); } catch {}
+    const raw = safeInt(rawValue, 0);
+    const layer = document.createElement("div");
+    layer.className = "roll-fx-layer";
+    layer.innerHTML = `
+      <div class="roll-fx-panel">
+        <div class="roll-fx-title">Segundo Resultado</div>
+        <div class="roll-fx-value" data-roll-final-value>${raw}</div>
+        <label class="roll-fx-toggle">
+          <input type="checkbox" data-roll-ph>
+          <span>Foi PH</span>
+        </label>
+        <div class="roll-fx-note" data-roll-ph-note>Resultado bruto do segundo dado.</div>
+        <div class="roll-fx-actions">
+          <button type="button" class="roll-fx-btn roll-fx-primary" data-roll-decision="accept">Adotar Resultado</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(layer);
+    currentRollFxLayer = layer;
+
+    const phInput = layer.querySelector("[data-roll-ph]");
+    const valueEl = layer.querySelector("[data-roll-final-value]");
+    const noteEl = layer.querySelector("[data-roll-ph-note]");
+    const refresh = () => {
+      const heroPoint = !!phInput?.checked;
+      const finalValue = applyHeroPointReroll(raw, heroPoint);
+      if (valueEl) valueEl.textContent = String(finalValue);
+      if (noteEl) {
+        noteEl.textContent = heroPoint
+          ? (finalValue !== raw ? `PH: ${raw} + 10 = ${finalValue}.` : "PH marcado; dado acima de 10 não muda.")
+          : "Resultado bruto do segundo dado.";
+      }
+    };
+    phInput?.addEventListener("change", refresh);
+    refresh();
+
+    layer.querySelector('[data-roll-decision="accept"]')?.addEventListener("click", () => {
+      const heroPoint = !!phInput?.checked;
+      removeRollDecisionLayer(layer);
+      resolve({ heroPoint, finalValue: applyHeroPointReroll(raw, heroPoint) });
+    });
+  });
+}
+
+async function publishRoomRoll({ by, value, rawValue = value, label = "d20", animationLabel = "Dado", requestId = "", rollRound = 1, sourceRollId = "", final = false, heroPoint = false } = {}) {
+  return addDoc(collection(currentDb, "rooms", currentRid, "rolls"), {
+    by,
+    trainer: by,
+    value,
+    rawValue,
+    label,
+    animationLabel,
+    requestId,
+    rollRound,
+    sourceRollId,
+    final,
+    heroPoint,
+    kind: "dice",
+    clientCreatedAt: Date.now(),
+    createdAt: serverTimestamp(),
+  });
+}
+
+async function finishTopRollResult(finalValue) {
+  const battleRef = getBattleDocRef();
+  if (!battleRef) throw new Error("estado da batalha indisponivel");
+
+  const turnState = appState.battle?.turn_state || null;
+  const phase = safeStr(turnState?.phase);
+  if (phase !== "active") {
+    const order = buildTurnOrderFromCurrentBoard();
+    if (order.length) {
+      const currentRound = Number(turnState?.round) || 0;
+      const nextTurnState = {
+        round: currentRound + 1,
+        phase: "active",
+        index: 0,
+        order,
+        updatedAt: Date.now(),
+      };
+      await runTransaction(currentDb, async (tx) => {
+        tx.set(battleRef, { turn_state: nextTurnState }, { merge: true });
+      });
+      setStatus("ok", `dado rolado: ${finalValue} • Rodada ${currentRound + 1} iniciada!`);
+      return;
+    }
+  }
+  setStatus("ok", `dado rolado: ${finalValue}`);
+}
 // window.sendMovePiece removido (debug antigo) — mover agora é por clique/arrasto no grid.
 
 topRollBtn?.addEventListener("click", async () => {
@@ -2733,13 +3032,7 @@ topRollBtn?.addEventListener("click", async () => {
   }
 
   const by = safeStr(appState.by || byInput?.value || "Anon") || "Anon";
-  const value = Math.floor(Math.random() * 20) + 1;
-
-  const battleRef = getBattleDocRef();
-  if (!battleRef) {
-    setStatus("err", "estado da batalha indisponivel");
-    return;
-  }
+  const value = d20Roll();
 
   const prevDisabled = topRollBtn.disabled;
   const prevLabel = topRollBtn.textContent;
@@ -2747,41 +3040,53 @@ topRollBtn?.addEventListener("click", async () => {
   topRollBtn.textContent = "⏳ Rolando...";
 
   try {
-    await playDiceRollAnimation({ label: "Dado", value });
-
-    // Sempre rola o dado
-    await addDoc(collection(currentDb, "rooms", currentRid, "rolls"), {
+    const firstRequestId = makeRollRequestId("roll");
+    const firstRef = await publishRoomRoll({
       by,
-      trainer: by,
       value,
+      rawValue: value,
       label: "d20",
-      createdAt: serverTimestamp(),
+      animationLabel: "Dado",
+      requestId: firstRequestId,
+      rollRound: 1,
+      final: true,
     });
+    await playLocalSharedRollAnimation(firstRequestId, { label: "Dado", value });
 
-    // Se a rodada não estiver ativa, também inicia nova rodada (se houver peças)
-    const turnState = appState.battle?.turn_state || null;
-    const phase = safeStr(turnState?.phase);
-    if (phase !== "active") {
-      const order = buildTurnOrderFromCurrentBoard();
-      if (order.length) {
-        const currentRound = Number(turnState?.round) || 0;
-        const nextTurnState = {
-          round: currentRound + 1,
-          phase: "active",
-          index: 0,
-          order,
-          updatedAt: Date.now(),
-        };
-        await runTransaction(currentDb, async (tx) => {
-          tx.set(battleRef, { turn_state: nextTurnState }, { merge: true });
-        });
-        setStatus("ok", `dado rolado: ${value} • Rodada ${currentRound + 1} iniciada!`);
-      } else {
-        setStatus("ok", `dado rolado: ${value}`);
-      }
-    } else {
-      setStatus("ok", `dado rolado: ${value}`);
+    let finalValue = value;
+    const shouldReroll = await showRollRerollPrompt(value);
+    if (shouldReroll) {
+      await setDoc(firstRef, { final: false, rerolled: true, supersededAt: serverTimestamp() }, { merge: true });
+
+      const rerollValue = d20Roll();
+      const secondRequestId = makeRollRequestId("reroll");
+      const secondRef = await publishRoomRoll({
+        by,
+        value: rerollValue,
+        rawValue: rerollValue,
+        label: "d20",
+        animationLabel: "Rejogar Dado",
+        requestId: secondRequestId,
+        rollRound: 2,
+        sourceRollId: firstRef.id,
+        final: false,
+      });
+      await playLocalSharedRollAnimation(secondRequestId, { label: "Rejogar Dado", value: rerollValue });
+
+      const phDecision = await showRollHeroPointPrompt(rerollValue);
+      finalValue = safeInt(phDecision?.finalValue, rerollValue);
+      const heroPoint = !!phDecision?.heroPoint;
+      await setDoc(secondRef, {
+        value: finalValue,
+        rawValue: rerollValue,
+        label: heroPoint ? "d20 PH" : "d20",
+        heroPoint,
+        final: true,
+        finalizedAt: serverTimestamp(),
+      }, { merge: true });
     }
+
+    await finishTopRollResult(finalValue);
   } catch (e) {
     setStatus("err", `erro ao rolar dado: ${e?.message || e}`);
   } finally {
@@ -3230,37 +3535,73 @@ if (rollsBanner) {
     const rollsCol = collection(db, "rooms", rid, "rolls");
     const rollsQ = query(rollsCol, orderBy("createdAt", "desc"), limit(1));
     let rollBannerTimer = null;
+    let rollsSnapshotReady = false;
+    let latestRollDocId = "";
+    const rollsListenerStartedAt = Date.now();
+    const hideRollBanner = () => {
+      if (rollBannerTimer) {
+        clearTimeout(rollBannerTimer);
+        rollBannerTimer = null;
+      }
+      rollsBanner.style.display = "none";
+      document.body.classList.remove("has-roll-banner");
+    };
+    const renderRollBanner = (roll) => {
+      const trainer = safeStr(roll.trainer || roll.by) || "???";
+      const value = roll.value != null ? roll.value : "?";
+      const rawValue = roll.rawValue != null ? roll.rawValue : value;
+      const label = safeStr(roll.label);
+      const heroPoint = !!roll.heroPoint;
+      const renderedValue = heroPoint && safeInt(rawValue, 0) !== safeInt(value, 0)
+        ? `${rawValue}+10=${value}`
+        : `${value}`;
+
+      const msg = `${trainer} ${renderedValue}${label ? " (" + label + ")" : ""}`;
+
+      // atualiza pill fixo
+      if (rollPillText) rollPillText.textContent = msg;
+
+      // mantém banner (opcional)
+      rollsBanner.textContent = `🎲 ${trainer} rolou ${renderedValue}${label ? " (" + label + ")" : ""}`;
+      rollsBanner.style.display = "block";
+      document.body.classList.add("has-roll-banner");
+
+      if (rollBannerTimer) clearTimeout(rollBannerTimer);
+      rollBannerTimer = setTimeout(() => {
+        rollsBanner.style.display = "none";
+        document.body.classList.remove("has-roll-banner");
+      }, 8000);
+    };
 
     unsub.push(
       onSnapshot(
         rollsQ,
         (qs) => {
+          const wasRollsSnapshotReady = rollsSnapshotReady;
+          rollsSnapshotReady = true;
           if (qs.empty) {
             // se quiser, deixa o pill mostrando "—"
             if (rollPillText) rollPillText.textContent = "—";
             return;
           }
 
-          const latestRoll = qs.docs[0].data();
-          const trainer = safeStr(latestRoll.trainer || latestRoll.by) || "???";
-          const value = latestRoll.value != null ? latestRoll.value : "?";
-          const label = safeStr(latestRoll.label);
-
-          const msg = `${trainer} ${value}${label ? " (" + label + ")" : ""}`;
-
-          // atualiza pill fixo
-          if (rollPillText) rollPillText.textContent = msg;
-
-          // mantém banner (opcional)
-          rollsBanner.textContent = `🎲 ${trainer} rolou ${value}${label ? " (" + label + ")" : ""}`;
-          rollsBanner.style.display = "block";
-          document.body.classList.add("has-roll-banner");
-
-          if (rollBannerTimer) clearTimeout(rollBannerTimer);
-          rollBannerTimer = setTimeout(() => {
-            rollsBanner.style.display = "none";
-            document.body.classList.remove("has-roll-banner");
-          }, 8000);
+          const latestDoc = qs.docs[0];
+          const latestRoll = latestDoc.data();
+          const docId = safeStr(latestDoc.id);
+          const clientCreatedAt = Number(latestRoll.clientCreatedAt) || 0;
+          const freshInitialRoll = !latestRollDocId
+            && !wasRollsSnapshotReady
+            && clientCreatedAt >= rollsListenerStartedAt - 2000;
+          const shouldAnimateRoll = !!(docId && (latestRollDocId ? docId !== latestRollDocId : (wasRollsSnapshotReady || freshInitialRoll)));
+          if (shouldAnimateRoll) {
+            hideRollBanner();
+            void Promise.resolve(playSharedRollAnimationFromDoc(docId, latestRoll))
+              .then(() => renderRollBanner(latestRoll))
+              .catch(() => renderRollBanner(latestRoll));
+          } else {
+            renderRollBanner(latestRoll);
+          }
+          latestRollDocId = docId;
         },
         (err) => {
           console.warn("rolls onSnapshot error:", err);
@@ -3847,6 +4188,10 @@ function _normalizePartySlot(slotLike, fallbackIndex = null) {
   return "";
 }
 
+function _looksLikePartySlotKey(slotLike) {
+  return /^slot[_-]?\d+$/i.test(safeStr(slotLike).trim());
+}
+
 function _getPartySlot(entryLike, fallbackIndex = null) {
   if (entryLike && typeof entryLike === "object") {
     return _normalizePartySlot(
@@ -3860,7 +4205,8 @@ function _getPartySlot(entryLike, fallbackIndex = null) {
       fallbackIndex
     );
   }
-  return _normalizePartySlot(entryLike, fallbackIndex);
+  if (_looksLikePartySlotKey(entryLike)) return _normalizePartySlot(entryLike, fallbackIndex);
+  return _normalizePartySlot("", fallbackIndex);
 }
 
 function _getPartySlotIndex(entryLike, fallbackIndex = -1) {
@@ -4139,9 +4485,10 @@ function normalizePartyPid(x) {
 function _normalizePartyEntry(entryLike, index = 0) {
   const pid = normalizePartyPid(entryLike?.pid ?? entryLike?.pokemon?.id ?? entryLike?.pokemon ?? entryLike);
   if (!pid) return null;
-  const partySlot = _getPartySlot(entryLike, index);
+  const hasStructuredSlot = entryLike && typeof entryLike === "object" && !Array.isArray(entryLike);
+  const partySlot = hasStructuredSlot ? _getPartySlot(entryLike, index) : _normalizePartySlot("", index);
   const entryId = _getEntryId(entryLike);
-  if (entryLike && typeof entryLike === "object") {
+  if (hasStructuredSlot) {
     return Object.assign({}, entryLike, {
       pid,
       entry_id: entryId,
@@ -4410,10 +4757,12 @@ function _resolveRoomPiecesPartySlots(rawPieces = appState.piecesRaw) {
     }
 
     const freeSlotsByLookupKey = new Map();
+    const validPartySlots = new Set();
     const usedSlots = new Set();
     for (const entry of party) {
       const slot = _getPartySlot(entry);
       if (!slot) continue;
+      validPartySlots.add(slot);
       for (const key of _partyEntryLookupKeys(entry)) {
         if (!key) continue;
         if (!freeSlotsByLookupKey.has(key)) freeSlotsByLookupKey.set(key, []);
@@ -4424,6 +4773,14 @@ function _resolveRoomPiecesPartySlots(rawPieces = appState.piecesRaw) {
     ownerEntries.forEach(({ piece }) => {
       const explicitSlot = _getPartySlot(piece);
       if (!explicitSlot) return;
+      if (!validPartySlots.has(explicitSlot)) {
+        piece._party_slot_invalid = explicitSlot;
+        piece.party_slot = "";
+        piece._party_slot = "";
+        piece._party_slot_inferred = false;
+        piece._party_slot_ambiguous = true;
+        return;
+      }
       usedSlots.add(explicitSlot);
       piece.party_slot = explicitSlot;
       piece._party_slot = explicitSlot;
@@ -4635,18 +4992,25 @@ function _entryPidMatches(entryPayload, pidLike) {
 function _resolvePartyEntryIdentity(ownerName, pidLike) {
   const pid = normalizePartyPid(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
   let entryId = _getEntryId(pidLike);
-  let partySlot = _getPartySlot(pidLike);
+  let partySlot = (pidLike && typeof pidLike === "object" && !Array.isArray(pidLike)) || _looksLikePartySlotKey(pidLike)
+    ? _getPartySlot(pidLike)
+    : "";
   let partyEntry = null;
   const party = getPartyForTrainer(ownerName);
 
   if (entryId) {
     partyEntry = party.find((entry) => _getEntryId(entry) === entryId) || null;
-    if (!partySlot && partyEntry) partySlot = _getPartySlot(partyEntry);
+    const matchedSlot = _getPartySlot(partyEntry);
+    if (matchedSlot && partySlot !== matchedSlot) partySlot = matchedSlot;
   }
 
   if (!entryId && partySlot) {
     partyEntry = party.find((entry) => _getPartySlot(entry) === partySlot) || null;
-    entryId = _getEntryId(partyEntry);
+    if (partyEntry) {
+      entryId = _getEntryId(partyEntry);
+    } else if (party.length) {
+      partySlot = "";
+    }
   }
 
   if (!entryId && pid) {
@@ -9659,7 +10023,7 @@ function clearPokemonPlacingMode() {
 
 function startPlacePokemon(pidLike, options = {}) {
   const monPid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
-  const partySlot = _getPartySlot(options?.party_slot ?? options?.partySlot ?? pidLike);
+  const partySlot = _normalizePartySlot(options?.party_slot ?? options?.partySlot) || _getPartySlot(pidLike);
   const entryId = _getEntryId(pidLike);
   const identity = { pid: monPid, party_slot: partySlot || "", entry_id: entryId || "" };
   if (!monPid) return;
@@ -9753,7 +10117,8 @@ async function placePokemonOnBoardAt(pidLike, row, col) {
       const snap = await tx.get(stateRef);
       const data = snap.exists() ? snap.data() : {};
       const pieces = Array.isArray(data?.pieces) ? data.pieces : [];
-      const piecesForRules = resolvePiecesSizeForRules(pieces);
+      const resolvedPieces = _resolveRoomPiecesPartySlots(pieces);
+      const piecesForRules = resolvePiecesSizeForRules(resolvedPieces);
       const seen = Array.isArray(data?.seen) ? data.seen : [];
 
       // Revalida dentro da transaction com size-rules (evita corrida)
@@ -9761,7 +10126,7 @@ async function placePokemonOnBoardAt(pidLike, row, col) {
       const txCheck = canPieceLandOn(txFake, r, c, piecesForRules);
       if (!txCheck.allowed) throw new Error(txCheck.reason);
 
-      const already = !!findBoardPieceForTrainer(by, identity, { pieces });
+      const already = !!findBoardPieceForTrainer(by, identity, { pieces: resolvedPieces });
       if (already) throw new Error("esse pokémon já está no campo");
 
       const nextPieces = pieces.concat([newPiece]);
