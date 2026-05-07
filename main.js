@@ -5040,19 +5040,50 @@ function _findGlobalEntryByPidUnambiguous(ownerName, pidLike) {
   return matches.length === 1 ? matches[0] : null;
 }
 
-function _getGlobalEntryHp(ownerName, pidLike) {
+function _getGlobalEntryHpPayload(ownerName, pidLike) {
   const resolved = _resolvePartyEntryIdentity(ownerName, pidLike);
   const entries = _getHubPokemonEntriesForTrainer(ownerName);
   if (resolved.entryId && entries?.[resolved.entryId]?.hp != null) {
-    return clampPartyHp(entries[resolved.entryId].hp, 6);
+    return entries[resolved.entryId];
   }
   if (resolved.entryId) {
     const localHp = _getUserEntryMetaHp(ownerName, resolved.entryId);
-    if (localHp != null) return localHp;
+    if (localHp != null) return { entry_id: resolved.entryId, pid: resolved.pid, hp: localHp };
   }
-  if (resolved.partyEntry?.hp != null) return clampPartyHp(resolved.partyEntry.hp, 6);
+  if (resolved.partyEntry?.hp != null) return resolved.partyEntry;
   const unambiguous = _findGlobalEntryByPidUnambiguous(ownerName, resolved.pid || pidLike);
-  if (unambiguous?.[1]?.hp != null) return clampPartyHp(unambiguous[1].hp, 6);
+  if (unambiguous?.[1]?.hp != null) return unambiguous[1];
+  return null;
+}
+
+function _getGlobalEntryHp(ownerName, pidLike) {
+  const payload = _getGlobalEntryHpPayload(ownerName, pidLike);
+  if (payload?.hp != null) return clampPartyHp(payload.hp, 6);
+  return null;
+}
+
+function _hpStateTimestampMs(payload) {
+  const raw = payload?.hpUpdatedAt ?? payload?.updatedAt ?? payload?.last_update ?? null;
+  if (!raw) return 0;
+  if (typeof raw.toMillis === "function") return Number(raw.toMillis()) || 0;
+  if (typeof raw.seconds === "number") {
+    return (Number(raw.seconds) * 1000) + Math.floor(Number(raw.nanoseconds || 0) / 1000000);
+  }
+  const parsed = Date.parse(safeStr(raw));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function _resolveHpValue(roomState, globalPayload) {
+  const hasRoom = roomState?.hp != null;
+  const hasGlobal = globalPayload?.hp != null;
+  if (hasRoom && hasGlobal) {
+    const roomTs = _hpStateTimestampMs(roomState);
+    const globalTs = _hpStateTimestampMs(globalPayload);
+    if (roomTs > 0 && (!globalTs || roomTs >= globalTs)) return clampPartyHp(roomState.hp, 6);
+    return clampPartyHp(globalPayload.hp, 6);
+  }
+  if (hasGlobal) return clampPartyHp(globalPayload.hp, 6);
+  if (hasRoom) return clampPartyHp(roomState.hp, 6);
   return null;
 }
 
@@ -6229,6 +6260,7 @@ async function _writeRoomPartyStateHp(ownerName, resolved, hp) {
 
   const payload = {
     hp: clampPartyHp(hp, 6),
+    hpUpdatedAt: serverTimestamp(),
   };
   if (safeStr(resolved?.pid)) payload.pid = safeStr(resolved.pid);
   if (safeStr(resolved?.entryId)) payload.entry_id = safeStr(resolved.entryId);
@@ -9275,9 +9307,9 @@ function _getRoomPartyStateEntry(trainerName, pidLike) {
 
 function _getPartyStateEntry(trainerName, pidLike) {
   const roomState = _getRoomPartyStateEntry(trainerName, pidLike);
-  if (roomState?.hp != null) return { ...(roomState || {}), hp: clampPartyHp(roomState.hp, 6) };
-  const globalHp = _getGlobalEntryHp(trainerName, pidLike);
-  if (globalHp != null) return { ...(roomState || {}), hp: globalHp };
+  const globalPayload = _getGlobalEntryHpPayload(trainerName, pidLike);
+  const hp = _resolveHpValue(roomState, globalPayload);
+  if (hp != null) return { ...(roomState || {}), hp };
   return roomState;
 }
 
@@ -10175,10 +10207,10 @@ function isTileOccupied(row, col) {
 }
 
 function getPartyHp(ownerName, pidLike) {
-  const roomHp = _getRoomPartyStateEntry(ownerName, pidLike)?.hp;
-  if (roomHp != null) return clampPartyHp(roomHp, 6);
-  const globalHp = _getGlobalEntryHp(ownerName, pidLike);
-  return globalHp == null ? 6 : clampPartyHp(globalHp, 6);
+  const roomState = _getRoomPartyStateEntry(ownerName, pidLike);
+  const globalPayload = _getGlobalEntryHpPayload(ownerName, pidLike);
+  const hp = _resolveHpValue(roomState, globalPayload);
+  return hp == null ? 6 : hp;
 }
 
 function isPokemonKo(ownerName, pidLike) {
@@ -15905,7 +15937,6 @@ function _getPartyStateForSheet(ownerName, sh, fallbackPid) {
       roomState = _mergePartyStateEntry(roomState, stateBucket[key]);
     }
   }
-  if (roomState?.hp != null) return { ...roomState, hp: clampPartyHp(roomState.hp, 6) };
   const globalTarget = _getPartyEntryForTrainerPid(ownerName, fallbackPid)
     || _getPartyEntryForTrainerPid(ownerName, fallbackKey)
     || fallbackPid
@@ -15913,8 +15944,9 @@ function _getPartyStateForSheet(ownerName, sh, fallbackPid) {
     || sh?.linked_pid
     || sh?.pokemon?.id
     || sh?.pokemon?.name;
-  const globalHp = _getGlobalEntryHp(ownerName, globalTarget);
-  if (globalHp != null) return { ...roomState, hp: globalHp };
+  const globalPayload = _getGlobalEntryHpPayload(ownerName, globalTarget);
+  const hp = _resolveHpValue(roomState, globalPayload);
+  if (hp != null) return { ...roomState, hp };
   return roomState;
 }
 
