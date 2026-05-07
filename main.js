@@ -250,10 +250,12 @@ _pieceFxOverlay.style.cssText = "position:absolute;inset:0;pointer-events:none;o
 if (canvasWrap) canvasWrap.appendChild(_pieceFxOverlay);
 const _spritePool = new Map(); // pieceId -> {el, url}
 const PIECE_FIELD_FX_MS = 420;
+const PIECE_ENTRY_PARTICLE_MS = 860;
 let _pieceScreenBounds = new Map(); // pieceId -> { left, top, width, height, hitZIndex }
 let _piecePresenceCache = new Map(); // pieceId -> piece snapshot
 let _pieceFieldFxBootstrapped = false;
 const _pieceEnteringIds = new Map(); // pieceId -> startedAt
+const _pieceEntryParticleBursts = new Map(); // pieceId -> HTMLElement
 
 // -------------------------
 // Firebase config (fixo)
@@ -9076,10 +9078,92 @@ function resetPieceFieldFx() {
   _pieceEnteringIds.clear();
   _pieceFieldFxBootstrapped = false;
   _spriteOverlay?.querySelectorAll?.(".piece-exit-ghost")?.forEach?.((node) => node.remove());
-  _pieceFxOverlay?.querySelectorAll?.(".piece-exit-ghost")?.forEach?.((node) => node.remove());
+  _pieceFxOverlay?.querySelectorAll?.(".piece-exit-ghost, .piece-entry-burst")?.forEach?.((node) => node.remove());
+  _pieceEntryParticleBursts.clear();
   for (const entry of _spritePool.values()) {
     entry?.el?.classList?.remove?.("piece-entering");
   }
+}
+
+function _cleanupPieceEntryParticles(pieceId) {
+  const id = safeStr(pieceId);
+  if (!id) return;
+  const burst = _pieceEntryParticleBursts.get(id);
+  if (burst) burst.remove();
+  _pieceEntryParticleBursts.delete(id);
+}
+
+function _positionPieceEntryParticles(burst, bounds) {
+  if (!burst || !bounds) return;
+  const left = Number(bounds.left);
+  const top = Number(bounds.top);
+  const width = Number(bounds.width);
+  const height = Number(bounds.height);
+  if (![left, top, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return;
+  burst.style.left = `${left}px`;
+  burst.style.top = `${top}px`;
+  burst.style.width = `${width}px`;
+  burst.style.height = `${height}px`;
+  burst.style.zIndex = String(40 + Math.max(0, Number(bounds.hitZIndex) || 0));
+}
+
+function spawnPieceEntryParticles(piece, bounds) {
+  if (!_pieceFxOverlay || !piece || !bounds) return;
+  const id = safeStr(piece?.id);
+  if (!id || _pieceEntryParticleBursts.has(id)) return;
+
+  const ball = getCaptureBallForTrainerPid(safeStr(piece?.owner), piece);
+  const burst = document.createElement("div");
+  burst.className = "piece-entry-burst";
+  burst.dataset.pieceId = id;
+  burst.setAttribute("aria-hidden", "true");
+  applyCaptureBallThemeToElement(burst, ball);
+  _positionPieceEntryParticles(burst, bounds);
+
+  const size = Math.max(24, Math.min(92, Math.max(Number(bounds.width) || 0, Number(bounds.height) || 0)));
+  const vectors = [
+    [0.00, -0.96, 0.00, 1.05], [-0.34, -0.72, 0.03, 0.78],
+    [0.36, -0.70, 0.06, 0.82], [-0.58, -0.45, 0.02, 0.62],
+    [0.58, -0.43, 0.09, 0.64], [-0.18, -1.12, 0.10, 0.72],
+    [0.20, -1.06, 0.14, 0.76], [-0.76, -0.18, 0.12, 0.54],
+    [0.78, -0.16, 0.16, 0.56], [-0.46, -0.98, 0.18, 0.48],
+    [0.48, -0.92, 0.21, 0.50], [0.00, -1.36, 0.24, 0.46],
+  ];
+  const colors = ["var(--ball-accent)", "var(--ball-top-a)", "var(--ball-core)", "var(--ball-glow)"];
+  for (let i = 0; i < vectors.length; i++) {
+    const [dx, dy, delay, scale] = vectors[i];
+    const dot = document.createElement("span");
+    dot.className = "piece-entry-particle";
+    dot.style.setProperty("--dx", `${Math.round(dx * size)}px`);
+    dot.style.setProperty("--dy", `${Math.round(dy * size)}px`);
+    dot.style.setProperty("--particle-delay", `${delay}s`);
+    dot.style.setProperty("--particle-scale", String(scale));
+    dot.style.setProperty("--particle-color", colors[i % colors.length]);
+    burst.appendChild(dot);
+  }
+
+  _pieceFxOverlay.appendChild(burst);
+  _pieceEntryParticleBursts.set(id, burst);
+  const cleanup = () => _cleanupPieceEntryParticles(id);
+  burst.addEventListener("animationend", (ev) => {
+    if (ev.target === burst) cleanup();
+  });
+  window.setTimeout(cleanup, PIECE_ENTRY_PARTICLE_MS + 140);
+}
+
+function syncPieceEntryParticles(piece, bounds, now = (window.performance?.now?.() ?? Date.now())) {
+  const id = safeStr(piece?.id);
+  if (!id) return;
+  const startedAt = _pieceEnteringIds.get(id);
+  if (!startedAt || (now - startedAt) >= PIECE_ENTRY_PARTICLE_MS) {
+    return;
+  }
+  const existing = _pieceEntryParticleBursts.get(id);
+  if (existing) {
+    _positionPieceEntryParticles(existing, bounds);
+    return;
+  }
+  spawnPieceEntryParticles(piece, bounds);
 }
 
 function spawnPieceExitGhost(piece, bounds) {
@@ -9128,6 +9212,7 @@ function updatePieceFieldFx(activePieces, now = (window.performance?.now?.() ?? 
   for (const [id, prevPiece] of _piecePresenceCache) {
     if (nextPresence.has(id)) continue;
     _pieceEnteringIds.delete(id);
+    _cleanupPieceEntryParticles(id);
     spawnPieceExitGhost(prevPiece, _pieceScreenBounds.get(id) || null);
   }
 
@@ -11632,6 +11717,13 @@ function renderArenaDom() {
     token.style.top = `${tokenTop}px`;
     token.style.width = `${tokenWidth}px`;
     token.style.height = `${tokenHeight}px`;
+    syncPieceEntryParticles(p, {
+      left: board.left + c * board.tile + tokenLeft,
+      top: board.top + r * board.tile + tokenTop,
+      width: tokenWidth,
+      height: tokenHeight,
+      hitZIndex: getSizeDimensions(sizeCategory).zIndex,
+    }, frameNow);
     const tokenHpValue = safeStr(p?.kind) !== "trainer" ? getPartyHp(safeStr(p?.owner), p) : 6;
     if (tokenHpValue <= 0) token.classList.add("hp-ko");
 
@@ -13947,6 +14039,14 @@ drawTraps(ctx, ox, oy, tile);
         : (p?.revealed ? shortLabelFromPiece(p, 4) : "?");
       ctx.fillText(label, spriteX + spriteW / 2, spriteY + spriteH / 2);
     }
+
+    syncPieceEntryParticles(p, {
+      left: spriteX,
+      top: spriteY,
+      width: spriteW,
+      height: spriteH,
+      hitZIndex,
+    }, frameNow);
 
     // Dynamic border — spans full footprint
     ctx.strokeStyle = colorScheme.border;
