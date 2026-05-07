@@ -26,7 +26,7 @@ import {
   runTransaction,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
-import { getMoveType, getTypeDamageBonus, normalizeType } from "./type-data.js";
+import { TYPE_COLORS, getMoveType, getTypeDamageBonus, normalizeType } from "./type-data.js";
 import { getPowerRuleForMove, isSelfPowerRule, hasResolvableImmediateEffects } from "./mm-power-catalog.js?v=20260505rollfx1";
 import {
   buildResistanceQueue,
@@ -132,6 +132,229 @@ function mmRuntimeEnv() {
   };
 }
 function signedMod(value) { return value >= 0 ? `+${value}` : `${value}`; }
+function targetIconHtml(kind) {
+  if (kind === "area") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>`;
+  }
+  if (kind === "melee") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4l6 6-2.8 2.8-2.2-2.2-7.9 7.9H4.5v-2.6l7.9-7.9-2.2-2.2L14 4z"/></svg>`;
+  }
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M22 12h-4M6 12H2M12 2v4M12 18v4"/></svg>`;
+}
+function moveTargetLabel(kind, fallback = "") {
+  if (kind === "area") return "Área";
+  if (kind === "melee") return "Corpo a corpo";
+  if (kind === "self") return "Usuário";
+  if (kind === "ranged") return "Distância";
+  return safeStr(fallback) || "Distância";
+}
+function hexToRgb(hex) {
+  const raw = safeStr(hex).replace(/^#/, "");
+  if (!/^[0-9a-f]{6}$/i.test(raw)) return null;
+  return {
+    r: parseInt(raw.slice(0, 2), 16),
+    g: parseInt(raw.slice(2, 4), 16),
+    b: parseInt(raw.slice(4, 6), 16),
+  };
+}
+function moveTypeChipStyle(typeName) {
+  const normalized = normalizeType(typeName);
+  const color = TYPE_COLORS?.[normalized] || "";
+  const rgb = hexToRgb(color);
+  if (!rgb) return "";
+  const textColor = ["Dark", "Ghost", "Poison"].includes(normalized) ? "#f8fafc" : color;
+  return [
+    `--move-type-color:${color}`,
+    `--move-type-rgb:${rgb.r},${rgb.g},${rgb.b}`,
+    `color:${textColor}`,
+    `border-color:rgba(${rgb.r},${rgb.g},${rgb.b},.58)`,
+    `background:linear-gradient(180deg, rgba(${rgb.r},${rgb.g},${rgb.b},.34), rgba(${rgb.r},${rgb.g},${rgb.b},.16))`,
+    `box-shadow:inset 0 1px 0 rgba(255,255,255,.10), 0 0 12px rgba(${rgb.r},${rgb.g},${rgb.b},.18)`,
+  ].join(";");
+}
+function movePokeApiSlug(move) {
+  return safeStr(
+    move?.pokeapi_name
+    ?? move?.pokeapiName
+    ?? move?.api_name
+    ?? move?.apiName
+    ?? move?.slug
+    ?? move?.meta?.pokeapi_name
+    ?? move?.meta?.pokeapiName
+    ?? move?.meta?.api_name
+    ?? move?.meta?.apiName
+    ?? move?.name
+  )
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+function cleanMoveDescriptionText(text) {
+  return safeStr(text)
+    .replace(/\f/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\$effect_chance/g, "")
+    .trim();
+}
+function getSavedMoveDescription(move) {
+  const meta = (move?.meta && typeof move.meta === "object") ? move.meta : {};
+  return cleanMoveDescriptionText(
+    move?.description
+    ?? move?.descricao
+    ?? move?.descrição
+    ?? move?.desc
+    ?? move?.effect
+    ?? move?.efeito
+    ?? move?.notes
+    ?? meta.description
+    ?? meta.descricao
+    ?? meta.descrição
+    ?? meta.desc
+    ?? meta.effect
+    ?? meta.efeito
+    ?? meta.notes
+    ?? ""
+  );
+}
+const MOVE_DESCRIPTION_EXACT_PT = new Map([
+  ["the user restores its own hp. the amount of hp regained varies with the weather.", "O usuário recupera seu próprio HP. A quantidade recuperada varia conforme o clima."],
+  ["the user coils up and concentrates. this raises its attack and defense stats as well as its accuracy.", "O usuário se enrola e se concentra. Isso aumenta seu Ataque, Defesa e Acerto."],
+  ["a nutrient-draining attack. the user's hp is restored by half the damage taken by the target.", "Um ataque que drena nutrientes. O HP do usuário é restaurado em metade do dano causado ao alvo."],
+  ["a nutrient-draining attack. the user's hp is restored by up to half the damage taken by the target.", "Um ataque que drena nutrientes. O HP do usuário é restaurado em até metade do dano causado ao alvo."],
+  ["the target is slashed with scythes or claws. this attack becomes more powerful if it hits in succession.", "O alvo é cortado com lâminas ou garras. O golpe fica mais forte se acertar em sequência."],
+  ["the user attacks by slashing the target with scythes, claws, or the like. this attack becomes more powerful if it hits in succession.", "O usuário ataca cortando o alvo com lâminas, garras ou algo parecido. O golpe fica mais forte se acertar em sequência."],
+  ["the user scatters bursts of spores that induce sleep.", "O usuário espalha esporos que induzem sono."],
+  ["the user slaps down the target's held item, making it unusable for that battle. this move does more damage if the target has a held item.", "O usuário derruba o item segurado do alvo, tornando-o inutilizável nessa batalha. O golpe causa mais dano se o alvo estiver segurando um item."],
+  ["the user covers the target in a combustible powder. if the target uses a fire-type move, the powder explodes and damages the target.", "O usuário cobre o alvo com um pó combustível. Se o alvo usar um golpe do tipo Fogo, o pó explode e causa dano ao alvo."],
+  ["the user scatters a cloud of irritating powder to draw attention to itself. opposing pokémon aim only at the user.", "O usuário espalha uma nuvem de pó irritante para chamar atenção para si. Pokémon oponentes miram apenas no usuário."],
+  ["the user slashes at the target by crossing its scythes or claws as if they were a pair of scissors.", "O usuário corta o alvo cruzando lâminas ou garras como uma tesoura."],
+]);
+const MOVE_DESCRIPTION_SLUG_PT = new Map([
+  ["synthesis", "O usuário recupera seu próprio HP. A quantidade recuperada varia conforme o clima."],
+  ["coil", "O usuário se enrola e se concentra. Isso aumenta seu Ataque, Defesa e Acerto."],
+  ["giga-drain", "Um ataque que drena nutrientes. O HP do usuário é restaurado em até metade do dano causado ao alvo."],
+  ["fury-cutter", "O usuário ataca cortando o alvo com lâminas, garras ou algo parecido. O golpe fica mais forte se acertar em sequência."],
+  ["spore", "O usuário espalha esporos que induzem sono."],
+  ["x-scissor", "O usuário corta o alvo cruzando lâminas ou garras como uma tesoura."],
+  ["knock-off", "O usuário derruba o item segurado do alvo, tornando-o inutilizável nessa batalha. O golpe causa mais dano se o alvo estiver segurando um item."],
+  ["powder", "O usuário cobre o alvo com um pó combustível. Se o alvo usar um golpe do tipo Fogo, o pó explode e causa dano ao alvo."],
+  ["rage-powder", "O usuário espalha uma nuvem de pó irritante para chamar atenção para si. Pokémon oponentes miram apenas no usuário."],
+]);
+function translatePokeApiMoveDescriptionToPt(text) {
+  const cleaned = cleanMoveDescriptionText(text);
+  if (!cleaned) return "";
+  const exact = MOVE_DESCRIPTION_EXACT_PT.get(cleaned.toLowerCase());
+  if (exact) return exact;
+  return cleaned
+    .replace(/\bThe user\b/g, "O usuário")
+    .replace(/\bthe user\b/g, "o usuário")
+    .replace(/\bThe target\b/g, "O alvo")
+    .replace(/\bthe target\b/g, "o alvo")
+    .replace(/\btarget\b/g, "alvo")
+    .replace(/\bopposing Pokémon\b/g, "Pokémon oponente")
+    .replace(/\bopponent\b/g, "oponente")
+    .replace(/\bits own HP\b/g, "seu próprio HP")
+    .replace(/\bthe user's HP\b/g, "o HP do usuário")
+    .replace(/\buser's HP\b/g, "HP do usuário")
+    .replace(/\brestores\b/g, "recupera")
+    .replace(/\bis restored\b/g, "é restaurado")
+    .replace(/\bregained\b/g, "recuperada")
+    .replace(/\bvaries with the weather\b/g, "varia conforme o clima")
+    .replace(/\bweather\b/g, "clima")
+    .replace(/\bdamage\b/g, "dano")
+    .replace(/\bdamaged\b/g, "danificado")
+    .replace(/\bmay\b/g, "pode")
+    .replace(/\bhas a chance to\b/g, "tem chance de")
+    .replace(/\bcauses\b/g, "causa")
+    .replace(/\bcause\b/g, "causar")
+    .replace(/\bdoes more dano\b/g, "causa mais dano")
+    .replace(/\battack\b/g, "ataque")
+    .replace(/\battacks\b/g, "ataca")
+    .replace(/\bAttack\b/g, "Ataque")
+    .replace(/\bDefense\b/g, "Defesa")
+    .replace(/\baccuracy\b/g, "Acerto")
+    .replace(/\bspeed\b/g, "Velocidade")
+    .replace(/\braises\b/g, "aumenta")
+    .replace(/\blowers\b/g, "reduz")
+    .replace(/\bsharply\b/g, "bastante")
+    .replace(/\bstats\b/g, "atributos")
+    .replace(/\bstat\b/g, "atributo")
+    .replace(/\bas well as\b/g, "assim como")
+    .replace(/\bpoison\b/g, "envenenar")
+    .replace(/\bburn\b/g, "queimar")
+    .replace(/\bparalyze\b/g, "paralisar")
+    .replace(/\bsleep\b/g, "sono")
+    .replace(/\bflinch\b/g, "recuar")
+    .replace(/\bhalf\b/g, "metade")
+    .replace(/\bamount\b/g, "quantidade")
+    .replace(/\btaken by\b/g, "causado a")
+    .replace(/\bby up to\b/g, "em até")
+    .replace(/\bheld item\b/g, "item segurado")
+    .replace(/\bmaking it unusable for that battle\b/g, "tornando-o inutilizável nessa batalha")
+    .replace(/\bslaps down\b/g, "derruba")
+    .replace(/\bcovers\b/g, "cobre")
+    .replace(/\bcombustible powder\b/g, "pó combustível")
+    .replace(/\bFire-type move\b/g, "golpe do tipo Fogo")
+    .replace(/\bexplodes\b/g, "explode")
+    .replace(/\bdamages\b/g, "causa dano a")
+    .replace(/\bslashing\b/g, "cortando")
+    .replace(/\bscythes\b/g, "lâminas")
+    .replace(/\bclaws\b/g, "garras")
+    .replace(/\bor the like\b/g, "ou algo parecido")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function getKnownPokeApiMoveDescriptionPt(move) {
+  const slug = movePokeApiSlug(move);
+  return slug ? (MOVE_DESCRIPTION_SLUG_PT.get(slug) || "") : "";
+}
+const MOVE_DESCRIPTION_CACHE = new Map();
+async function fetchPokeApiMoveDescriptionPt(move) {
+  const slug = movePokeApiSlug(move);
+  if (!slug) return "";
+  const known = getKnownPokeApiMoveDescriptionPt(move);
+  if (known) return known;
+  if (MOVE_DESCRIPTION_CACHE.has(slug)) return MOVE_DESCRIPTION_CACHE.get(slug);
+  const promise = (async () => {
+    try {
+      const res = await fetch(`https://pokeapi.co/api/v2/move/${encodeURIComponent(slug)}`);
+      if (!res.ok) return "";
+      const data = await res.json();
+      const flavorEntries = Array.isArray(data?.flavor_text_entries) ? data.flavor_text_entries : [];
+      const preferFlavor = (langs) => {
+        for (let i = flavorEntries.length - 1; i >= 0; i -= 1) {
+          const entry = flavorEntries[i];
+          if (langs.includes(safeStr(entry?.language?.name).toLowerCase())) {
+            return cleanMoveDescriptionText(entry?.flavor_text);
+          }
+        }
+        return "";
+      };
+      const ptText = preferFlavor(["pt-br", "pt"]);
+      if (ptText) return ptText;
+      const enText = preferFlavor(["en"]);
+      if (enText) return translatePokeApiMoveDescriptionToPt(enText);
+      const effectEntries = Array.isArray(data?.effect_entries) ? data.effect_entries : [];
+      const effect = effectEntries.find((entry) => safeStr(entry?.language?.name).toLowerCase() === "en");
+      return translatePokeApiMoveDescriptionToPt(effect?.short_effect || effect?.effect || "");
+    } catch {
+      return "";
+    }
+  })();
+  MOVE_DESCRIPTION_CACHE.set(slug, promise);
+  return promise;
+}
+function moveDescriptionHtml(move) {
+  const saved = getSavedMoveDescription(move);
+  if (saved) return `<div class="ac-move-desc">${escHtml(saved)}</div>`;
+  const known = getKnownPokeApiMoveDescriptionPt(move);
+  if (known) return `<div class="ac-move-desc">${escHtml(known)}</div>`;
+  const slug = movePokeApiSlug(move);
+  if (!slug) return "";
+  return `<div class="ac-move-desc ac-move-desc-loading" data-pokeapi-move-desc="${escHtml(slug)}">Carregando descrição...</div>`;
+}
 function describeExtraAttackMods(accMod = 0, dmgMod = 0) {
   const parts = [];
   if (accMod !== 0) parts.push(`Acerto ${signedMod(accMod)}`);
@@ -878,6 +1101,84 @@ const CSS_TEXT = `
   padding: 2px 6px; border-radius: 6px;
   background: rgba(56,189,248,.1); border: 1px solid rgba(56,189,248,.2);
 }
+.ac-move-item.ac-attacker-move {
+  align-items: flex-start;
+  gap: 10px;
+}
+.ac-move-main {
+  min-width: 0;
+  flex: 1;
+}
+.ac-move-topline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ac-move-desc {
+  margin-top: 4px;
+  color: rgba(203,213,225,.82);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.ac-move-desc-loading {
+  color: rgba(148,163,184,.62);
+  font-style: italic;
+}
+.ac-move-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+.ac-move-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 18px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(148,163,184,.22);
+  background: rgba(15,23,42,.55);
+  color: rgba(226,232,240,.84);
+  font-size: 9.5px;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+.ac-move-chip svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ac-move-chip.ac-type-chip {
+  text-shadow: 0 1px 1px rgba(2,6,23,.55);
+}
+.ac-move-chip.ac-chip-melee { color: #fdba74; border-color: rgba(251,146,60,.35); background: rgba(251,146,60,.12); }
+.ac-move-chip.ac-chip-ranged { color: #7dd3fc; border-color: rgba(14,165,233,.35); background: rgba(14,165,233,.12); }
+.ac-move-chip.ac-chip-area { color: #c084fc; border-color: rgba(192,132,252,.35); background: rgba(192,132,252,.12); }
+.ac-move-chip.ac-chip-self { color: #c084fc; border-color: rgba(192,132,252,.35); background: rgba(192,132,252,.12); }
+.ac-target-hint {
+  font-size: 11px;
+  color: rgba(148,163,184,.86);
+  line-height: 1.35;
+  margin: -2px 0 8px;
+}
+.ac-prompt svg {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+  margin-right: 4px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .ac-move-dmg.bonus-high {
   background: rgba(34,197,94,.15); border-color: rgba(34,197,94,.4); color: rgba(34,197,94,.95);
 }
@@ -1274,6 +1575,15 @@ const CSS_TEXT = `
 .arena-sheet-card .hp-row { display:flex; justify-content:space-between; font-size: 11px; font-weight: 800; margin: 8px 0 4px; }
 .arena-sheet-card .hp-track { height: 6px; border-radius: 999px; background: rgba(2,6,23,.55); overflow: hidden; }
 .arena-sheet-card .hp-fill { height: 100%; border-radius: inherit; }
+.arena-sheet-card .sheet-move-summary { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:6px; margin:9px 0 8px; }
+.arena-sheet-card .sheet-move-metric { display:flex; align-items:center; gap:7px; min-width:0; padding:7px 8px; border-radius:10px; border:1px solid rgba(56,189,248,.24); background:linear-gradient(135deg, rgba(56,189,248,.13), rgba(15,23,42,.30)); box-shadow: inset 0 1px 0 rgba(255,255,255,.05); }
+.arena-sheet-card .sheet-move-metric.sheet-tiles { border-color:rgba(45,212,191,.24); background:linear-gradient(135deg, rgba(45,212,191,.12), rgba(15,23,42,.30)); }
+.arena-sheet-card .sheet-move-icon { width:24px; height:24px; flex:0 0 24px; display:grid; place-items:center; border-radius:8px; color:#7dd3fc; background:rgba(2,6,23,.34); border:1px solid rgba(125,211,252,.22); }
+.arena-sheet-card .sheet-tiles .sheet-move-icon { color:#5eead4; border-color:rgba(94,234,212,.22); }
+.arena-sheet-card .sheet-move-icon svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.arena-sheet-card .sheet-move-copy { display:flex; flex-direction:column; gap:1px; min-width:0; line-height:1.05; }
+.arena-sheet-card .sheet-move-copy span { font-size:8px; font-weight:950; letter-spacing:.06em; text-transform:uppercase; color:rgba(203,213,225,.82); }
+.arena-sheet-card .sheet-move-copy strong { font-size:13px; color:rgba(248,250,252,.98); white-space:nowrap; }
 .arena-sheet-card .stat-grid { display:grid; grid-template-columns: repeat(4,1fr); gap: 4px; margin: 8px 0; }
 .arena-sheet-card .stat-box { border-radius: 8px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); padding: 4px 2px; text-align:center; }
 .arena-sheet-card .stat-label { font-size: 9px; opacity: .75; text-transform: uppercase; font-weight: 800; }
@@ -1355,6 +1665,8 @@ export class ArenaCombatUI {
     this._timeline = null;
     this._lastMove = null;
     this._kbBound = false;
+    this._attackTargetMode = null;
+    try { window.__arenaAttackTargetMode = null; } catch {}
 
     try {
       this._lastMove = JSON.parse(localStorage.getItem(LAST_MOVE_KEY));
@@ -1689,6 +2001,297 @@ export class ArenaCombatUI {
     };
   }
 
+  _isMine(piece) {
+    const owner = safeStr(piece?.owner).toLowerCase();
+    const by = safeStr(this.getBy?.()).toLowerCase();
+    return !!owner && !!by && owner === by;
+  }
+
+  _resolvePiece(pieceOrId) {
+    if (pieceOrId && typeof pieceOrId === "object") return pieceOrId;
+    const id = safeStr(pieceOrId);
+    if (!id) return null;
+    return (this.getPieces() || []).find((piece) => safeStr(piece?.id) === id) || null;
+  }
+
+  _moveTargetingInfo(move, powerRule = null) {
+    try {
+      if (typeof window.getMoveTargetingInfo === "function") {
+        const info = window.getMoveTargetingInfo(move, powerRule);
+        if (info?.kind) return info;
+      }
+    } catch {}
+    const meta = (move && typeof move === "object" && move.meta && typeof move.meta === "object") ? move.meta : {};
+    const targetingMode = safeStr(powerRule?.targeting?.mode || powerRule?.mode || "").toLowerCase();
+    if (meta.affects_user || targetingMode === "self" || targetingMode === "user" || isSelfPowerRule(powerRule)) {
+      return { kind: "self", rangeStr: "self", label: "Usuario", areaLabel: "Sem area", defense: "", defenseLabel: "" };
+    }
+    if (meta.is_area || meta.perception_area || meta.area_type || meta.areaType) {
+      return { kind: "area", rangeStr: "area", label: "Area", areaLabel: "Area", defense: "Dodge", defenseLabel: "Defesa: Dodge" };
+    }
+    if (meta.ranged === false || safeStr(meta.distance_type || meta.distanceType).toLowerCase() === "melee") {
+      return { kind: "melee", rangeStr: "melee", label: "Corpo a corpo", areaLabel: "Sem area", defense: "Parry", defenseLabel: "Defesa: Parry" };
+    }
+    return { kind: "ranged", rangeStr: "distance", label: "A distancia", areaLabel: "Sem area", defense: "Dodge", defenseLabel: "Defesa: Dodge" };
+  }
+
+  _movePpText(move) {
+    const cur = move?.pp_current ?? move?.current_pp ?? move?.ppCurrent ?? move?.pp;
+    const max = move?.pp_max ?? move?.max_pp ?? move?.ppMax ?? move?.PP ?? move?.pp;
+    if (cur != null && max != null) return `${safeStr(cur)}/${safeStr(max)}`;
+    if (max != null) return safeStr(max);
+    return "-";
+  }
+
+  _attackerMoveRowHtml(move, idx, stats, by, atkPid, atkSheet, attackerPiece = null, powerRule = null) {
+    const name = safeStr(move?.name) || "Golpe";
+    const moveIdx = resolveMoveIndex(atkSheet?.moves || [], move, idx);
+    const moveData = getMoveData(move, getMoveTempMods(atkPid, moveIdx, atkSheet));
+    const [, statVal] = resolveAttackStatValue(move || {}, powerRule || {}, stats || {});
+    const rank = moveData.rank;
+    const moveType = getMoveType(name) || safeStr(move?.meta?.type || move?.type || move?.Type || "");
+    const atkIdentity = attackerPiece || this._findPieceByOwnerPid(by, atkPid) || atkPid;
+    const atkTypes = resolveTrainerPokemonTypes(by, atkIdentity, { sheet: atkSheet, piece: atkIdentity });
+    const stabBonus = moveType && atkTypes.some((type) => normalizeType(type) === normalizeType(moveType)) ? 2 : 0;
+    const finalRank = rank + statVal + moveData.modDano + stabBonus;
+    const ruleAccuracy = getAttackModifierSummary(powerRule || {}, stats || {}).attackBonus;
+    const finalAccuracy = moveData.acc + safeInt(stats?.acerto || 0) + safeInt(ruleAccuracy, 0);
+    const target = this._moveTargetingInfo(move, powerRule);
+    const cat = safeStr(move?.meta?.category || move?.category || "").toLowerCase();
+    const dot = cat.includes("status") ? "#c084fc" : cat.includes("special") || cat.includes("especial") ? "#60a5fa" : "#fb7185";
+    const chipKind = target.kind === "area" ? "area" : (target.kind === "melee" ? "melee" : (target.kind === "self" ? "self" : "ranged"));
+    const showAccuracy = !(target.kind === "area" || target.kind === "self");
+    const targetLabel = moveTargetLabel(target.kind, target.label);
+    const typeChipStyle = moveTypeChipStyle(moveType);
+    return `<div class="ac-move-item ac-attacker-move" data-idx="${idx}">
+      <span style="width:10px;height:10px;margin-top:5px;border-radius:999px;background:${dot};box-shadow:0 0 12px ${dot}99"></span>
+      <div class="ac-move-main">
+        <div class="ac-move-topline">
+          <span class="ac-move-name">${escHtml(name)}</span>
+          <span class="ac-move-dmg">Rank Final ${finalRank}</span>
+        </div>
+        ${moveDescriptionHtml(move)}
+        <div class="ac-move-chips">
+          ${moveType ? `<span class="ac-move-chip ac-type-chip" style="${escHtml(typeChipStyle)}">Tipo: ${escHtml(normalizeType(moveType).toUpperCase())}</span>` : ""}
+          ${showAccuracy ? `<span class="ac-move-chip">Acerto ${finalAccuracy >= 0 ? "+" : ""}${escHtml(finalAccuracy)}</span>` : ""}
+          <span class="ac-move-chip ac-chip-${chipKind}">${target.kind === "self" ? "" : targetIconHtml(chipKind)}${escHtml(targetLabel)}</span>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  async openAttackFlowForAttacker(pieceOrId, clientX = null, clientY = null) {
+    const attackerPiece = this._resolvePiece(pieceOrId);
+    if (!attackerPiece || !this._isMine(attackerPiece) || isTrainerPiece(attackerPiece)) return;
+    const canStart = !!window.canCurrentPlayerStartCombat?.() || !!window.canCurrentPlayerStartCombat?.({ ignoreTurn: true });
+    if (!canStart) {
+      this._showFloat(attackerPiece, "Fora do turno", "miss");
+      return;
+    }
+
+    this._closeOverlay();
+    const by = this.getBy();
+    await this._loadSheets(by);
+    const atkPid = safeStr(attackerPiece.pid);
+    const atkSheet = this._getSheet(by, attackerPiece) || this._getSheet(by, atkPid);
+    const moves = Array.isArray(atkSheet?.moves) ? atkSheet.moves : [];
+    const stats = this._getEffectiveStats(by, attackerPiece);
+    const name = pieceBattleLabel(attackerPiece, atkSheet);
+    const sprite = effectiveSpriteUrl(by, attackerPiece, { type: "battle" });
+    const movePowerRules = await Promise.all(moves.map(async (move, idx) => {
+      try {
+        return await getPowerRuleForMove({ ...move, _move_idx: idx });
+      } catch {
+        return null;
+      }
+    }));
+
+    const wrapRect = this.container.getBoundingClientRect();
+    let localX = Number(clientX) - wrapRect.left;
+    let localY = Number(clientY) - wrapRect.top;
+    if (!Number.isFinite(localX) || !Number.isFinite(localY)) {
+      const pos = this._pieceScreenPos(attackerPiece);
+      localX = pos.x;
+      localY = pos.y;
+    }
+
+    const el = document.createElement("div");
+    el.className = "ac-overlay";
+    el.innerHTML = `
+      <div class="ac-overlay-header">
+        <img class="ac-overlay-sprite" src="${escHtml(sprite)}" alt="${escHtml(name)}" onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png'" />
+        <div>
+          <div class="ac-overlay-name">Atacar com ${escHtml(name)}</div>
+          <div class="ac-overlay-sub">Escolha o golpe; depois clique no alvo.</div>
+        </div>
+        <button class="ac-overlay-close" title="Fechar (Esc)">✕</button>
+      </div>
+      <div id="ac-overlay-body"></div>
+    `;
+    const pos = this._clampPos(localX + 14, localY - 24, 330, 430);
+    el.style.left = `${pos.x}px`;
+    el.style.top = `${pos.y}px`;
+    this._overlayRoot.appendChild(el);
+    this._currentOverlay = el;
+    el.querySelector(".ac-overlay-close").addEventListener("click", () => this._closeOverlay());
+
+    const closeHandler = (e) => {
+      if (!el.contains(e.target)) {
+        this._closeOverlay();
+        document.removeEventListener("mousedown", closeHandler, true);
+      }
+    };
+    setTimeout(() => document.addEventListener("mousedown", closeHandler, true), 50);
+
+    this._renderAttackerMovePicker(el.querySelector("#ac-overlay-body"), {
+      attackerPiece,
+      atkPid,
+      atkSheet,
+      moves,
+      stats,
+      by,
+      movePowerRules,
+    });
+  }
+
+  _renderAttackerMovePicker(body, ctx) {
+    const { attackerPiece, atkPid, atkSheet, moves, stats, by, movePowerRules = [] } = ctx || {};
+    let html = `<input class="ac-search" placeholder="/ buscar golpe..." id="ac-attacker-move-search" />`;
+    html += `<div class="ac-movelist" id="ac-attacker-move-list">`;
+    moves.forEach((move, idx) => {
+      html += this._attackerMoveRowHtml(move, idx, stats, by, atkPid, atkSheet, attackerPiece, movePowerRules[idx] || null);
+    });
+    if (!moves.length) {
+      html += `<div style="padding:12px;text-align:center;color:rgba(148,163,184,.55);font-size:12px">Nenhum golpe encontrado.</div>`;
+    }
+    html += `</div>`;
+    body.innerHTML = html;
+
+    const search = body.querySelector("#ac-attacker-move-search");
+    search?.addEventListener("input", () => {
+      const q = safeStr(search.value).toLowerCase();
+      body.querySelectorAll(".ac-move-item[data-idx]").forEach((el) => {
+        const haystack = safeStr(el.textContent).toLowerCase();
+        el.style.display = haystack.includes(q) ? "" : "none";
+      });
+    });
+    this._hydratePokeApiMoveDescriptions(body, moves);
+
+    body.querySelectorAll(".ac-move-item[data-idx]").forEach((el) => {
+      el.addEventListener("click", async () => {
+        const idx = safeInt(el.dataset.idx, -1);
+        const move = moves[idx];
+        if (!move) return;
+        const powerRule = movePowerRules[idx] || await getPowerRuleForMove({ ...move, _move_idx: idx });
+        if (isSelfPowerRule(powerRule) || (hasResolvableImmediateEffects(powerRule) && safeStr(powerRule?.targeting?.mode) === "self")) {
+          await this._executeImmediatePower(atkPid, move, stats, { moveIdx: idx, powerRule });
+          return;
+        }
+        const targeting = this._moveTargetingInfo(move, powerRule);
+        this._armAttackTargetMode({
+          attackerPiece,
+          atkPid,
+          move,
+          moveIdx: idx,
+          stats,
+          powerRule,
+          targeting,
+        });
+      });
+    });
+  }
+
+  _hydratePokeApiMoveDescriptions(body, moves) {
+    body.querySelectorAll(".ac-move-desc-loading[data-pokeapi-move-desc]").forEach((el) => {
+      const row = el.closest(".ac-move-item[data-idx]");
+      const idx = safeInt(row?.dataset?.idx, -1);
+      const move = moves?.[idx];
+      if (!move) return;
+      fetchPokeApiMoveDescriptionPt(move).then((desc) => {
+        if (!desc || !el.isConnected) return;
+        el.textContent = desc;
+        el.classList.remove("ac-move-desc-loading");
+      }).catch(() => {});
+    });
+  }
+
+  _publishAttackTargetModeState() {
+    const mode = this._attackTargetMode || null;
+    if (!mode?.attackerPiece) {
+      try { window.__arenaAttackTargetMode = null; } catch {}
+      try { window.requestArenaRefresh?.(true); } catch {}
+      return;
+    }
+    try {
+      window.__arenaAttackTargetMode = {
+        active: true,
+        attackerPieceId: safeStr(mode.attackerPiece?.id),
+        attackerOwner: safeStr(mode.attackerPiece?.owner),
+        moveName: safeStr(mode.move?.name),
+        kind: safeStr(mode.targeting?.kind),
+        rangeStr: safeStr(mode.targeting?.rangeStr),
+      };
+      window.requestArenaRefresh?.(true);
+    } catch {}
+  }
+
+  _armAttackTargetMode(config) {
+    this._attackTargetMode = config || null;
+    this._publishAttackTargetModeState();
+    this._closeOverlay();
+    this._closePrompt();
+    if (!this._attackTargetMode?.attackerPiece) return;
+    const targeting = this._attackTargetMode.targeting || {};
+    const pos = this._pieceScreenPos(this._attackTargetMode.attackerPiece);
+    const el = document.createElement("div");
+    el.className = "ac-prompt";
+    const cpos = this._clampPos(pos.x + 42, pos.y - 36, 282, 155);
+    el.style.left = `${cpos.x}px`;
+    el.style.top = `${cpos.y}px`;
+    el.innerHTML = `
+      <div style="font-weight:900;margin-bottom:6px">Escolha o alvo</div>
+      <div style="font-size:12px;color:rgba(226,232,240,.86);line-height:1.35;margin-bottom:10px">
+        ${targetIconHtml(targeting.kind === "area" ? "area" : targeting.kind === "melee" ? "melee" : "ranged")}
+        ${escHtml(safeStr(this._attackTargetMode.move?.name) || "Golpe")} - ${escHtml(targeting.label || "")}
+        ${targeting.defenseLabel ? `<br><span style="color:rgba(148,163,184,.9)">${escHtml(targeting.defenseLabel)}</span>` : ""}
+      </div>
+      <button class="ac-quick-btn" id="ac-cancel-target-mode" style="width:100%">Cancelar</button>
+    `;
+    this._overlayRoot.appendChild(el);
+    this._currentPrompt = el;
+    el.querySelector("#ac-cancel-target-mode")?.addEventListener("click", () => {
+      this._attackTargetMode = null;
+      this._publishAttackTargetModeState();
+      this._closePrompt();
+    });
+    this._showFloat(this._attackTargetMode.attackerPiece, "Escolha o alvo", "pending");
+  }
+
+  async _executeAttackTargetMode(targetPiece) {
+    const mode = this._attackTargetMode;
+    if (!mode || !targetPiece) return;
+    if (this._isMine(targetPiece)) {
+      this._showFloat(targetPiece, "Alvo invalido", "miss");
+      return;
+    }
+    this._attackTargetMode = null;
+    this._publishAttackTargetModeState();
+    this._closePrompt();
+    const targeting = mode.targeting || this._moveTargetingInfo(mode.move, mode.powerRule);
+    if (targeting.kind === "area" || targeting.rangeStr === "area") {
+      await this._launchAreaAttack(mode.atkPid, targetPiece, mode.move, mode.stats, {
+        moveIdx: mode.moveIdx,
+        powerRule: mode.powerRule,
+      });
+      return;
+    }
+    await this._executeAttack(mode.atkPid, targetPiece, mode.move, mode.stats, targeting.rangeStr || "distance", {
+      sneakAttack: false,
+      moveIdx: mode.moveIdx,
+      powerRule: mode.powerRule,
+    });
+  }
+
   _bindCanvasClick() {
     const canvas = document.getElementById("arena");
     if (!canvas) return;
@@ -1728,6 +2331,38 @@ export class ArenaCombatUI {
       const tile = window.screenToTile?.(x, y);
       if (!tile) return;
       const piecesOnTile = (window.getPiecesAt?.(tile.row, tile.col) || []).filter(Boolean);
+      if (this._attackTargetMode) {
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        const by = safeStr(this.getBy?.()).toLowerCase();
+        const enemies = piecesOnTile.filter((piece) => {
+          const owner = safeStr(piece?.owner).toLowerCase();
+          if (!owner || owner === by) return false;
+          if (safeStr(piece?.status || "active") !== "active") return false;
+          try {
+            if (typeof window.isPieceVisibleToMe === "function" && !window.isPieceVisibleToMe(piece)) return false;
+          } catch {}
+          return true;
+        });
+        if (!enemies.length) {
+          this._showFloat(this._attackTargetMode.attackerPiece, "Clique em um alvo inimigo", "miss");
+          return;
+        }
+        if (enemies.length === 1) {
+          this._executeAttackTargetMode(enemies[0]);
+          return;
+        }
+        const mode = this._attackTargetMode;
+        this._showPieceChoiceMenu(enemies, ev.clientX, ev.clientY, {
+          title: "Escolha o alvo do golpe",
+          onSelect: (piece) => {
+            this._attackTargetMode = mode;
+            this._executeAttackTargetMode(piece);
+          },
+        });
+        this._attackTargetMode = mode;
+        return;
+      }
       if (piecesOnTile.some(_isMine)) return;
       const enemies = _getEnemyPieces(ev);
       if (!Array.isArray(enemies) || enemies.length === 0) return;
@@ -1782,10 +2417,7 @@ export class ArenaCombatUI {
       ev.stopImmediatePropagation();
       this._closeAll();
 
-      if (enemies.length <= 1) {
-        this._showContextMenu(enemies[0] || null, tile, cx, cy);
-        return;
-      }
+      return;
 
       this._showPieceChoiceMenu(enemies, ev.clientX, ev.clientY, {
         title: "Escolha uma peça para abrir as ações",
@@ -4948,6 +5580,8 @@ export class ArenaCombatUI {
   _closeAll() {
     try { this._currentRollAnimation?.remove?.(); } catch {}
     this._currentRollAnimation = null;
+    this._attackTargetMode = null;
+    this._publishAttackTargetModeState();
     this._closeOverlay();
     this._closeRadial();
     this._closePrompt();

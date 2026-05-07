@@ -528,7 +528,7 @@ const SHEET_ID = "1Z887EqYOatQ6ebMjYcjsCX4ZcTWi30F6Gf4zbCC_WZ8";
 const SHEET_AUTH_URL = "https://us-central1-batalhas-de-gaal.cloudfunctions.net/sheetAuth"; // <-- COLE AQUI a URL do seu endpoint (obrigatório p/ login no site)
 
 // cache simples (sessão)
-const LOGIN_CACHE_KEY = "pvp_login_cache_v1"; // { name, userData, savedAt }
+const LOGIN_CACHE_KEY = "pvp_login_cache_v2"; // { name, userData, savedAt }
 
 function loadLoginCache() {
   try {
@@ -789,12 +789,14 @@ async function ensureLoggedInIfNeeded(db, auth, typedName, typedPassword = "") {
     return { ok: true, name: tn };
   }
 
+  const typedPasswordProvided = !!safeStr(typedPassword);
+
   // 1) cache (se o usuário já logou antes)
   const cache = loadLoginCache();
   const launchLogin = await tryLoginWithLaunchToken(db, auth, tn);
   if (launchLogin?.ok) return launchLogin;
 
-  if (cache && safeStr(cache.name) === tn && cache.userData) {
+  if (!typedPasswordProvided && cache && safeStr(cache.name) === tn && cache.userData) {
     // tenta restaurar Auth sem pedir senha
     const tok = safeStr(cache.customToken);
     let cacheAuthOk = !auth;
@@ -923,10 +925,16 @@ const appState = {
   // drag
   drag: {
     active: false,
+    pending: false,
     justDropped: false,
     pieceId: null,
     startRow: null,
     startCol: null,
+    startX: 0,
+    startY: 0,
+    clientX: 0,
+    clientY: 0,
+    suppressClickUntil: 0,
     x: 0,
     y: 0,
   },
@@ -986,6 +994,12 @@ function setDexMap(obj) {
 }
 
 const pieceMenuState = {
+  pieceId: null,
+  clientX: 0,
+  clientY: 0,
+};
+const PIECE_DRAG_THRESHOLD_PX = 7;
+const pieceRadialState = {
   pieceId: null,
   clientX: 0,
   clientY: 0,
@@ -2376,9 +2390,13 @@ function renderMapEditorPanel() {
 
 function setArenaHoverPiece(pieceOrId, { persist = false } = {}) {
   const id = safeStr(typeof pieceOrId === "string" ? pieceOrId : pieceOrId?.id);
+  const previousId = safeStr(appState.hoveredPieceId || "");
   appState.hoveredPieceId = id || null;
   if (persist && id) appState.lastInteractedPieceId = id;
   renderArenaHoverCard();
+  if (previousId !== safeStr(appState.hoveredPieceId || "") && getArenaAttackTargetModeState()) {
+    requestArenaRefresh(true);
+  }
 }
 
 function bindTabInteractions() {
@@ -3357,7 +3375,8 @@ connectBtn?.addEventListener("click", async () => {
     renderMapEditorPanel?.();
     window.requestScoreboardRefresh?.();
     ensureUserSubscriptions();
-    _refreshResolvedRoomPieces();
+    const resolvedPieces = _refreshResolvedRoomPieces();
+    scheduleRoomPiecePartySlotRepair(appState.piecesRaw, resolvedPieces);
     requestArenaRefresh(true);
   };
 
@@ -3425,7 +3444,8 @@ connectBtn?.addEventListener("click", async () => {
         appState.gridSize = Number(data?.gridSize) || 10;
         appState.theme = safeStr(data?.theme) || "biome_grass";
         appState.piecesRaw = Array.isArray(data?.pieces) ? data.pieces : [];
-        _refreshResolvedRoomPieces();
+        const resolvedPieces = _refreshResolvedRoomPieces();
+        scheduleRoomPiecePartySlotRepair(appState.piecesRaw, resolvedPieces);
         try { autoLogPiecesDiff(appState.pieces); } catch {}
         appState.traps  = Array.isArray(data?.traps)  ? data.traps  : [];
         appState.zones  = Array.isArray(data?.zones)  ? data.zones  : [];
@@ -3469,7 +3489,8 @@ unsub.push(
     playersDoc,
     (snap) => {
       appState.publicPlayers = snap.exists() ? snap.data() : null;
-      _refreshResolvedRoomPieces();
+      const resolvedPieces = _refreshResolvedRoomPieces();
+      scheduleRoomPiecePartySlotRepair(appState.piecesRaw, resolvedPieces);
       const pp = $("players_preview");
       if (pp) pp.textContent = pretty(appState.publicPlayers);
 
@@ -4177,12 +4198,13 @@ const FORM_ROOT_DEFAULT_SLUGS = {
 };
 const FORM_SPECIAL_ROOTS = Object.keys(FORM_ROOT_DEFAULT_SLUGS).sort((a, b) => b.length - a.length);
 
-function _normalizePartySlot(slotLike, fallbackIndex = null) {
+function _normalizePartySlot(slotLike, fallbackIndex = null, options = {}) {
   const raw = safeStr(slotLike).trim();
+  const numericAsSlot = !!options?.numericAsSlot;
   if (raw) {
     const prefixed = raw.match(/^slot[_-]?(\d+)$/i);
     if (prefixed) return `slot_${Number(prefixed[1])}`;
-    if (/^\d+$/.test(raw)) return `slot_${Number(raw)}`;
+    if (numericAsSlot && /^\d+$/.test(raw)) return `slot_${Number(raw)}`;
   }
   if (fallbackIndex != null && Number.isFinite(Number(fallbackIndex)) && Number(fallbackIndex) >= 0) {
     return `slot_${Number(fallbackIndex)}`;
@@ -4196,18 +4218,22 @@ function _looksLikePartySlotKey(slotLike) {
 
 function _getPartySlot(entryLike, fallbackIndex = null) {
   if (entryLike && typeof entryLike === "object") {
+    const explicitSlotRaw = [
+      entryLike.party_slot,
+      entryLike.partySlot,
+      entryLike.slot_key,
+      entryLike.slotKey,
+      entryLike.slot,
+      entryLike.index,
+      entryLike._party_slot,
+    ].find((value) => value != null && safeStr(value).trim());
     return _normalizePartySlot(
-      entryLike.party_slot
-      ?? entryLike.partySlot
-      ?? entryLike.slot_key
-      ?? entryLike.slotKey
-      ?? entryLike.slot
-      ?? entryLike.index
-      ?? entryLike._party_slot,
-      fallbackIndex
+      explicitSlotRaw,
+      fallbackIndex,
+      { numericAsSlot: explicitSlotRaw != null }
     );
   }
-  if (_looksLikePartySlotKey(entryLike)) return _normalizePartySlot(entryLike, fallbackIndex);
+  if (_looksLikePartySlotKey(entryLike)) return _normalizePartySlot(entryLike, fallbackIndex, { numericAsSlot: true });
   return _normalizePartySlot("", fallbackIndex);
 }
 
@@ -4506,6 +4532,88 @@ function _normalizePartyList(list) {
   return (Array.isArray(list) ? list : []).map((entry, index) => _normalizePartyEntry(entry, index)).filter((entry) => entry?.pid);
 }
 
+function _getPublicStatePartyForTrainer(trainerName) {
+  const tn = safeStr(trainerName);
+  const ps = appState.publicPlayers;
+  if (!tn || !ps) return [];
+
+  const byId = ps.byId || {};
+  const tnLower = safeStr(tn).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const entry = byId[safeDocId(tn)] || byId[tn] || byId[tnLower] || byId[safeStr(tn).toLowerCase()];
+  const structuredParty = (Array.isArray(entry?.party_snapshot) && entry.party_snapshot.length)
+    ? entry.party_snapshot
+    : (Array.isArray(entry?.party) ? entry.party : []);
+  if (structuredParty.length) return _normalizePartyList(structuredParty);
+
+  const direct =
+    ps[tn] ||
+    ps[safeStr(tn)] ||
+    ps[safeStr(tn).trim()] ||
+    ps[safeStr(tn).toLowerCase()] ||
+    ps[safeDocId(tn)];
+  if (Array.isArray(direct) && direct.length) return _normalizePartyList(direct);
+  return [];
+}
+
+function _mergePartyListsPreserveDetails(primaryList, supplementalList) {
+  const primary = _normalizePartyList(primaryList);
+  const supplemental = _normalizePartyList(supplementalList);
+  if (!supplemental.length) return primary.slice(0, 8);
+
+  const takePrimaryMatch = (entry, used) => {
+    const entryId = _getEntryId(entry);
+    const pid = normalizePartyPid(entry);
+    let index = -1;
+    if (entryId) index = primary.findIndex((candidate, i) => !used.has(i) && _getEntryId(candidate) === entryId);
+    if (index < 0 && pid) index = primary.findIndex((candidate, i) => !used.has(i) && normalizePartyPid(candidate) === pid);
+    if (index < 0) return null;
+    used.add(index);
+    return primary[index];
+  };
+
+  const usedPrimary = new Set();
+  const usedSlots = new Set();
+  const out = [];
+  for (const entry of supplemental) {
+    const slot = _getPartySlot(entry, out.length);
+    const detail = takePrimaryMatch(entry, usedPrimary);
+    const merged = detail ? { ...entry, ...detail } : { ...entry };
+    const pid = normalizePartyPid(merged);
+    if (!pid) continue;
+    const finalSlot = slot || _getPartySlot(detail) || `slot_${out.length}`;
+    out.push({
+      ...merged,
+      pid,
+      party_slot: finalSlot,
+      _party_slot: finalSlot,
+      _party_slot_index: _getPartySlotIndex(finalSlot, out.length),
+    });
+    if (finalSlot) usedSlots.add(finalSlot);
+  }
+
+  for (let i = 0; i < primary.length && out.length < 8; i += 1) {
+    if (usedPrimary.has(i)) continue;
+    const entry = primary[i];
+    const pid = normalizePartyPid(entry);
+    if (!pid || out.some((candidate) => _getEntryId(candidate) && _getEntryId(candidate) === _getEntryId(entry)) || out.some((candidate) => normalizePartyPid(candidate) === pid)) continue;
+    let slot = _getPartySlot(entry);
+    if (!slot || usedSlots.has(slot)) {
+      slot = "";
+      for (let n = 0; n < 8; n += 1) {
+        const candidateSlot = `slot_${n}`;
+        if (!usedSlots.has(candidateSlot)) {
+          slot = candidateSlot;
+          break;
+        }
+      }
+    }
+    out.push({ ...entry, pid, party_slot: slot, _party_slot: slot, _party_slot_index: _getPartySlotIndex(slot, out.length) });
+    if (slot) usedSlots.add(slot);
+  }
+
+  return out.slice(0, 8);
+}
+
 function getPartyForTrainer(trainerName) {
   const tn = safeStr(trainerName);
   if (!tn) return [];
@@ -4515,8 +4623,10 @@ function getPartyForTrainer(trainerName) {
     const partyRaw = Array.isArray(appState.selfUserData?.party) ? appState.selfUserData.party : [];
     if (partyRaw.length) {
       // se já montou snapshot com fichas, melhor
-      if (Array.isArray(appState.selfPartySnapshot) && appState.selfPartySnapshot.length) return appState.selfPartySnapshot;
-      return _normalizePartyList(partyRaw);
+      const detailed = (Array.isArray(appState.selfPartySnapshot) && appState.selfPartySnapshot.length)
+        ? appState.selfPartySnapshot
+        : _normalizePartyList(partyRaw);
+      return _normalizePartyList(detailed).slice(0, 8);
     }
   }
     // 0.5) ✅ public_state/players (arrays de pid por treinador)
@@ -4658,7 +4768,14 @@ function _matchesPartyIdentity(candidateLike, targetLike) {
   const candidateEntryId = _getEntryId(candidateLike);
   if (targetEntryId && candidateEntryId) return targetEntryId === candidateEntryId;
   const targetSlot = _getPartySlot(targetLike);
-  if (targetSlot) return _getPartySlot(candidateLike) === targetSlot;
+  if (targetSlot) {
+    const candidateSlot = _getPartySlot(candidateLike);
+    if (candidateSlot !== targetSlot) return false;
+    const targetPid = normalizePartyPid(targetLike?.pid ?? targetLike?.pokemon?.id ?? targetLike?.pokemon ?? targetLike);
+    const candidatePid = normalizePartyPid(candidateLike?.pid ?? candidateLike?.pokemon?.id ?? candidateLike?.pokemon ?? candidateLike);
+    if (targetPid && candidatePid && targetPid !== candidatePid) return false;
+    return true;
+  }
   const targetKeys = _partyEntryLookupKeys(targetLike);
   if (!targetKeys.length) return false;
   const candidateKeys = _partyEntryLookupKeys(candidateLike);
@@ -4707,6 +4824,12 @@ function _getPartySnapshotForTrainer(trainerName) {
 }
 
 function getPartySnapshotEntryForTrainerPid(trainerName, pidLike) {
+  if (safeStr(appState.by) && sameTrainerName(trainerName, appState.by) && appState.selfUserData) {
+    const liveParty = getPartyForTrainer(trainerName);
+    for (const entry of liveParty) {
+      if (_matchesPartyIdentity(entry, pidLike)) return entry;
+    }
+  }
   const snapshot = _getPartySnapshotForTrainer(trainerName);
   for (const entry of snapshot) {
     if (_matchesPartyIdentity(entry, pidLike)) return entry;
@@ -4730,6 +4853,17 @@ function _pieceSlotSortValue(piece) {
     safeInt(piece?.col, 0),
     safeStr(piece?.id),
   ];
+}
+
+function _partyEntryMatchesPokemonPayload(entryLike, pieceLike) {
+  const entryId = _getEntryId(entryLike);
+  const pieceEntryId = _getEntryId(pieceLike);
+  if (entryId && pieceEntryId) return entryId === pieceEntryId;
+
+  const entryPid = normalizePartyPid(entryLike?.pid ?? entryLike?.pokemon?.id ?? entryLike?.pokemon ?? entryLike);
+  const piecePid = normalizePartyPid(pieceLike?.pid ?? pieceLike?.pokemon?.id ?? pieceLike?.pokemon ?? pieceLike);
+  if (entryPid && piecePid) return entryPid === piecePid;
+  return false;
 }
 
 function _resolveRoomPiecesPartySlots(rawPieces = appState.piecesRaw) {
@@ -4760,11 +4894,13 @@ function _resolveRoomPiecesPartySlots(rawPieces = appState.piecesRaw) {
 
     const freeSlotsByLookupKey = new Map();
     const validPartySlots = new Set();
+    const partyBySlot = new Map();
     const usedSlots = new Set();
     for (const entry of party) {
       const slot = _getPartySlot(entry);
       if (!slot) continue;
       validPartySlots.add(slot);
+      partyBySlot.set(slot, entry);
       for (const key of _partyEntryLookupKeys(entry)) {
         if (!key) continue;
         if (!freeSlotsByLookupKey.has(key)) freeSlotsByLookupKey.set(key, []);
@@ -4776,6 +4912,15 @@ function _resolveRoomPiecesPartySlots(rawPieces = appState.piecesRaw) {
       const explicitSlot = _getPartySlot(piece);
       if (!explicitSlot) return;
       if (!validPartySlots.has(explicitSlot)) {
+        piece._party_slot_invalid = explicitSlot;
+        piece.party_slot = "";
+        piece._party_slot = "";
+        piece._party_slot_inferred = false;
+        piece._party_slot_ambiguous = true;
+        return;
+      }
+      const slotEntry = partyBySlot.get(explicitSlot);
+      if (slotEntry && !_partyEntryMatchesPokemonPayload(slotEntry, piece)) {
         piece._party_slot_invalid = explicitSlot;
         piece.party_slot = "";
         piece._party_slot = "";
@@ -4819,6 +4964,94 @@ function _resolveRoomPiecesPartySlots(rawPieces = appState.piecesRaw) {
   }
 
   return resolved;
+}
+
+let _piecePartySlotRepairTimer = null;
+let _piecePartySlotRepairSignature = "";
+
+function _cleanPersistedPieceSlotFields(piece, partySlot) {
+  const next = { ...(piece || {}) };
+  next.party_slot = partySlot || null;
+  if (Object.prototype.hasOwnProperty.call(next, "_party_slot")) next._party_slot = partySlot || "";
+  delete next._party_slot_invalid;
+  delete next._party_slot_inferred;
+  delete next._party_slot_ambiguous;
+  return next;
+}
+
+function _buildRoomPiecePartySlotRepair(rawPieces, resolvedPieces) {
+  const raw = Array.isArray(rawPieces) ? rawPieces : [];
+  const resolved = Array.isArray(resolvedPieces) ? resolvedPieces : [];
+  if (!raw.length || raw.length !== resolved.length) return null;
+
+  let changed = false;
+  const nextPieces = raw.map((piece, index) => {
+    const fixed = resolved[index];
+    if (!piece || typeof piece !== "object" || isTrainerPiece(piece)) return piece;
+    if (!fixed || typeof fixed !== "object") return piece;
+    if (fixed._party_slot_ambiguous) return piece;
+
+    const nextSlot = safeStr(fixed.party_slot || fixed._party_slot);
+    if (!nextSlot) return piece;
+
+    const currentSlot = _getPartySlot(piece);
+    const invalidSlot = safeStr(fixed._party_slot_invalid);
+    const inferredSlot = !!fixed._party_slot_inferred;
+    const hasStaleDebugSlot =
+      safeStr(piece._party_slot_invalid) ||
+      safeStr(piece._party_slot_inferred) ||
+      safeStr(piece._party_slot_ambiguous);
+    const needsRepair = invalidSlot || inferredSlot || hasStaleDebugSlot || currentSlot !== nextSlot;
+    if (!needsRepair) return piece;
+
+    changed = true;
+    return _cleanPersistedPieceSlotFields(piece, nextSlot);
+  });
+
+  return changed ? nextPieces : null;
+}
+
+function scheduleRoomPiecePartySlotRepair(rawPieces = appState.piecesRaw, resolvedPieces = appState.pieces) {
+  const nextPieces = _buildRoomPiecePartySlotRepair(rawPieces, resolvedPieces);
+  if (!nextPieces) return;
+
+  const signature = JSON.stringify(nextPieces.map((piece) => {
+    if (!piece || typeof piece !== "object") return null;
+    return [safeStr(piece.id), safeStr(piece.owner), safeStr(piece.pid), safeStr(piece.party_slot)];
+  }));
+  if (signature && signature === _piecePartySlotRepairSignature) return;
+  _piecePartySlotRepairSignature = signature;
+
+  if (_piecePartySlotRepairTimer) clearTimeout(_piecePartySlotRepairTimer);
+  _piecePartySlotRepairTimer = setTimeout(async () => {
+    _piecePartySlotRepairTimer = null;
+    const stateRef = getStateDocRef();
+    if (!stateRef || !currentDb || !currentRid) return;
+    let repaired = false;
+    try {
+      await runTransaction(currentDb, async (tx) => {
+        const snap = await tx.get(stateRef);
+        const data = snap.exists() ? snap.data() : {};
+        const latestRawPieces = Array.isArray(data?.pieces) ? data.pieces : [];
+        const latestResolvedPieces = resolvePiecesSizeForRules(_resolveRoomPiecesPartySlots(latestRawPieces));
+        const latestNextPieces = _buildRoomPiecePartySlotRepair(latestRawPieces, latestResolvedPieces);
+        if (!latestNextPieces) return;
+        repaired = true;
+        tx.set(
+          stateRef,
+          {
+            pieces: latestNextPieces,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      });
+      if (repaired) setStatus("ok", "slots da party reparados na sala");
+    } catch (err) {
+      _piecePartySlotRepairSignature = "";
+      console.warn("falha ao reparar slots da party:", err?.message || err);
+    }
+  }, 250);
 }
 
 function _refreshResolvedRoomPieces() {
@@ -5754,11 +5987,48 @@ function _slugifyCaptureBallName(value) {
 }
 
 function _captureBallApiName(rawBall) {
-  return _slugifyCaptureBallName(rawBall?.api_name || rawBall?.name || rawBall?.backpack_name || rawBall || "");
+  if (!rawBall) return "";
+  if (typeof rawBall !== "object") return _slugifyCaptureBallName(rawBall);
+  const direct = rawBall.api_name
+    ?? rawBall.apiName
+    ?? rawBall.slug
+    ?? rawBall.id
+    ?? rawBall.item_name
+    ?? rawBall.itemName
+    ?? rawBall.name
+    ?? rawBall.backpack_name
+    ?? rawBall.backpackName
+    ?? rawBall.display_name
+    ?? rawBall.displayName
+    ?? rawBall.item_slug
+    ?? rawBall.itemSlug
+    ?? rawBall.key
+    ?? rawBall.label
+    ?? rawBall.type
+    ?? "";
+  if (safeStr(direct)) return _slugifyCaptureBallName(direct);
+  const nested = rawBall.ball
+    ?? rawBall.capture_ball
+    ?? rawBall.captureBall
+    ?? rawBall.poke_ball
+    ?? rawBall.pokeBall
+    ?? rawBall.pokeball
+    ?? rawBall.ball_used
+    ?? rawBall.ballUsed
+    ?? rawBall.used_ball
+    ?? rawBall.usedBall
+    ?? rawBall.ball_type
+    ?? rawBall.ballType
+    ?? rawBall.capture_item
+    ?? rawBall.captureItem
+    ?? rawBall.item
+    ?? null;
+  if (nested && nested !== rawBall) return _captureBallApiName(nested);
+  return "";
 }
 
 function _getCaptureBallIconUrl(rawBall) {
-  const direct = safeStr(rawBall?.icon_url || rawBall?.iconUrl || rawBall?.image_url || rawBall?.sprite_url || "");
+  const direct = safeStr(rawBall?.icon_url || rawBall?.iconUrl || rawBall?.image_url || rawBall?.imageUrl || rawBall?.sprite_url || rawBall?.spriteUrl || "");
   if (direct) return direct;
   const apiName = _captureBallApiName(rawBall) || DEFAULT_CAPTURE_BALL_API_NAME;
   return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/${apiName}.png`;
@@ -5770,7 +6040,20 @@ function _getCaptureBallFromHubMeta(hubMeta, pidLike) {
   if (!targetKeys.length) return null;
   for (const [rawKey, meta] of Object.entries(hubMeta)) {
     if (!targetKeys.includes(pidKey(rawKey))) continue;
-    const captureBall = meta?.capture_ball || meta?.captureBall || null;
+    const captureBall = meta?.capture_ball
+      || meta?.captureBall
+      || meta?.poke_ball
+      || meta?.pokeBall
+      || meta?.pokeball
+      || meta?.ball_used
+      || meta?.ballUsed
+      || meta?.used_ball
+      || meta?.usedBall
+      || meta?.ball_type
+      || meta?.ballType
+      || meta?.capture_item
+      || meta?.captureItem
+      || null;
     if (captureBall) return captureBall;
   }
   return null;
@@ -5788,10 +6071,10 @@ function normalizeCaptureBall(rawBall, { fallbackToDefault = true } = {}) {
   const themeKey = CAPTURE_BALL_THEME_PRESETS[apiName] ? apiName : DEFAULT_CAPTURE_BALL_API_NAME;
   const fallbackTheme = CAPTURE_BALL_THEME_PRESETS[themeKey] || CAPTURE_BALL_THEME_PRESETS[DEFAULT_CAPTURE_BALL_API_NAME];
   return {
-    name: safeStr(source?.name || source?.backpack_name || "Poké Ball") || "Poké Ball",
+    name: safeStr(source?.name || source?.display_name || source?.displayName || source?.backpack_name || source?.backpackName || apiName || "Poké Ball") || "Poké Ball",
     api_name: apiName,
     icon_url: _getCaptureBallIconUrl(source || { api_name: apiName }) || DEFAULT_CAPTURE_BALL_ICON_URL,
-    backpack_name: safeStr(source?.backpack_name || source?.name || "Poké Ball") || "Poké Ball",
+    backpack_name: safeStr(source?.backpack_name || source?.backpackName || source?.name || source?.display_name || source?.displayName || apiName || "Poké Ball") || "Poké Ball",
     category: safeStr(source?.category || "pokeballs") || "pokeballs",
     themeKey,
     theme: fallbackTheme,
@@ -5923,6 +6206,52 @@ function _slugifyHeldItemName(value) {
     .replace(/^-+|-+$/g, "");
 }
 
+function _isEmptyHeldItemValue(value) {
+  const raw = safeStr(value).trim();
+  if (!raw) return true;
+  const key = raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return !key || ["none", "null", "undefined", "sem-item", "no-item", "item", "n-a", "na"].includes(key);
+}
+
+function _isPlaceholderHeldItemEffect(value) {
+  const key = safeStr(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  return !key || key === "efeito indisponivel." || key === "efeito indisponivel";
+}
+
+function _hasConcreteHeldItem(rawItem) {
+  if (!rawItem) return false;
+  if (typeof rawItem !== "object") return !_isEmptyHeldItemValue(rawItem);
+  const identityFields = [
+    rawItem.name,
+    rawItem.backpack_name,
+    rawItem.backpackName,
+    rawItem.api_name,
+    rawItem.apiName,
+    rawItem.item_name,
+    rawItem.itemName,
+    rawItem.slug,
+    rawItem.id,
+    rawItem.icon_url,
+    rawItem.iconUrl,
+    rawItem.sprite_url,
+    rawItem.spriteUrl,
+    rawItem.image_url,
+    rawItem.imageUrl,
+  ].map((value) => safeStr(value)).filter((value) => !_isEmptyHeldItemValue(value));
+  if (identityFields.length) return true;
+  const effect = _extractHeldItemEffect(rawItem);
+  return !!effect && !_isPlaceholderHeldItemEffect(effect);
+}
+
 function _extractHeldItemEffect(raw) {
   if (!raw) return "";
   const direct = safeStr(
@@ -5977,6 +6306,7 @@ function _ensureHeldItemEffectLoaded(item) {
 
 function normalizeHeldItem(rawItem) {
   if (!rawItem) return null;
+  if (!_hasConcreteHeldItem(rawItem)) return null;
   const source = (typeof rawItem === "string") ? { name: rawItem } : rawItem;
   const cacheKey = _getHeldItemCacheKey(source);
   const cachedEffect = cacheKey && typeof _heldItemEffectCache.get(cacheKey) === "string"
@@ -5990,6 +6320,7 @@ function normalizeHeldItem(rawItem) {
     category: safeStr(source?.category || ""),
     effect: _extractHeldItemEffect(source) || cachedEffect,
   };
+  if (_isEmptyHeldItemValue(item.name) && !item.api_name && !item.icon_url && _isPlaceholderHeldItemEffect(item.effect)) return null;
   if (!item.effect && item.api_name) _ensureHeldItemEffectLoaded(item);
   return item;
 }
@@ -6009,11 +6340,37 @@ function getHeldItemForTrainerPid(trainerName, pidLike) {
 
 function getCaptureBallForTrainerPid(trainerName, pidLike) {
   const snapshotEntry = getPartySnapshotEntryForTrainerPid(trainerName, pidLike);
-  const snapshotBall = snapshotEntry?.capture_ball || snapshotEntry?.captureBall || null;
+  const snapshotBall = snapshotEntry?.capture_ball
+    || snapshotEntry?.captureBall
+    || snapshotEntry?.poke_ball
+    || snapshotEntry?.pokeBall
+    || snapshotEntry?.pokeball
+    || snapshotEntry?.ball_used
+    || snapshotEntry?.ballUsed
+    || snapshotEntry?.used_ball
+    || snapshotEntry?.usedBall
+    || snapshotEntry?.ball_type
+    || snapshotEntry?.ballType
+    || snapshotEntry?.capture_item
+    || snapshotEntry?.captureItem
+    || null;
   if (snapshotBall) return normalizeCaptureBall(snapshotBall);
 
   const partyEntry = _getPartyEntryForTrainerPid(trainerName, pidLike);
-  const partyBall = partyEntry?.capture_ball || partyEntry?.captureBall || null;
+  const partyBall = partyEntry?.capture_ball
+    || partyEntry?.captureBall
+    || partyEntry?.poke_ball
+    || partyEntry?.pokeBall
+    || partyEntry?.pokeball
+    || partyEntry?.ball_used
+    || partyEntry?.ballUsed
+    || partyEntry?.used_ball
+    || partyEntry?.usedBall
+    || partyEntry?.ball_type
+    || partyEntry?.ballType
+    || partyEntry?.capture_item
+    || partyEntry?.captureItem
+    || null;
   if (partyBall) return normalizeCaptureBall(partyBall);
 
   const userData = _getUserDataForTrainer(trainerName);
@@ -6443,7 +6800,7 @@ function _renderTrainerArenaSheetPreview(root, piece) {
 function renderArenaSheetPreview() {
   const root = $("arena_sheet_preview");
   if (!root) return;
-  const selId = safeStr(appState.selectedPieceId);
+  const selId = safeStr(appState.selectedPieceId) || safeStr(appState.lastInteractedPieceId);
   if (!selId) {
     root.innerHTML = `<div class="arena-sheet-card"><div class="muted">Clique em um pokémon na arena para abrir a ficha resumida.</div></div>`;
     return;
@@ -6501,7 +6858,7 @@ function renderArenaSheetPreview() {
         <div class="hp-track"><div class="hp-fill" style="width:${hpUi.pct}%;background:${hpUi.color};"></div></div>
         ${condHtml}
         <div class="section-title">Resumo</div>
-        <div class="muted">${escapeHtml(moveSummary)}</div>
+        ${_renderSheetMoveSummary(moveBudget)}
         <div class="muted" style="margin-top:8px">${isMine ? "Ficha não encontrada para esta peça." : "Ficha completa privada. Apenas o resumo da arena está disponível."}</div>
       </div>
     `;
@@ -6575,7 +6932,7 @@ function renderArenaSheetPreview() {
       <div class="hp-row"><span>HP</span><span>${hpUi.value}/6</span></div>
       <div class="hp-track"><div class="hp-fill" style="width:${hpUi.pct}%;background:${hpUi.color};"></div></div>
       ${condHtml}
-      <div class="muted" style="margin-top:8px">${escapeHtml(moveSummary)}</div>
+      ${_renderSheetMoveSummary(moveBudget)}
       <div class="stat-grid">
         <div class="stat-box"><div class="stat-label">Stgr</div><div class="stat-val">${stgr}</div></div>
         <div class="stat-box"><div class="stat-label">Int</div><div class="stat-val">${intel}</div></div>
@@ -6615,7 +6972,19 @@ function renderPartyWindow() {
   const slots = [];
   for (let i = 0; i < 8; i++) slots.push(party[i] || null);
   root.innerHTML = slots.map((entry, idx) => {
-    const pid = safeStr(entry?.pid || entry || "");
+    const pid = normalizePartyPid(
+      entry?.pid
+      ?? entry?.pokemon?.id
+      ?? entry?.pokemon_id
+      ?? entry?.pokemonId
+      ?? entry?.species_id
+      ?? entry?.speciesId
+      ?? entry?.dex_id
+      ?? entry?.dexId
+      ?? entry?.pokemon
+      ?? entry?._party_pid_raw
+      ?? entry
+    );
     if (!pid) return `<button type="button" class="party-slot empty" data-slot="${idx}" disabled></button>`;
     const partySlot = _getPartySlot(entry, idx);
     const identity = partySlot ? { ...(entry && typeof entry === "object" ? entry : {}), pid, party_slot: partySlot } : (entry || pid);
@@ -6629,8 +6998,7 @@ function renderPartyWindow() {
     const ko = hp <= 0;
     const onBoard = isPokemonAlreadyOnBoard(by, identity);
     const placing = (partySlot && placingSlot === partySlot) || (!partySlot && placingPid && placingPid === pid);
-    const disabled = ko && !onBoard;
-    return `<button type="button" class="party-slot ${ko ? 'ko' : ''} ${placing ? 'placing' : ''}" data-slot="${idx}" data-pid="${escapeAttr(pid)}" data-entry-id="${escapeAttr(_getEntryId(entry))}" data-party-slot="${escapeAttr(partySlot)}" data-capture-ball="${escapeAttr(captureBall?.api_name || DEFAULT_CAPTURE_BALL_API_NAME)}" title="${escapeAttr(captureBallLabel)}" style="${escapeAttr(captureBallStyle)}" ${disabled ? 'disabled' : ''}>
+    return `<button type="button" class="party-slot ${ko ? 'ko' : ''} ${placing ? 'placing' : ''}" data-slot="${idx}" data-pid="${escapeAttr(pid)}" data-entry-id="${escapeAttr(_getEntryId(entry))}" data-party-slot="${escapeAttr(partySlot)}" data-capture-ball="${escapeAttr(captureBall?.api_name || DEFAULT_CAPTURE_BALL_API_NAME)}" title="${escapeAttr(captureBallLabel)}" style="${escapeAttr(captureBallStyle)}">
       ${renderCaptureBallBackdropHtml(captureBall)}
       ${renderHeldItemBadgeHtml(heldItem, { className: "held-item-anchor-slot", size: "sm" })}
       ${sprite ? `<img class="party-slot-sprite" src="${escapeAttr(sprite)}" alt="${escapeAttr(pid)}" loading="lazy" onerror="this.style.display='none'"/>` : ''}
@@ -6644,7 +7012,7 @@ function renderPartyWindow() {
     if (!btn) return;
     const pid = safeStr(btn.dataset.pid);
     const entryId = safeStr(btn.dataset.entryId);
-    const partySlot = _normalizePartySlot(btn.dataset.partySlot);
+    const partySlot = _normalizePartySlot(btn.dataset.partySlot, null, { numericAsSlot: true });
     const identity = { pid, entry_id: entryId, party_slot: partySlot || "" };
     if (!pid) return;
 
@@ -7672,6 +8040,194 @@ async function openPieceConditionsModal(piece) {
   refs.title.textContent = `Condições • ${name}`;
   refs.content.innerHTML = `<div class="inspector">${renderInspectorConditionsPanelHTML(piece, { isMine })}</div>`;
   refs.backdrop.style.display = "";
+  await mountInspectorConditionsPanel(refs.content, piece, { isMine });
+}
+
+function ensurePieceVitalCss() {
+  if (document.getElementById("piece-vital-css")) return;
+  const style = document.createElement("style");
+  style.id = "piece-vital-css";
+  style.textContent = `
+.piece-vital-shell {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 14px;
+}
+.piece-vital-card {
+  border: 1px solid rgba(56,189,248,.24);
+  background: linear-gradient(180deg, rgba(15,23,42,.92), rgba(2,6,23,.90));
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+}
+.piece-vital-media {
+  height: 150px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  border: 1px solid rgba(148,163,184,.16);
+  background: radial-gradient(circle at 50% 42%, rgba(45,212,191,.18), rgba(15,23,42,.62) 58%, rgba(2,6,23,.86));
+}
+.piece-vital-media img {
+  max-width: 142px;
+  max-height: 142px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 12px 16px rgba(0,0,0,.42));
+}
+.piece-vital-name {
+  font-weight: 950;
+  color: rgba(226,232,240,.96);
+  font-size: 18px;
+  margin-top: 12px;
+}
+.piece-vital-sub {
+  color: rgba(148,163,184,.82);
+  font-size: 12px;
+  margin-top: 3px;
+}
+.piece-vital-hp-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  color: rgba(226,232,240,.92);
+  font-weight: 900;
+}
+.piece-vital-hpbar {
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 8px;
+  background: rgba(15,23,42,.86);
+  border: 1px solid rgba(148,163,184,.18);
+}
+.piece-vital-hpfill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #22c55e, #86efac);
+  transition: width .16s ease, background .16s ease;
+}
+.piece-vital-hp-controls {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  gap: 8px;
+  margin-top: 10px;
+}
+.piece-vital-hp-controls button,
+.piece-vital-hp-controls input {
+  height: 36px;
+  border-radius: 9px;
+  border: 1px solid rgba(148,163,184,.22);
+  background: rgba(2,6,23,.44);
+  color: rgba(226,232,240,.92);
+  font-weight: 900;
+  text-align: center;
+}
+.piece-vital-hp-controls button {
+  cursor: pointer;
+}
+.piece-vital-hp-controls button:hover {
+  border-color: rgba(56,189,248,.45);
+  background: rgba(14,165,233,.13);
+}
+.piece-vital-hp-controls :disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.piece-vital-conditions {
+  min-width: 0;
+}
+@media (max-width: 760px) {
+  .piece-vital-shell { grid-template-columns: 1fr; }
+}
+`;
+  document.head.appendChild(style);
+}
+
+function renderPieceVitalPanelHTML(piece, { isMine }) {
+  const owner = safeStr(piece?.owner) || "—";
+  const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
+  const hp = getPartyHp(owner, piece);
+  const spriteState = _getPartyStateEntry(owner, piece) || {};
+  const spriteUrl = getSpriteUrlForPiece(piece, { type: "art", shiny: !!spriteState.shiny });
+  const fallback = getSpriteFallbackUrlForPiece(piece);
+  const hpPct = Math.max(0, Math.min(100, (Number(hp) / 6) * 100));
+  const hpColor = hp >= 5 ? "linear-gradient(90deg,#22c55e,#86efac)" : hp >= 3 ? "linear-gradient(90deg,#f59e0b,#fde68a)" : "linear-gradient(90deg,#ef4444,#fca5a5)";
+  return `
+    <div class="piece-vital-shell">
+      <section class="piece-vital-card" data-vital-piece="${escapeAttr(safeStr(piece?.id))}">
+        <div class="piece-vital-media">
+          ${spriteUrl ? `<img src="${escapeAttr(spriteUrl)}" alt="${escapeAttr(name)}" data-fallback="${escapeAttr(fallback)}" onerror="if(this.dataset.fallback && this.src!==this.dataset.fallback){this.src=this.dataset.fallback;}else{this.style.display='none'}">` : ""}
+        </div>
+        <div class="piece-vital-name">${escapeHtml(name)}</div>
+        <div class="piece-vital-sub">${escapeHtml(owner)} • ${escapeHtml(pieceTypeLabel(piece))}</div>
+        <div class="piece-vital-hp-head">
+          <span>HP</span>
+          <span data-vital-hp-label>${escapeHtml(hp)}/6</span>
+        </div>
+        <div class="piece-vital-hpbar">
+          <div class="piece-vital-hpfill" data-vital-hp-fill style="width:${hpPct.toFixed(0)}%;background:${hpColor}"></div>
+        </div>
+        <div class="piece-vital-hp-controls">
+          <button type="button" data-vital-hp-step="-1" ${isMine ? "" : "disabled"}>-</button>
+          <input type="number" min="0" max="6" step="1" value="${escapeAttr(hp)}" data-vital-hp-input ${isMine ? "" : "disabled"}>
+          <button type="button" data-vital-hp-step="1" ${isMine ? "" : "disabled"}>+</button>
+        </div>
+      </section>
+      <section class="piece-vital-conditions">
+        <div class="inspector">${renderInspectorConditionsPanelHTML(piece, { isMine })}</div>
+      </section>
+    </div>
+  `;
+}
+
+function mountPieceVitalPanel(wrap, piece, { isMine }) {
+  const owner = safeStr(piece?.owner);
+  const card = wrap.querySelector(".piece-vital-card");
+  if (!card) return;
+  const input = card.querySelector("[data-vital-hp-input]");
+  const label = card.querySelector("[data-vital-hp-label]");
+  const fill = card.querySelector("[data-vital-hp-fill]");
+  const setUiHp = (hp) => {
+    const next = clampPartyHp(hp, 6);
+    const pct = Math.max(0, Math.min(100, (next / 6) * 100));
+    if (input) input.value = String(next);
+    if (label) label.textContent = `${next}/6`;
+    if (fill) {
+      fill.style.width = `${pct.toFixed(0)}%`;
+      fill.style.background = next >= 5
+        ? "linear-gradient(90deg,#22c55e,#86efac)"
+        : (next >= 3 ? "linear-gradient(90deg,#f59e0b,#fde68a)" : "linear-gradient(90deg,#ef4444,#fca5a5)");
+    }
+    return next;
+  };
+  const commitHp = async (hp) => {
+    if (!isMine) return;
+    const next = setUiHp(hp);
+    await updatePartyStateHp(owner, piece, next);
+  };
+  card.querySelectorAll("[data-vital-hp-step]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const delta = Number(btn.dataset.vitalHpStep) || 0;
+      await commitHp((Number(input?.value) || 0) + delta);
+    });
+  });
+  input?.addEventListener("change", async () => {
+    await commitHp(Number(input.value));
+  });
+}
+
+async function openPieceVitalModal(piece) {
+  const refs = ensurePieceActionModal();
+  ensurePieceVitalCss();
+  const isMine = isPieceMine(piece);
+  const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
+  refs.title.textContent = `Vital • ${name}`;
+  refs.content.innerHTML = renderPieceVitalPanelHTML(piece, { isMine });
+  refs.backdrop.style.display = "";
+  mountPieceVitalPanel(refs.content, piece, { isMine });
   await mountInspectorConditionsPanel(refs.content, piece, { isMine });
 }
 
@@ -10040,6 +10596,20 @@ function selectPiece(pieceId) {
   renderArenaHoverCard();
 }
 
+function previewPieceWithoutMovement(pieceOrId, { refresh = true } = {}) {
+  const id = safeStr(typeof pieceOrId === "string" ? pieceOrId : pieceOrId?.id);
+  if (!id) return;
+  appState.selectedPieceId = null;
+  appState.lastInteractedPieceId = id;
+  if (pieceIdInput) pieceIdInput.value = "";
+  if (selBadge) selBadge.textContent = "seleÃ§Ã£o: â€”";
+  setArenaHoverPiece(id, { persist: true });
+  try { updateSidePanels(); } catch (e) {
+    try { console.warn("[pvp] updateSidePanels falhou:", e); } catch {}
+  }
+  if (refresh) requestArenaRefresh(true);
+}
+
 async function sendMoveSelected(toRow, toCol) {
   updateMovementTurnState();
   const pieceId = safeStr(appState.selectedPieceId);
@@ -10124,7 +10694,7 @@ function getPlacingPokemonPid() {
 }
 
 function getPlacingPokemonPartySlot() {
-  if (armedPokemonSlot) return _normalizePartySlot(armedPokemonSlot);
+  if (armedPokemonSlot) return _normalizePartySlot(armedPokemonSlot, null, { numericAsSlot: true });
   if (appState.placing && appState.placing.mode === "pokemon") return _getPartySlot(appState.placing);
   return "";
 }
@@ -10140,7 +10710,7 @@ function clearPokemonPlacingMode() {
 
 function startPlacePokemon(pidLike, options = {}) {
   const monPid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
-  const partySlot = _normalizePartySlot(options?.party_slot ?? options?.partySlot) || _getPartySlot(pidLike);
+  const partySlot = _normalizePartySlot(options?.party_slot ?? options?.partySlot, null, { numericAsSlot: true }) || _getPartySlot(pidLike);
   const entryId = _getEntryId(pidLike);
   const identity = { pid: monPid, party_slot: partySlot || "", entry_id: entryId || "" };
   if (!monPid) return;
@@ -10152,10 +10722,6 @@ function startPlacePokemon(pidLike, options = {}) {
   }
   if (!safeStr(appState.by)) {
     setStatus("err", "preencha o campo by para colocar pokémon");
-    return;
-  }
-  if (isPokemonKo(appState.by, identity)) {
-    setStatus("err", "pokémon com HP 0 não pode ser posicionado");
     return;
   }
   if (isPokemonAlreadyOnBoard(appState.by, identity)) {
@@ -10183,13 +10749,6 @@ async function placePokemonOnBoardAt(pidLike, row, col) {
 
   if (!isFootprintWithinGrid(r, c, sizeCategory, gs)) {
     setStatus("err", "tile inválido ou pokémon não cabe na borda da arena");
-    return;
-  }
-  if (isPokemonKo(by, identity)) {
-    setStatus("err", "pokémon com HP 0 não pode ser posicionado");
-    clearPokemonPlacingMode();
-    updateSidePanels();
-    try { renderSheetsTab(); } catch {}
     return;
   }
   if (isPokemonAlreadyOnBoard(by, identity)) {
@@ -10327,6 +10886,24 @@ function getStateDocRef() {
 function isPieceMine(p) {
   const by = safeStr(appState.by).toLowerCase();
   return !!by && safeStr(p?.owner).toLowerCase() === by;
+}
+
+function getArenaAttackTargetModeState() {
+  const mode = window.__arenaAttackTargetMode || null;
+  if (!mode || !mode.active) return null;
+  return mode;
+}
+
+function isArenaAttackTargetCandidate(piece, mode = getArenaAttackTargetModeState()) {
+  if (!mode || !piece) return false;
+  if (safeStr(piece?.status || "active") !== "active") return false;
+  if (safeStr(piece?.id) && safeStr(piece?.id) === safeStr(mode.attackerPieceId)) return false;
+  if (isPieceMine(piece)) return false;
+  if (isTrainerPiece(piece)) return false;
+  try {
+    if (!isPieceVisibleToMe(piece)) return false;
+  } catch {}
+  return true;
 }
 
 function canCurrentPlayerMovePiece(pieceId) {
@@ -10595,6 +11172,324 @@ function hidePieceContextMenu() {
   pieceMenuState.clientY = 0;
 }
 
+let _pieceRadialEl = null;
+
+const RADIAL_ACTION_ICON_PATHS = Object.freeze({
+  attack: "./assets/ui/radial/radial-attack.svg",
+  move: "./assets/ui/radial/radial-move.svg",
+  vital: "./assets/ui/radial/radial-vital.svg",
+  form: "./assets/ui/radial/radial-form.svg",
+});
+
+function _pieceRadialIcon(kind) {
+  const cls = safeStr(kind);
+  const src = RADIAL_ACTION_ICON_PATHS[cls];
+  if (!src) return "";
+  return `<span class="pr-icon-shell pr-icon-${escapeAttr(cls)}" aria-hidden="true"><span class="pr-icon-grid"></span><img class="pr-icon-img" src="${escapeAttr(src)}" alt="" loading="eager" decoding="async"><span class="pr-icon-spark"></span></span>`;
+}
+
+function _renderSheetMoveSummary(moveBudget) {
+  const speed = Number.isFinite(Number(moveBudget?.speed)) ? Number(moveBudget.speed) : 0;
+  const tilesRaw = Number(moveBudget?.maxTiles || 0);
+  const tiles = tilesRaw % 1 ? "1/2" : safeStr(tilesRaw || 0);
+  return `
+    <div class="sheet-move-summary">
+      <div class="sheet-move-metric sheet-speed">
+        <span class="sheet-move-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 14a8 8 0 1 1 16 0"/><path d="M12 14l4-5"/><path d="M7 17h10"/></svg></span>
+        <span class="sheet-move-copy"><span>Velocidade</span><strong>${escapeHtml(speed)}</strong></span>
+      </div>
+      <div class="sheet-move-metric sheet-tiles">
+        <span class="sheet-move-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h16v12H4z"/><path d="M8 4v4"/><path d="M16 4v4"/><path d="M8 14h8"/><path d="M13 11l3 3-3 3"/></svg></span>
+        <span class="sheet-move-copy"><span>Deslocamento</span><strong>${escapeHtml(tiles)} quad.</strong></span>
+      </div>
+    </div>
+  `;
+}
+
+function _ensurePieceRadialMenu() {
+  if (!_pieceRadialEl) {
+    _pieceRadialEl = document.createElement("div");
+    _pieceRadialEl.id = "piece_radial_menu";
+    _pieceRadialEl.style.display = "none";
+    canvasWrap?.appendChild(_pieceRadialEl);
+    _pieceRadialEl.addEventListener("click", async (ev) => {
+      const btn = ev.target?.closest?.("[data-radial-act]");
+      if (!btn) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const act = safeStr(btn.dataset.radialAct);
+      const pieceId = pieceRadialState.pieceId;
+      const clientX = pieceRadialState.clientX;
+      const clientY = pieceRadialState.clientY;
+      await handlePieceRadialAction(act, pieceId, clientX, clientY);
+    });
+  }
+  if (!document.getElementById("piece-radial-css")) {
+    const style = document.createElement("style");
+    style.id = "piece-radial-css";
+    style.textContent = `
+#piece_radial_menu {
+  position: absolute;
+  width: 202px;
+  height: 202px;
+  pointer-events: auto;
+  z-index: 74;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 22px 38px rgba(2,6,23,.52));
+}
+#piece_radial_menu .pr-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 76px;
+  height: 76px;
+  transform: translate(-50%, -50%);
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(94,234,212,.76);
+  background:
+    radial-gradient(circle at 50% 45%, rgba(94,234,212,.30), rgba(15,23,42,.72) 54%, rgba(2,6,23,.9)),
+    linear-gradient(135deg, rgba(14,165,233,.22), rgba(34,197,94,.14));
+  box-shadow: 0 0 0 1px rgba(94,234,212,.24), 0 0 28px rgba(45,212,191,.45);
+}
+#piece_radial_menu .pr-center img {
+  max-width: 68px;
+  max-height: 68px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 7px 12px rgba(0,0,0,.45));
+}
+#piece_radial_menu .pr-orbit {
+  position: absolute;
+  inset: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(94,234,212,.18);
+  background:
+    repeating-conic-gradient(from 20deg, rgba(94,234,212,.14) 0 8deg, transparent 8deg 22deg),
+    radial-gradient(circle, rgba(8,47,73,.20), rgba(2,6,23,.68) 68%, rgba(2,6,23,0));
+  box-shadow: inset 0 0 22px rgba(45,212,191,.10);
+}
+#piece_radial_menu .pr-action {
+  position: absolute;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  --pr-accent: #38bdf8;
+  --pr-accent-rgb: 56,189,248;
+  border: 1px solid rgba(var(--pr-accent-rgb),.42);
+  background:
+    radial-gradient(circle at 50% 28%, rgba(255,255,255,.08), transparent 48%),
+    linear-gradient(180deg, rgba(15,23,42,.98), rgba(8,13,24,.95));
+  color: rgba(226,232,240,.95);
+  display: grid;
+  grid-template-rows: 42px 14px;
+  place-items: center;
+  gap: 1px;
+  cursor: pointer;
+  isolation: isolate;
+  overflow: visible;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 10px 18px rgba(2,6,23,.42), 0 0 18px rgba(var(--pr-accent-rgb),.16);
+  transition: transform .14s ease, border-color .14s ease, background .14s ease, box-shadow .14s ease;
+}
+#piece_radial_menu .pr-action::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  background: conic-gradient(from 180deg, transparent 0 28%, rgba(var(--pr-accent-rgb),.74) 34%, transparent 43% 72%, rgba(255,255,255,.18) 79%, transparent 88%);
+  opacity: .72;
+  z-index: -1;
+}
+#piece_radial_menu .pr-action::after {
+  content: "";
+  position: absolute;
+  right: 9px;
+  top: 9px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--pr-accent);
+  box-shadow: 0 0 10px rgba(var(--pr-accent-rgb),.95);
+}
+#piece_radial_menu .pr-action:hover {
+  transform: translate(-50%, -50%) scale(1.08);
+  border-color: rgba(var(--pr-accent-rgb),.86);
+  background:
+    radial-gradient(circle at 50% 26%, rgba(var(--pr-accent-rgb),.18), transparent 48%),
+    linear-gradient(180deg, rgba(15,23,42,.98), rgba(8,18,32,.98));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 0 0 1px rgba(var(--pr-accent-rgb),.26), 0 0 28px rgba(var(--pr-accent-rgb),.42);
+}
+#piece_radial_menu .pr-icon-shell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 15px;
+  border: 1px solid rgba(var(--pr-accent-rgb),.38);
+  background:
+    radial-gradient(circle at 35% 24%, rgba(255,255,255,.16), transparent 34%),
+    linear-gradient(145deg, rgba(var(--pr-accent-rgb),.22), rgba(15,23,42,.82) 62%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.04), 0 0 16px rgba(var(--pr-accent-rgb),.22);
+}
+#piece_radial_menu .pr-icon-grid {
+  position: absolute;
+  inset: 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--pr-accent-rgb),.18);
+  background:
+    linear-gradient(90deg, transparent 47%, rgba(var(--pr-accent-rgb),.14) 48% 52%, transparent 53%),
+    linear-gradient(0deg, transparent 47%, rgba(var(--pr-accent-rgb),.14) 48% 52%, transparent 53%);
+}
+#piece_radial_menu .pr-icon-img {
+  position: relative;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  display: block;
+  filter:
+    saturate(1.16)
+    contrast(1.12)
+    drop-shadow(0 0 8px rgba(var(--pr-accent-rgb),.34))
+    drop-shadow(0 2px 4px rgba(2,6,23,.66));
+}
+#piece_radial_menu .pr-icon-spark {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.92);
+  box-shadow: 0 0 8px rgba(var(--pr-accent-rgb),.88);
+}
+#piece_radial_menu .pr-action[data-radial-act="attack"] { --pr-accent:#f87171; --pr-accent-rgb:248,113,113; color: #ffe4e6; }
+#piece_radial_menu .pr-action[data-radial-act="move"] { --pr-accent:#38bdf8; --pr-accent-rgb:56,189,248; color: #dff7ff; }
+#piece_radial_menu .pr-action[data-radial-act="vital"] { --pr-accent:#fb7185; --pr-accent-rgb:251,113,133; color: #ffe4ea; }
+#piece_radial_menu .pr-action[data-radial-act="form"] { --pr-accent:#facc15; --pr-accent-rgb:250,204,21; color: #fff7c2; }
+#piece_radial_menu .pr-label {
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-shadow: 0 1px 3px rgba(2,6,23,.92), 0 0 8px rgba(var(--pr-accent-rgb),.34);
+}
+#piece_radial_menu .pr-attack { left: 50%; top: 5%; transform: translate(-50%, -50%); }
+#piece_radial_menu .pr-move { left: 94%; top: 50%; transform: translate(-50%, -50%); }
+#piece_radial_menu .pr-vital { left: 6%; top: 50%; transform: translate(-50%, -50%); }
+#piece_radial_menu .pr-form { left: 50%; top: 95%; transform: translate(-50%, -50%); }
+`;
+    document.head.appendChild(style);
+  }
+  return _pieceRadialEl;
+}
+
+function _pieceRadialFallbackClientPoint(piece, clientX, clientY) {
+  const cx = Number(clientX);
+  const cy = Number(clientY);
+  if (Number.isFinite(cx) && Number.isFinite(cy)) return { clientX: cx, clientY: cy };
+  const id = safeStr(piece?.id);
+  const wrapRect = canvasWrap?.getBoundingClientRect?.();
+  const bounds = id ? (_pieceScreenBounds.get(id) || null) : null;
+  if (wrapRect && bounds) {
+    return {
+      clientX: wrapRect.left + bounds.left + bounds.width / 2,
+      clientY: wrapRect.top + bounds.top + bounds.height / 2,
+    };
+  }
+  if (wrapRect) {
+    return { clientX: wrapRect.left + wrapRect.width / 2, clientY: wrapRect.top + wrapRect.height / 2 };
+  }
+  return { clientX: 0, clientY: 0 };
+}
+
+function openPieceRadialMenu(piece, clientX, clientY) {
+  if (!piece || !canvasWrap || !isPieceMine(piece) || isTrainerPiece(piece)) return false;
+  const id = safeStr(piece?.id);
+  if (!id) return false;
+  const el = _ensurePieceRadialMenu();
+  hidePieceContextMenu();
+  hidePiecePickerMenu();
+  hidePieceFormPickerMenu();
+  if (safeStr(appState.selectedPieceId)) selectPiece(null);
+  setArenaHoverPiece(id, { persist: true });
+
+  const pt = _pieceRadialFallbackClientPoint(piece, clientX, clientY);
+  pieceRadialState.pieceId = id;
+  pieceRadialState.clientX = pt.clientX;
+  pieceRadialState.clientY = pt.clientY;
+
+  const owner = safeStr(piece?.owner);
+  const sprite = getEffectiveSpriteUrlForTrainerPid(owner, piece, { type: "battle" }) || getSpriteUrlFromPid(piece?.pid);
+  const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine: true });
+  el.innerHTML = `
+    <div class="pr-orbit" aria-hidden="true"></div>
+    <div class="pr-center" title="${escapeAttr(name)}">
+      ${sprite ? `<img src="${escapeAttr(sprite)}" alt="${escapeAttr(name)}" loading="lazy" onerror="this.style.display='none'">` : ""}
+    </div>
+    <button type="button" class="pr-action pr-attack" data-radial-act="attack" title="Atacar">${_pieceRadialIcon("attack")}<span class="pr-label">Atacar</span></button>
+    <button type="button" class="pr-action pr-move" data-radial-act="move" title="Mover">${_pieceRadialIcon("move")}<span class="pr-label">Mover</span></button>
+    <button type="button" class="pr-action pr-vital" data-radial-act="vital" title="HP e condições">${_pieceRadialIcon("vital")}<span class="pr-label">Vital</span></button>
+    <button type="button" class="pr-action pr-form" data-radial-act="form" title="Trocar forma">${_pieceRadialIcon("form")}<span class="pr-label">Forma</span></button>
+  `;
+  const wrapRect = canvasWrap.getBoundingClientRect();
+  const localX = Math.max(96, Math.min(wrapRect.width - 96, pt.clientX - wrapRect.left));
+  const localY = Math.max(96, Math.min(wrapRect.height - 96, pt.clientY - wrapRect.top));
+  el.style.left = `${localX}px`;
+  el.style.top = `${localY}px`;
+  el.style.display = "block";
+  return true;
+}
+
+function hidePieceRadialMenu() {
+  if (_pieceRadialEl) _pieceRadialEl.style.display = "none";
+  pieceRadialState.pieceId = null;
+  pieceRadialState.clientX = 0;
+  pieceRadialState.clientY = 0;
+}
+
+async function handlePieceRadialAction(action, pieceId, clientX, clientY) {
+  const id = safeStr(pieceId);
+  const piece = (appState.pieces || []).find((entry) => safeStr(entry?.id) === id) || null;
+  if (!piece || !isPieceMine(piece)) {
+    hidePieceRadialMenu();
+    return;
+  }
+  if (action === "attack") {
+    hidePieceRadialMenu();
+    const ui = window._arenaCombatUI;
+    if (ui && typeof ui.openAttackFlowForAttacker === "function") {
+      await ui.openAttackFlowForAttacker(id, clientX, clientY);
+    } else {
+      setStatus("warn", "interface de combate ainda carregando");
+    }
+    return;
+  }
+  if (action === "move") {
+    hidePieceRadialMenu();
+    selectPiece(id);
+    setStatus("ok", isPieceFreeMovementEnabled(id)
+      ? "deslocamento livre ativo: clique no destino"
+      : "Mover: clique no tile de destino na arena");
+    requestArenaRefresh(true);
+    return;
+  }
+  if (action === "vital") {
+    hidePieceRadialMenu();
+    selectPiece(id);
+    updateSidePanels();
+    await openPieceVitalModal(piece);
+    return;
+  }
+  if (action === "form") {
+    hidePieceRadialMenu();
+    openPieceFormPickerMenu(piece, clientX, clientY);
+  }
+}
+
 function _getPieceFormPickerState(piece) {
   if (!piece || isTrainerPiece(piece)) {
     return { canShow: false, options: [], currentFormSlug: "", partySlot: "", speciesSlug: "" };
@@ -10787,14 +11682,21 @@ openPieceContextMenu = function(piece, x, y) {
   if (!pieceContextMenu || !piece || !canvasWrap) return;
   const id = safeStr(piece?.id);
   if (!id) return;
+  const isMine = isPieceMine(piece);
+  if (!isMine || isTrainerPiece(piece)) {
+    hidePieceContextMenu();
+    hidePieceRadialMenu();
+    hidePiecePickerMenu();
+    return;
+  }
   pieceMenuState.pieceId = id;
   pieceMenuState.clientX = x;
   pieceMenuState.clientY = y;
+  hidePieceRadialMenu();
   hidePieceFormPickerMenu();
   selectPiece(id);
   setArenaHoverPiece(id, { persist: true });
 
-  const isMine = isPieceMine(piece);
   const revealed = (piece?.revealed != null) ? !!piece.revealed : true;
   const ownerLabel = humanizeInternalLabel(safeStr(piece?.owner)) || safeStr(piece?.owner) || "—";
   const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
@@ -10882,8 +11784,12 @@ function _ensurePickerEl() {
     hidePiecePickerMenu();
     const piece = (appState.pieces || []).find(p => safeStr(p?.id) === pickedId);
     if (!piece) return;
-    if (afterPick === "context" && isPieceMine(piece)) {
-      openPieceContextMenu(piece, cx, cy);
+    if (afterPick === "context") {
+      if (isPieceMine(piece) && !isTrainerPiece(piece)) openPieceRadialMenu(piece, cx, cy);
+      else {
+        hidePieceRadialMenu();
+        hidePieceContextMenu();
+      }
     } else {
       selectPiece(pickedId);
     }
@@ -10941,7 +11847,11 @@ function armArenaLongPress(piece, clientX, clientY) {
   arenaLongPress.timer = window.setTimeout(() => {
     arenaLongPress.timer = null;
     arenaLongPress.suppressUntil = Date.now() + 280;
-    openPieceContextMenu(piece, clientX, clientY);
+    if (isPieceMine(piece) && !isTrainerPiece(piece)) openPieceRadialMenu(piece, clientX, clientY);
+    else {
+      hidePieceRadialMenu();
+      hidePieceContextMenu();
+    }
   }, 430);
 }
 
@@ -10981,7 +11891,7 @@ async function handlePieceMenuAction(action, pieceId) {
     return;
   }
   if (action === "conditions") {
-    await openPieceConditionsModal(piece);
+    await openPieceVitalModal(piece);
     return;
   }
   if (action === "toggle") {
@@ -10998,11 +11908,17 @@ function openPieceContextMenu(piece, x, y) {
   if (!pieceContextMenu || !piece || !canvasWrap) return;
   const id = safeStr(piece?.id);
   if (!id) return;
+  const isMine = isPieceMine(piece);
+  if (!isMine || isTrainerPiece(piece)) {
+    hidePieceContextMenu();
+    hidePieceRadialMenu();
+    hidePiecePickerMenu();
+    return;
+  }
   pieceMenuState.pieceId = id;
   selectPiece(id);
   setArenaHoverPiece(id, { persist: true });
 
-  const isMine = isPieceMine(piece);
   const revealed = piece?.revealed != null ? !!piece.revealed : true;
   const ownerLabel = humanizeInternalLabel(safeStr(piece?.owner)) || safeStr(piece?.owner) || "—";
   const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
@@ -11093,7 +12009,11 @@ _ensurePickerEl = function() {
     const piece = (appState.pieces || []).find((p) => safeStr(p?.id) === pickedId);
     if (!piece) return;
     if (afterPick === "context") {
-      openPieceContextMenu(piece, cx, cy);
+      if (isPieceMine(piece) && !isTrainerPiece(piece)) openPieceRadialMenu(piece, cx, cy);
+      else {
+        hidePieceRadialMenu();
+        hidePieceContextMenu();
+      }
     } else {
       selectPiece(pickedId);
     }
@@ -11157,7 +12077,7 @@ handlePieceMenuAction = async function(action, pieceId) {
     return;
   }
   if (action === "conditions") {
-    await openPieceConditionsModal(piece);
+    await openPieceVitalModal(piece);
     return;
   }
   if (action === "toggle") {
@@ -11190,7 +12110,11 @@ pieceContextMenu?.addEventListener("click", async (ev) => {
 });
 
 document.addEventListener("click", (ev) => {
+  if (Date.now() < Number(appState.drag?.suppressClickUntil || 0)) return;
   // Fecha picker se clicar fora
+  if (_pieceRadialEl && _pieceRadialEl.style.display === "block" && !ev.target?.closest?.("#piece_radial_menu")) {
+    hidePieceRadialMenu();
+  }
   if (_pickerEl && _pickerEl.style.display === "flex" && !ev.target?.closest?.("#piece_picker_menu")) {
     hidePiecePickerMenu();
   }
@@ -11212,6 +12136,7 @@ document.addEventListener("click", (ev) => {
 document.addEventListener("keydown", (ev) => {
   if (ev.key !== "Escape") return;
   // 1) fecha menus
+  hidePieceRadialMenu();
   hidePieceContextMenu();
   hidePiecePickerMenu();
   setArenaLeftOverlayOpen(false);
@@ -11219,8 +12144,9 @@ document.addEventListener("keydown", (ev) => {
   if (pieceActionModalRefs) pieceActionModalRefs.close();
 
   // 2) cancela movimento por clique/arrasto
-  if (appState.drag.active || appState.selectedPieceId) {
+  if (appState.drag.active || appState.drag.pending || appState.selectedPieceId) {
     appState.drag.active = false;
+    appState.drag.pending = false;
     appState.drag.justDropped = false;
     appState.drag.pieceId = null;
     appState.drag.startRow = null;
@@ -11268,6 +12194,17 @@ function bindArenaInteractionsCanvas() {
       hoverBadge.textContent = `tile: —`;
     }
     setArenaHoverPiece(tile ? getCanvasPieceHitAtPoint(x, y) : null);
+    if (appState.drag.pending) {
+      const dx = x - Number(appState.drag.startX || 0);
+      const dy = y - Number(appState.drag.startY || 0);
+      if (Math.hypot(dx, dy) >= PIECE_DRAG_THRESHOLD_PX) {
+        hidePieceRadialMenu();
+        appState.drag.pending = false;
+        appState.drag.active = true;
+        appState.drag.justDropped = false;
+        selectPiece(appState.drag.pieceId);
+      }
+    }
     if (appState.drag.active) {
       appState.drag.x = x;
       appState.drag.y = y;
@@ -11290,28 +12227,45 @@ function bindArenaInteractionsCanvas() {
     const y = ev.clientY - rect.top;
     const tile = screenToTile(x, y);
     if (!tile) return;
-    const p = getCanvasPieceHitAtPoint(x, y, { mineOnly: true }) || getPieceAt(tile.row, tile.col);
+    const p = getCanvasPieceHitAtPoint(x, y, { mineOnly: true });
     if (!p) return;
     if (!isPieceMine(p)) return;
     const id = safeStr(p.id);
-    selectPiece(id);
-    appState.drag.active = true;
+    previewPieceWithoutMovement(id, { refresh: false });
+    hidePieceRadialMenu();
+    appState.drag.pending = true;
+    appState.drag.active = false;
     appState.drag.justDropped = false;
     appState.drag.pieceId = id;
     appState.drag.startRow = tile.row;
     appState.drag.startCol = tile.col;
+    appState.drag.startX = x;
+    appState.drag.startY = y;
+    appState.drag.clientX = ev.clientX;
+    appState.drag.clientY = ev.clientY;
     appState.drag.x = x;
     appState.drag.y = y;
   });
 
   window.addEventListener("mouseup", (ev) => {
+    if (ev.button !== 0) return;
     if (isMapEditorActive()) {
       appState.drag.active = false;
+      appState.drag.pending = false;
       appState.drag.justDropped = false;
+      return;
+    }
+    if (appState.drag.pending && !appState.drag.active) {
+      const pieceId = safeStr(appState.drag.pieceId);
+      appState.drag.pending = false;
+      appState.drag.pieceId = null;
+      appState.drag.startRow = null;
+      appState.drag.startCol = null;
       return;
     }
     if (!appState.drag.active) return;
     appState.drag.active = false;
+    appState.drag.pending = false;
     appState.drag.justDropped = true;
     const rect = canvas.getBoundingClientRect();
     const x = ev.clientX - rect.left;
@@ -11322,10 +12276,21 @@ function bindArenaInteractionsCanvas() {
   });
 
   canvas.addEventListener("click", (ev) => {
+    if (ev.button !== 0) {
+      ev.preventDefault?.();
+      ev.stopPropagation?.();
+      return;
+    }
+    if (Date.now() < Number(appState.drag?.suppressClickUntil || 0)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
     if (Date.now() < arenaLongPress.suppressUntil) {
       arenaLongPress.suppressUntil = 0;
       return;
     }
+    hidePieceRadialMenu();
     hidePieceContextMenu();
     hidePiecePickerMenu();
     // Se acabou de soltar um drag, ignore o click que vem logo depois
@@ -11353,7 +12318,8 @@ function bindArenaInteractionsCanvas() {
 
     const clickedPiece = getCanvasPieceHitAtPoint(x, y);
     if (clickedPiece) {
-      selectPiece(clickedPiece.id);
+      if (isPieceMine(clickedPiece) && !isTrainerPiece(clickedPiece)) previewPieceWithoutMovement(clickedPiece);
+      else selectPiece(clickedPiece.id);
       return;
     }
 
@@ -11364,7 +12330,8 @@ function bindArenaInteractionsCanvas() {
       return;
     }
     if (candidates.length === 1) {
-      selectPiece(candidates[0].id);
+      if (isPieceMine(candidates[0]) && !isTrainerPiece(candidates[0])) previewPieceWithoutMovement(candidates[0]);
+      else selectPiece(candidates[0].id);
       return;
     }
     openPiecePickerMenu(candidates, ev.clientX, ev.clientY);
@@ -11376,21 +12343,27 @@ function bindArenaInteractionsCanvas() {
     const y = ev.clientY - rect.top;
     const tile = screenToTile(x, y);
     if (!tile) return;
+    ev.preventDefault();
     if (isMapEditorActive()) {
-      ev.preventDefault();
       return;
     }
     const clickedPiece = getCanvasPieceHitAtPoint(x, y);
     if (clickedPiece) {
       ev.preventDefault();
-      openPieceContextMenu(clickedPiece, ev.clientX, ev.clientY);
+      if (isPieceMine(clickedPiece) && !isTrainerPiece(clickedPiece)) {
+        openPieceRadialMenu(clickedPiece, ev.clientX, ev.clientY);
+      } else {
+        hidePieceRadialMenu();
+        hidePieceContextMenu();
+        hidePiecePickerMenu();
+      }
       return;
     }
-    const candidates = getPiecesAt(tile.row, tile.col).filter((p) => isPieceVisibleToMe(p));
+    const candidates = getPiecesAt(tile.row, tile.col)
+      .filter((p) => isPieceVisibleToMe(p) && isPieceMine(p) && !isTrainerPiece(p));
     if (candidates.length === 0) return;
-    ev.preventDefault();
     if (candidates.length === 1) {
-      openPieceContextMenu(candidates[0], ev.clientX, ev.clientY);
+      openPieceRadialMenu(candidates[0], ev.clientX, ev.clientY);
       return;
     }
     // Múltiplas peças próprias: picker primeiro, depois context menu
@@ -11432,10 +12405,16 @@ function bindArenaInteractionsDom() {
   });
 
   arenaDom.addEventListener("click", (ev) => {
+    if (ev.button !== 0) {
+      ev.preventDefault?.();
+      ev.stopPropagation?.();
+      return;
+    }
     if (Date.now() < arenaLongPress.suppressUntil) {
       arenaLongPress.suppressUntil = 0;
       return;
     }
+    hidePieceRadialMenu();
     hidePieceContextMenu();
     hidePiecePickerMenu();
     const cell = ev.target?.closest?.(".cell");
@@ -11458,7 +12437,8 @@ function bindArenaInteractionsDom() {
 
     const clickedPiece = getDomClickedPiece(ev);
     if (clickedPiece) {
-      selectPiece(clickedPiece.id);
+      if (isPieceMine(clickedPiece) && !isTrainerPiece(clickedPiece)) previewPieceWithoutMovement(clickedPiece);
+      else selectPiece(clickedPiece.id);
       requestArenaRefresh(true);
       return;
     }
@@ -11469,7 +12449,8 @@ function bindArenaInteractionsDom() {
       return;
     }
     if (candidates.length === 1) {
-      selectPiece(candidates[0].id);
+      if (isPieceMine(candidates[0]) && !isTrainerPiece(candidates[0])) previewPieceWithoutMovement(candidates[0]);
+      else selectPiece(candidates[0].id);
       requestArenaRefresh(true);
       return;
     }
@@ -11481,21 +12462,27 @@ function bindArenaInteractionsDom() {
     if (!cell) return;
     const row = Number(cell.dataset.row);
     const col = Number(cell.dataset.col);
+    ev.preventDefault();
     if (isMapEditorActive()) {
-      ev.preventDefault();
       return;
     }
     const clickedPiece = getDomClickedPiece(ev);
     if (clickedPiece) {
       ev.preventDefault();
-      openPieceContextMenu(clickedPiece, ev.clientX, ev.clientY);
+      if (isPieceMine(clickedPiece) && !isTrainerPiece(clickedPiece)) {
+        openPieceRadialMenu(clickedPiece, ev.clientX, ev.clientY);
+      } else {
+        hidePieceRadialMenu();
+        hidePieceContextMenu();
+        hidePiecePickerMenu();
+      }
       return;
     }
-    const candidates = getPiecesAt(row, col).filter((p) => isPieceVisibleToMe(p));
+    const candidates = getPiecesAt(row, col)
+      .filter((p) => isPieceVisibleToMe(p) && isPieceMine(p) && !isTrainerPiece(p));
     if (candidates.length === 0) return;
-    ev.preventDefault();
     if (candidates.length === 1) {
-      openPieceContextMenu(candidates[0], ev.clientX, ev.clientY);
+      openPieceRadialMenu(candidates[0], ev.clientX, ev.clientY);
       return;
     }
     openPiecePickerMenu(candidates, ev.clientX, ev.clientY, { afterPick: "context" });
@@ -11622,6 +12609,8 @@ function renderArenaDom() {
     cell.classList.remove("place-ok");
     cell.classList.remove("move-ok");
     cell.classList.remove("move-no");
+    cell.classList.remove("attack-targetable");
+    cell.classList.remove("attack-target-hover");
     // remove todos os tokens (stacking pode ter múltiplos)
     cell.querySelectorAll(":scope > .token").forEach(t => t.remove());
   }
@@ -11645,6 +12634,8 @@ function renderArenaDom() {
 
   updateMovementTurnState();
   const activePieces = (appState.pieces || []).filter((piece) => safeStr(piece?.status || "active") === "active");
+  const attackTargetMode = getArenaAttackTargetModeState();
+  const hoveredPieceId = safeStr(appState.hoveredPieceId || "");
   updatePieceFieldFx(activePieces, frameNow);
   const selPiece = (appState.pieces || []).find((p) => safeStr(p?.id) === safeStr(appState.selectedPieceId)) || null;
   if (!placingPid && selPiece && canCurrentPlayerMovePiece(selPiece.id)) {
@@ -11655,7 +12646,6 @@ function renderArenaDom() {
         const cell = domCells[r * gs + c];
         if (!cell) continue;
         if (reach.has(`${r}:${c}`)) cell.classList.add("move-ok");
-        else cell.classList.add("move-no");
       }
     }
   }
@@ -11726,6 +12716,16 @@ function renderArenaDom() {
     }, frameNow);
     const tokenHpValue = safeStr(p?.kind) !== "trainer" ? getPartyHp(safeStr(p?.owner), p) : 6;
     if (tokenHpValue <= 0) token.classList.add("hp-ko");
+    const isAttackTarget = isArenaAttackTargetCandidate(p, attackTargetMode);
+    const isAttackTargetHover = isAttackTarget && hoveredPieceId && hoveredPieceId === safeStr(p?.id);
+    if (isAttackTarget) {
+      token.classList.add("attack-targetable");
+      cell.classList.add("attack-targetable");
+    }
+    if (isAttackTargetHover) {
+      token.classList.add("attack-target-hover");
+      cell.classList.add("attack-target-hover");
+    }
 
     if (spriteUrl) {
       const img = document.createElement("img");
@@ -13787,19 +14787,6 @@ function draw() {
           ctx.strokeStyle = "rgba(20, 184, 166, 0.52)";
           ctx.lineWidth = 1.5;
           ctx.strokeRect(xh + 2, yh + 2, tile - 4, tile - 4);
-        } else {
-          // Fora de alcance: cinza-azulado com hatch discreto (evita o vermelho "erro")
-          ctx.fillStyle = "rgba(100, 116, 139, 0.16)";
-          ctx.fillRect(xh + 1, yh + 1, tile - 2, tile - 2);
-
-          ctx.strokeStyle = "rgba(148, 163, 184, 0.26)";
-          ctx.lineWidth = 1;
-          for (let i = -tile; i < tile; i += 8) {
-            ctx.beginPath();
-            ctx.moveTo(xh + i, yh + tile - 1);
-            ctx.lineTo(xh + i + tile, yh + 1);
-            ctx.stroke();
-          }
         }
       }
     }
@@ -13850,6 +14837,8 @@ drawTraps(ctx, ox, oy, tile);
   const _myColor = { border: "rgba(34,197,94,0.65)", fill: "rgba(34,197,94,0.08)", glow: "rgba(34,197,94,0.20)" };
   const _selColor = { border: "rgba(56,189,248,0.85)", fill: "rgba(56,189,248,0.18)", glow: "rgba(56,189,248,0.35)" };
   const _defaultColor = { border: "rgba(148,163,184,0.22)", fill: "rgba(0,0,0,0.18)", glow: "transparent" };
+  const attackTargetMode = getArenaAttackTargetModeState();
+  const hoveredPieceId = safeStr(appState.hoveredPieceId);
 
   // Map unique opponent names to colors (stable ordering)
   const oppOwners = [...new Set(activePieces
@@ -13915,6 +14904,8 @@ drawTraps(ctx, ox, oy, tile);
     const owner = safeStr(p?.owner);
     const isSel = safeStr(appState.selectedPieceId) && safeStr(appState.selectedPieceId) === id;
     const isMine = _by && owner === _by;
+    const isAttackTarget = isArenaAttackTargetCandidate(p, attackTargetMode);
+    const isAttackTargetHover = isAttackTarget && hoveredPieceId && hoveredPieceId === id;
     const megaFx = getMegaEvolutionFxState(owner, p?.pid);
     const pieceHpValue = safeStr(p?.kind) !== "trainer" ? getPartyHp(owner, p) : 6;
 
@@ -14025,6 +15016,8 @@ drawTraps(ctx, ox, oy, tile);
       syncPieceEnteringClass(entry.el, id, frameNow);
       entry.el.classList.toggle("mega-evolving", !!megaFx);
       entry.el.classList.toggle("hp-ko", pieceHpValue <= 0);
+      entry.el.classList.toggle("attack-targetable", !!isAttackTarget);
+      entry.el.classList.toggle("attack-target-hover", !!isAttackTargetHover);
     } else {
       // fallback glyph
       ctx.fillStyle = "rgba(226,232,240,0.85)";
@@ -14061,6 +15054,34 @@ drawTraps(ctx, ox, oy, tile);
       ctx.strokeStyle = _selColor.border;
       ctx.lineWidth = 2;
       ctx.strokeRect(x + 1, y + 1, tile * tileW - 2, tile * tileH - 2);
+      ctx.restore();
+    }
+
+    if (isAttackTarget) {
+      ctx.save();
+      const inset = isAttackTargetHover ? 3 : 5;
+      const rx = x + inset;
+      const ry = y + inset;
+      const rw = tile * tileW - inset * 2;
+      const rh = tile * tileH - inset * 2;
+      ctx.strokeStyle = isAttackTargetHover ? "rgba(251,113,133,0.98)" : "rgba(248,113,113,0.58)";
+      ctx.lineWidth = isAttackTargetHover ? 4 : 2;
+      ctx.setLineDash(isAttackTargetHover ? [] : [7, 5]);
+      ctx.shadowColor = isAttackTargetHover ? "rgba(251,113,133,0.72)" : "rgba(248,113,113,0.32)";
+      ctx.shadowBlur = isAttackTargetHover ? 16 : 8;
+      ctx.strokeRect(rx, ry, rw, rh);
+      ctx.setLineDash([]);
+      if (isAttackTargetHover) {
+        const len = Math.min(tile * 0.24, 22);
+        ctx.strokeStyle = "rgba(255,255,255,0.92)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(rx, ry + len); ctx.lineTo(rx, ry); ctx.lineTo(rx + len, ry);
+        ctx.moveTo(rx + rw - len, ry); ctx.lineTo(rx + rw, ry); ctx.lineTo(rx + rw, ry + len);
+        ctx.moveTo(rx, ry + rh - len); ctx.lineTo(rx, ry + rh); ctx.lineTo(rx + len, ry + rh);
+        ctx.moveTo(rx + rw - len, ry + rh); ctx.lineTo(rx + rw, ry + rh); ctx.lineTo(rx + rw, ry + rh - len);
+        ctx.stroke();
+      }
       ctx.restore();
     }
 
@@ -15799,12 +16820,12 @@ function _moveAreaInfo(mv) {
   const areaTypeRaw = safeStr(meta.area_type || meta.areaType || "");
   const areaType = areaTypeRaw && areaTypeRaw !== "—" ? areaTypeRaw : "";
   const areaExtended = !!(meta.area_extended || meta.areaExtended);
-  const perceptionArea = !!meta.perception_area;
+  const perceptionArea = _moveMetaBool(meta.perception_area, false);
   const isArea = !!(
     perceptionArea
     || areaType
-    || meta.is_area
-    || meta.area
+    || _moveMetaBool(meta.is_area, false)
+    || _moveMetaBool(meta.area, false)
     || buildText.includes("[area:")
     || buildText.includes("perception area")
     || buildText.includes("área")
@@ -15812,6 +16833,14 @@ function _moveAreaInfo(mv) {
     || buildText.includes("aoe")
   );
   return { isArea, areaType, areaExtended, perceptionArea };
+}
+function _moveMetaBool(value, fallback = null) {
+  if (value === true || value === false) return value;
+  const raw = safeStr(value).toLowerCase();
+  if (!raw) return fallback;
+  if (["true", "1", "yes", "sim", "y"].includes(raw)) return true;
+  if (["false", "0", "no", "nao", "não", "n"].includes(raw)) return false;
+  return fallback;
 }
 function _formatMoveAreaLabel(areaInfo, { compact = false } = {}) {
   const info = areaInfo || {};
@@ -15824,7 +16853,7 @@ function _formatMoveAreaLabel(areaInfo, { compact = false } = {}) {
   if (!compact && info.perceptionArea && info.areaType) extras.push("Percepção");
   return extras.length ? `${baseLabel} ${extras.join(" • ")}` : baseLabel;
 }
-function _getMoveModeInfo(mv) {
+function _getMoveModeInfoLegacy(mv) {
   const meta = (mv && typeof mv === "object" && mv.meta && typeof mv.meta === "object") ? mv.meta : {};
   const acc = _moveRawAccuracy(mv);
   if (meta.affects_user) {
@@ -15857,6 +16886,108 @@ function _getMoveModeInfo(mv) {
     value: String(acc),
   };
 }
+function _getMoveTargetingInfo(mv, powerRule = null) {
+  const meta = (mv && typeof mv === "object" && mv.meta && typeof mv.meta === "object") ? mv.meta : {};
+  const targetingMode = safeStr(powerRule?.targeting?.mode || powerRule?.mode || "").toLowerCase();
+  if (_moveMetaBool(meta.affects_user, false) || targetingMode === "self" || targetingMode === "user") {
+    return {
+      kind: "self",
+      rangeStr: "self",
+      defense: "",
+      defenseKey: "",
+      label: "Afeta o Usu\u00e1rio",
+      compactLabel: "Usu\u00e1rio",
+      areaLabel: "Sem \u00e1rea",
+      defenseLabel: "",
+      pillClass: "self",
+      style: "background:rgba(192,132,252,.14);border:1px solid rgba(192,132,252,.38);color:#c084fc;",
+      value: "Afeta o Usu\u00e1rio",
+    };
+  }
+
+  const areaInfo = _moveAreaInfo(mv);
+  const ruleArea = targetingMode === "area" || !!powerRule?.area || !!powerRule?.targeting?.area;
+  if (areaInfo.isArea || ruleArea) {
+    const effectiveArea = areaInfo.isArea ? areaInfo : { isArea: true, areaType: "", areaExtended: false, perceptionArea: false };
+    const label = _formatMoveAreaLabel(effectiveArea);
+    return {
+      kind: "area",
+      rangeStr: "area",
+      defense: "Dodge",
+      defenseKey: "dodge",
+      label,
+      compactLabel: _formatMoveAreaLabel(effectiveArea, { compact: true }),
+      areaLabel: label,
+      defenseLabel: "Defesa: Dodge",
+      pillClass: "area",
+      style: "",
+      value: label,
+      areaInfo: effectiveArea,
+    };
+  }
+
+  const rangedMeta = _moveMetaBool(meta.ranged, null);
+  const distanceType = safeStr(
+    meta.distance_type
+    ?? meta.distanceType
+    ?? meta.target_distance
+    ?? meta.targetDistance
+    ?? meta.range_type
+    ?? meta.rangeType
+    ?? meta.range
+    ?? powerRule?.targeting?.range
+    ?? powerRule?.range
+    ?? "",
+  ).toLowerCase();
+  const meleeWords = ["melee", "corpo", "close", "adjacent", "adjacente", "touch", "contato"];
+  const rangedWords = ["ranged", "range", "distance", "distancia", "dist\u00e2ncia", "long", "projectile", "proj\u00e9til", "projectil"];
+  const isMelee = rangedMeta === false || meleeWords.some((word) => distanceType.includes(word));
+  const isRanged = rangedMeta === true || rangedWords.some((word) => distanceType.includes(word));
+  if (isMelee && !isRanged) {
+    return {
+      kind: "melee",
+      rangeStr: "melee",
+      defense: "Parry",
+      defenseKey: "parry",
+      label: "Corpo a corpo",
+      compactLabel: "Melee",
+      areaLabel: "Sem \u00e1rea",
+      defenseLabel: "Defesa: Parry",
+      pillClass: "melee",
+      style: "background:rgba(251,146,60,.14);border:1px solid rgba(251,146,60,.36);color:#fdba74;",
+      value: "melee",
+      distanceType: distanceType || "melee",
+    };
+  }
+  return {
+    kind: "ranged",
+    rangeStr: "distance",
+    defense: "Dodge",
+    defenseKey: "dodge",
+    label: "\u00c0 dist\u00e2ncia",
+    compactLabel: "Dist.",
+    areaLabel: "Sem \u00e1rea",
+    defenseLabel: "Defesa: Dodge",
+    pillClass: "ranged",
+    style: "background:rgba(14,165,233,.14);border:1px solid rgba(14,165,233,.36);color:#7dd3fc;",
+    value: "ranged",
+    distanceType: distanceType || "ranged",
+  };
+}
+
+function _getMoveModeInfo(mv, powerRule = null) {
+  const targetInfo = _getMoveTargetingInfo(mv, powerRule);
+  const acc = _moveRawAccuracy(mv);
+  if (targetInfo?.kind === "ranged") {
+    return {
+      ...targetInfo,
+      label: `${targetInfo.label} â€¢ Acerto ${acc}`,
+      compactLabel: `${targetInfo.compactLabel || targetInfo.label} â€¢ Ac ${acc}`,
+    };
+  }
+  return targetInfo || _getMoveModeInfoLegacy(mv);
+}
+
 function _renderMoveModePill(mv, options = {}) {
   const info = _getMoveModeInfo(mv);
   const label = options.compact ? (info.compactLabel || info.label) : info.label;
@@ -16529,12 +17660,23 @@ window.renderHeldItemSummaryHtml = renderHeldItemSummaryHtml;
 window.getSheetMoveTempModifiers = getSheetMoveTempModifiers;
 window.getFavoriteMoveNamesForTrainerPid = _getFavoriteMoveNamesForTrainerPid;
 window.getPreferredMovesForTrainerPid = _getPreferredMovesForTrainerPid;
+window.getMoveTargetingInfo = _getMoveTargetingInfo;
 window.getMoveModeInfo = _getMoveModeInfo;
 window.selectPiece        = selectPiece;
 window.togglePieceRevealed = togglePieceRevealed;
 window.removePieceFromBoard = removePieceFromBoard;
 window.startPlacePokemon  = startPlacePokemon;
+window.clearPokemonPlacingMode = clearPokemonPlacingMode;
+window.getPlacingPokemonPid = getPlacingPokemonPid;
 window.getPlacingPokemonPartySlot = getPlacingPokemonPartySlot;
+window.getActivePieceIdForPokemon = getActivePieceIdForPokemon;
+window.isPieceMine = isPieceMine;
+window.normalizeCaptureBall = normalizeCaptureBall;
+window.getCaptureBallCssVarMap = getCaptureBallCssVarMap;
+window.applyCaptureBallThemeToElement = applyCaptureBallThemeToElement;
+window.renderCaptureBallBackdropHtml = renderCaptureBallBackdropHtml;
+window.getCaptureBallForTrainerPid = getCaptureBallForTrainerPid;
+window.setPvpStatus = setStatus;
 window.screenToTile       = screenToTile;
 window.getPieceAt         = getPieceAt;
 window.getPiecesAt        = getPiecesAt;

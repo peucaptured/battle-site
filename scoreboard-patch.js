@@ -74,12 +74,13 @@ function normalizePartyPid(pidLike) {
   return v;
 }
 
-function normalizePartySlot(slotLike, fallbackIndex = null) {
+function normalizePartySlot(slotLike, fallbackIndex = null, options = {}) {
   const raw = safeStr(slotLike);
+  const numericAsSlot = !!options?.numericAsSlot;
   if (raw) {
     const prefixed = raw.match(/^slot[_-]?(\d+)$/i);
     if (prefixed) return `slot_${Number(prefixed[1])}`;
-    if (/^\d+$/.test(raw)) return `slot_${Number(raw)}`;
+    if (numericAsSlot && /^\d+$/.test(raw)) return `slot_${Number(raw)}`;
   }
   if (fallbackIndex != null && Number.isFinite(Number(fallbackIndex)) && Number(fallbackIndex) >= 0) {
     return `slot_${Number(fallbackIndex)}`;
@@ -121,6 +122,117 @@ function escapeAttr(s) {
   return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function sameTrainerName(a, b) {
+  return safeStr(a).toLowerCase() === safeStr(b).toLowerCase();
+}
+
+function cssVarStyleAttr(rawVars) {
+  return Object.entries(rawVars || {})
+    .filter(([, value]) => value != null && String(value) !== "")
+    .map(([key, value]) => `${key}:${String(value)}`)
+    .join(";");
+}
+
+function getCaptureBallForSlot(trainerName, identity, partyEntry) {
+  try {
+    if (typeof window.getCaptureBallForTrainerPid === "function") {
+      return window.getCaptureBallForTrainerPid(trainerName, identity || partyEntry);
+    }
+  } catch {}
+  return partyEntry?.capture_ball
+    || partyEntry?.captureBall
+    || partyEntry?.poke_ball
+    || partyEntry?.pokeBall
+    || partyEntry?.pokeball
+    || partyEntry?.ball_used
+    || partyEntry?.ballUsed
+    || partyEntry?.used_ball
+    || partyEntry?.usedBall
+    || partyEntry?.ball_type
+    || partyEntry?.ballType
+    || partyEntry?.capture_item
+    || partyEntry?.captureItem
+    || partyEntry?.ball
+    || null;
+}
+
+function captureBallStyleAttr(captureBall) {
+  try {
+    if (typeof window.getCaptureBallCssVarMap === "function") {
+      return cssVarStyleAttr(window.getCaptureBallCssVarMap(captureBall));
+    }
+  } catch {}
+  return "";
+}
+
+function renderCaptureBallBackdrop(captureBall) {
+  try {
+    if (typeof window.renderCaptureBallBackdropHtml === "function") {
+      const html = window.renderCaptureBallBackdropHtml(captureBall);
+      if (html) return html;
+    }
+  } catch {}
+  return `<span class="slot-ball-mark" aria-hidden="true"><img src="${escapeAttr(POKE_BALL_URL)}" alt="" loading="lazy" /></span>`;
+}
+
+function getEntryId(entryLike) {
+  if (!entryLike || typeof entryLike !== "object") return "";
+  return safeStr(entryLike.entry_id ?? entryLike.entryId ?? entryLike.hub_entry_id ?? entryLike.hubEntryId ?? entryLike.id ?? "");
+}
+
+function getPartyEntryPid(entryLike) {
+  if (!entryLike) return "";
+  return normalizePartyPid(
+    entryLike?.pid
+    ?? entryLike?.pokemon?.id
+    ?? entryLike?.pokemon_id
+    ?? entryLike?.pokemonId
+    ?? entryLike?.species_id
+    ?? entryLike?.speciesId
+    ?? entryLike?.dex_id
+    ?? entryLike?.dexId
+    ?? entryLike?.pokemon
+    ?? entryLike?._party_pid_raw
+    ?? entryLike,
+  );
+}
+
+function getSlotIdentity(pid, partyEntry, idx) {
+  const explicitSlotRaw = partyEntry && typeof partyEntry === "object"
+    ? [partyEntry.party_slot, partyEntry.partySlot, partyEntry._party_slot, partyEntry.slot_key, partyEntry.slotKey, partyEntry.slot, partyEntry.index]
+        .find((value) => value != null && safeStr(value).trim())
+    : null;
+  const partySlot = normalizePartySlot(explicitSlotRaw, idx, { numericAsSlot: explicitSlotRaw != null });
+  const entryId = getEntryId(partyEntry);
+  const base = partyEntry && typeof partyEntry === "object" ? { ...partyEntry } : {};
+  return {
+    ...base,
+    pid,
+    party_slot: partySlot,
+    entry_id: entryId,
+  };
+}
+
+function getActivePieceForSlot(pieces, trainerName, identity) {
+  const partySlot = normalizePartySlot(identity?.party_slot, null, { numericAsSlot: true });
+  const entryId = getEntryId(identity);
+  const pid = normalizePartyPid(identity);
+  return (pieces || []).find((piece) => {
+    if (!sameTrainerName(piece?.owner, trainerName)) return false;
+    if (safeStr(piece?.status || "active") !== "active") return false;
+    if (partySlot) {
+      if (normalizePartySlot(piece?.party_slot, null, { numericAsSlot: true }) !== partySlot) return false;
+      const pieceEntryId = getEntryId(piece);
+      if (entryId && pieceEntryId) return entryId === pieceEntryId;
+      const piecePid = normalizePartyPid(piece);
+      if (pid && piecePid && pid !== piecePid) return false;
+      return true;
+    }
+    if (entryId && getEntryId(piece) === entryId) return true;
+    return normalizePartyPid(piece) === pid;
+  }) || null;
+}
+
 // ── State tracking ──
 let _lastRid = null;
 let _partyStatesUnsub = null;
@@ -139,14 +251,14 @@ const sbRoot = document.getElementById("scoreboard");
 #scoreboard {
   display: none;
   width: 100%;
-  padding: 6px 14px;
+  padding: 4px 10px;
   margin-top: 0;
   background: rgba(2,6,23,.55);
   border-bottom: 1px solid rgba(148,163,184,.18);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   z-index: 50;
-  max-height: 20vh;
+  max-height: 15vh;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -164,21 +276,21 @@ const sbRoot = document.getElementById("scoreboard");
 .sb-bar {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-width: 1440px;
+  gap: 3px;
+  max-width: 1360px;
   margin: 0 auto;
 }
 .sb-bar.sb-bar-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px 8px;
+  gap: 4px 6px;
 }
 
 /* Single player row */
 .sb-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 4px 8px;
   border-radius: 10px;
   background: rgba(255,255,255,.03);
@@ -194,34 +306,34 @@ const sbRoot = document.getElementById("scoreboard");
 .sb-identity {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   flex: 0 0 auto;
-  min-width: 100px;
-  max-width: 160px;
+  min-width: 94px;
+  max-width: 132px;
 }
 .sb-avatar {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   border: 2px solid rgba(56,189,248,.45);
   background: rgba(15,23,42,.7);
   object-fit: cover;
-  flex: 0 0 32px;
+  flex: 0 0 28px;
   box-shadow: 0 0 8px rgba(56,189,248,.15);
 }
 .sb-avatar-placeholder {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   border: 2px solid rgba(56,189,248,.45);
   background: rgba(15,23,42,.7);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 900;
   color: rgba(56,189,248,.8);
-  flex: 0 0 32px;
+  flex: 0 0 28px;
   box-shadow: 0 0 8px rgba(56,189,248,.15);
 }
 .sb-row-me .sb-avatar,
@@ -257,12 +369,12 @@ const sbRoot = document.getElementById("scoreboard");
 .sb-lineup {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   flex: 1;
   min-width: 0;
   overflow-x: auto;
   overflow-y: visible;
-  padding: 10px 0 2px;
+  padding: 5px 0 2px;
   scrollbar-width: none;
 }
 .sb-lineup::-webkit-scrollbar { display: none; }
@@ -274,13 +386,14 @@ const sbRoot = document.getElementById("scoreboard");
   align-items: center;
   gap: 2px;
   flex: 0 0 auto;
-  min-width: 30px;
+  min-width: 40px;
   position: relative;
 }
 .sb-held-item {
   position: absolute;
-  left: -4px;
-  top: -8px;
+  left: -2px;
+  top: -6px;
+  z-index: 5;
 }
 .sb-poke-img {
   width: 28px;
@@ -320,7 +433,7 @@ const sbRoot = document.getElementById("scoreboard");
 }
 /* HP bar below sprite */
 .sb-poke-hp {
-  width: 24px;
+  width: 31px;
   height: 3px;
   border-radius: 2px;
   background: rgba(148,163,184,.18);
@@ -333,11 +446,136 @@ const sbRoot = document.getElementById("scoreboard");
 }
 /* Empty slot placeholder */
 .sb-poke-empty {
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   border: 1.5px dashed rgba(148,163,184,.15);
   background: rgba(15,23,42,.25);
+}
+.sb-poke-slot {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  --ball-top-a: rgba(239,68,68,.72);
+  --ball-top-b: rgba(153,27,27,.92);
+  --ball-bottom-a: rgba(248,250,252,.95);
+  --ball-bottom-b: rgba(203,213,225,.82);
+  --ball-band: rgba(15,23,42,.92);
+  --ball-core: rgba(241,245,249,.96);
+  --ball-core-ring: rgba(2,6,23,.88);
+  --ball-glow: rgba(248,113,113,.30);
+  --ball-accent: rgba(255,255,255,.72);
+  --ball-outline: rgba(15,23,42,.44);
+  border: 1px solid var(--ball-outline);
+  background:
+    radial-gradient(12px 12px at 50% 38%, rgba(255,255,255,.16), transparent 62%),
+    linear-gradient(180deg, var(--ball-top-a) 0 20%, var(--ball-top-b) 20% 50%, var(--ball-bottom-a) 50% 80%, var(--ball-bottom-b) 80% 100%);
+  box-shadow: inset 0 -6px 12px rgba(0,0,0,.24), 0 6px 11px rgba(2,6,23,.26);
+  display: block;
+  padding: 0;
+  overflow: visible;
+  flex: 0 0 38px;
+}
+button.sb-poke-slot {
+  appearance: none;
+  cursor: pointer;
+}
+button.sb-poke-slot:hover {
+  box-shadow: inset 0 -6px 12px rgba(0,0,0,.22), 0 0 0 2px rgba(56,189,248,.16), 0 0 14px rgba(56,189,248,.20);
+}
+.sb-poke-slot::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 7px;
+  transform: translateY(-50%);
+  z-index: 0;
+  background: var(--ball-band);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+}
+.sb-poke-slot::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 17px;
+  height: 17px;
+  transform: translate(-50%,-50%);
+  border-radius: 999px;
+  z-index: 1;
+  background:
+    radial-gradient(circle at 36% 30%, rgba(255,255,255,.96) 0 19%, transparent 23%),
+    radial-gradient(circle, var(--ball-core) 0 55%, rgba(226,232,240,.80) 72%, rgba(15,23,42,.52) 100%);
+  border: 2px solid var(--ball-core-ring);
+  box-shadow: 0 0 0 2px rgba(255,255,255,.08), 0 0 10px var(--ball-glow);
+}
+.sb-poke-slot .slot-ball-mark {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 0;
+  opacity: .12;
+  pointer-events: none;
+}
+.sb-poke-slot .slot-ball-mark img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 8px var(--ball-glow));
+}
+.sb-poke-sprite {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  object-fit: contain;
+  image-rendering: pixelated;
+  filter:
+    brightness(1.30)
+    contrast(1.30)
+    saturate(1.16)
+    drop-shadow(0 0 1px rgba(255,255,255,.78))
+    drop-shadow(0 0 2px rgba(2,6,23,.95))
+    drop-shadow(0 4px 6px rgba(2,6,23,.66));
+  z-index: 3;
+  pointer-events: none;
+}
+.sb-poke-slot.sb-hidden .sb-poke-sprite,
+.sb-poke-slot.sb-unrevealed .sb-poke-sprite {
+  display: none;
+}
+.sb-poke-slot.sb-ko {
+  filter: grayscale(1);
+  opacity: .58;
+}
+.sb-poke-slot.sb-onboard {
+  box-shadow: inset 0 -6px 12px rgba(0,0,0,.20), 0 0 0 2px rgba(34,197,94,.26), 0 0 10px rgba(34,197,94,.22);
+}
+.sb-poke-slot.sb-placing {
+  box-shadow: inset 0 -6px 12px rgba(0,0,0,.20), 0 0 0 2px rgba(251,191,36,.24), 0 0 14px rgba(251,191,36,.30);
+}
+.sb-poke-slot:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+.sb-poke.sb-poke-turn .sb-poke-slot {
+  box-shadow:
+    inset 0 -6px 12px rgba(0,0,0,.20),
+    0 0 0 2px rgba(251,191,36,.32),
+    0 0 13px rgba(251,191,36,.72),
+    0 0 22px rgba(56,189,248,.34);
+  animation: sbTurnHalo 1.4s ease-in-out infinite;
+}
+.sb-poke.sb-poke-turn .sb-poke-img {
+  animation: none;
 }
 
 /* Place trainer button */
@@ -393,8 +631,13 @@ const sbRoot = document.getElementById("scoreboard");
   .sb-identity { min-width: 70px; max-width: 100px; }
   .sb-avatar, .sb-avatar-placeholder { width: 24px; height: 24px; flex: 0 0 24px; font-size: 11px; }
   .sb-trainer-name { font-size: 10px; max-width: 60px; }
-  .sb-poke-img, .sb-poke-empty { width: 22px; height: 22px; }
-  .sb-poke-hp { width: 18px; height: 2px; }
+  .sb-lineup { gap: 5px; }
+  .sb-poke { min-width: 34px; }
+  .sb-poke-img, .sb-poke-empty { width: 30px; height: 30px; }
+  .sb-poke-slot { width: 34px; height: 34px; flex-basis: 34px; }
+  .sb-poke-slot .slot-ball-mark img { width: 34px; height: 34px; }
+  .sb-poke-sprite { width: 36px; height: 36px; }
+  .sb-poke-hp { width: 28px; height: 2px; }
   .sb-place-btn { font-size: 8px; padding: 1px 6px; }
 }
 `;
@@ -470,11 +713,14 @@ function buildPlayerList() {
     if (!tn || map.has(tn)) continue;
     map.set(tn, { trainer_name: tn, uid: "", avatar: null, party_snapshot: [] });
   }
+  if (by && !map.has(by)) {
+    map.set(by, { trainer_name: by, uid: safeStr(as.selfTrainerId || as.selfAuthUid || ""), avatar: null, party_snapshot: [] });
+  }
 
   const list = Array.from(map.values());
   list.sort((a, b) => {
-    if (safeStr(a.trainer_name) === by) return -1;
-    if (safeStr(b.trainer_name) === by) return 1;
+    if (sameTrainerName(a.trainer_name, by)) return -1;
+    if (sameTrainerName(b.trainer_name, by)) return 1;
     return a.trainer_name.localeCompare(b.trainer_name);
   });
   return list.slice(0, 4);
@@ -484,6 +730,8 @@ function buildPlayerList() {
 function buildSlots(player) {
   const tn = safeStr(player.trainer_name);
   const as = window.appState;
+  const by = safeStr(as?.by);
+  const isMe = sameTrainerName(tn, by);
   const pieces = Array.isArray(as?.pieces) ? as.pieces : [];
   const seenList = Array.isArray(as?.board?.seen) ? as.board.seen : [];
   const partyStates = (_partyStates && _partyStates[tn]) ? _partyStates[tn] : {};
@@ -496,30 +744,47 @@ function buildSlots(player) {
     party = Array.isArray(player.party_snapshot) ? player.party_snapshot : [];
   }
 
-  const pids = party.map(x => safeStr(x?.pid || x?.pokemon?.id || x)).filter(Boolean);
   const slots = [];
-  const count = Math.min(pids.length, 8);
   for (let i = 0; i < 8; i++) {
-    if (i < count) {
-      const pid = pids[i];
-      const partyEntry = party[i];
-      const partySlot = normalizePartySlot(partyEntry?.party_slot ?? partyEntry?._party_slot, i);
-      const identity = partySlot ? { ...(partyEntry && typeof partyEntry === "object" ? partyEntry : {}), pid, party_slot: partySlot } : (partyEntry || pid);
-      const ps = getPartyStateEntry(partyStates, pid);
-      const piece = pieces.find(p =>
-        safeStr(p?.owner) === tn
-        && safeStr(p?.status || "active") === "active"
-        && (partySlot ? normalizePartySlot(p?.party_slot) === partySlot : safeStr(p?.pid) === pid)
-      );
-      const wasSeen = seenList.some((seenPid) => normalizePartyPid(seenPid) === normalizePartyPid(pid));
-      const revealed = piece ? (!!piece.revealed || wasSeen) : wasSeen;
+    const partyEntry = party[i] || null;
+    const pid = getPartyEntryPid(partyEntry);
+    if (pid) {
+      const identity = getSlotIdentity(pid, partyEntry, i);
+      const partySlot = normalizePartySlot(identity.party_slot, null, { numericAsSlot: true });
+      const entryId = getEntryId(identity);
+      const psByIdentity = getPartyStateEntry(partyStates, identity);
+      const ps = Object.keys(psByIdentity || {}).length ? psByIdentity : getPartyStateEntry(partyStates, pid);
+      const piece = getActivePieceForSlot(pieces, tn, identity);
+      const wasSeen = seenList.some((seenPid) => {
+        const seenSlot = normalizePartySlot(seenPid?.party_slot ?? seenPid?.partySlot, null, { numericAsSlot: true });
+        if (seenSlot && partySlot && seenSlot === partySlot) return true;
+        return normalizePartyPid(seenPid) === normalizePartyPid(pid);
+      });
+      const revealed = isMe ? true : (piece ? (!!piece.revealed || wasSeen) : wasSeen);
+      const canShowIdentity = isMe || revealed;
       const hp = typeof window.getPartyHp === "function" ? Number(window.getPartyHp(tn, identity)) : null;
       const ko = hp != null && hp <= 0;
       const spriteUrl = getTrainerPidSpriteUrl(tn, identity, { type: "art", shiny: !!ps.shiny }) || getSpriteUrl(pid, { type: "art", shiny: !!ps.shiny });
       const heldItem = typeof window.getHeldItemForTrainerPid === "function"
         ? window.getHeldItemForTrainerPid(tn, partyEntry || pid)
         : null;
-      slots.push({ pid, partySlot, revealed, ko, hp, spriteUrl, heldItem, empty: false });
+      const captureBall = getCaptureBallForSlot(tn, identity, partyEntry);
+      slots.push({
+        pid,
+        partySlot,
+        entryId,
+        identity,
+        pieceId: safeStr(piece?.id),
+        onBoard: !!piece,
+        revealed,
+        canShowIdentity,
+        ko,
+        hp,
+        spriteUrl,
+        heldItem,
+        captureBall,
+        empty: false,
+      });
     } else {
       slots.push({ pid: null, revealed: false, ko: false, hp: null, spriteUrl: "", empty: true });
     }
@@ -652,13 +917,15 @@ function computeHash() {
   const parts = [
     safeStr(as.by),
     safeStr(as.rid),
-    JSON.stringify((as.players || []).map(p => safeStr(p?.trainer_name) + "|" + (p?.party_snapshot?.length || 0))),
+    JSON.stringify((as.players || []).map(p => [safeStr(p?.trainer_name), p?.party_snapshot || []])),
     JSON.stringify((as.pieces || []).map(p => `${p?.owner}:${p?.pid}:${p?.party_slot || ""}:${p?.revealed}:${p?.status}`)),
     JSON.stringify(as.board?.seen || []),
     JSON.stringify(_partyStates),
     safeStr(window.__globalHpRevision || ""),
     JSON.stringify(typeof window.getGlobalHpSnapshot === "function" ? window.getGlobalHpSnapshot() : null),
     safeStr(as.placingTrainer ? "pt" : ""),
+    safeStr(window.getPlacingPokemonPid?.() || ""),
+    safeStr(window.getPlacingPokemonPartySlot?.() || ""),
     JSON.stringify(as.battle?.turn_state || null),
   ];
   return parts.join("##");
@@ -697,7 +964,7 @@ function render() {
   for (let pi = 0; pi < players.length; pi++) {
     const player = players[pi];
     const tn = safeStr(player.trainer_name);
-    const isMe = tn === by;
+    const isMe = sameTrainerName(tn, by);
     const isTurnOwner = !!turnOwner && tn === turnOwner;
     const photo = getTrainerPhoto(player);
     const slots = buildSlots(player);
@@ -719,30 +986,43 @@ function render() {
 
       const isTurnPokemon = isTurnOwner && turnPid && normalizePartyPid(s.pid) === turnPid;
 
-      let imgSrc, imgClass;
-      if (s.ko) {
-        imgSrc = s.revealed ? s.spriteUrl : POKE_BALL_URL;
-        imgClass = "sb-poke-img sb-ko";
-      } else if (s.revealed) {
-        imgSrc = s.spriteUrl;
-        imgClass = "sb-poke-img";
-      } else {
-        imgSrc = POKE_BALL_URL;
-        imgClass = "sb-poke-img sb-unrevealed";
-      }
-
       const HP_MAX = 6;
-      const hpVal = s.hp != null ? s.hp : HP_MAX;
+      const hpVal = s.canShowIdentity && s.hp != null ? s.hp : HP_MAX;
       const hpPct = Math.max(0, Math.min(100, (hpVal / HP_MAX) * 100));
       const hpCol = s.ko ? "#64748b" : hpVal >= 5 ? "#22c55e" : hpVal >= 3 ? "#f59e0b" : "#ef4444";
-      const heldItemHtml = (isMe || s.revealed) && typeof window.renderHeldItemBadgeHtml === "function"
+      const heldItemHtml = s.canShowIdentity && typeof window.renderHeldItemBadgeHtml === "function"
         ? window.renderHeldItemBadgeHtml(s.heldItem, { className: "sb-held-item", size: "sm" })
         : "";
+      const placingSlot = safeStr(window.getPlacingPokemonPartySlot?.() || "");
+      const placingPid = safeStr(window.getPlacingPokemonPid?.() || "");
+      const isPlacingPokemon = isMe && ((s.partySlot && placingSlot === s.partySlot) || (!s.partySlot && placingPid && normalizePartyPid(placingPid) === normalizePartyPid(s.pid)));
+      const slotClasses = [
+        "sb-poke-slot",
+        s.ko ? "sb-ko" : "",
+        s.onBoard ? "sb-onboard" : "",
+        isPlacingPokemon ? "sb-placing" : "",
+        !s.canShowIdentity ? "sb-hidden sb-unrevealed" : "",
+      ].filter(Boolean).join(" ");
+      const visibleCaptureBall = s.canShowIdentity ? s.captureBall : null;
+      const slotStyle = captureBallStyleAttr(visibleCaptureBall);
+      const slotTitle = s.canShowIdentity
+        ? `${s.onBoard ? "Recolher" : "Enviar"} ${s.pid}`
+        : "Pok\u00e9mon oculto";
+      const dataAttrs = isMe
+        ? `data-action="toggle-pokemon" data-pid="${escapeAttr(s.pid)}" data-entry-id="${escapeAttr(s.entryId || "")}" data-party-slot="${escapeAttr(s.partySlot || "")}" data-piece-id="${escapeAttr(s.pieceId || "")}"`
+        : "";
+      const slotOpen = isMe
+        ? `<button type="button" class="${slotClasses}" ${dataAttrs} title="${escapeAttr(slotTitle)}" style="${escapeAttr(slotStyle)}">`
+        : `<div class="${slotClasses}" title="${escapeAttr(slotTitle)}" style="${escapeAttr(slotStyle)}">`;
+      const slotClose = isMe ? `</button>` : `</div>`;
 
-      lineupHtml += `<div class="sb-poke${isTurnPokemon ? " sb-poke-turn" : ""}" title="${escapeAttr(s.pid)}">
+      lineupHtml += `<div class="sb-poke${isTurnPokemon ? " sb-poke-turn" : ""}" title="${escapeAttr(s.canShowIdentity ? s.pid : "Oculto")}">
         ${heldItemHtml}
-        <img class="${imgClass}" src="${escapeAttr(imgSrc)}" loading="lazy" onerror="this.src='${POKE_BALL_URL}'" />
-        <div class="sb-poke-hp"><div class="sb-poke-hp-fill" style="width:${hpPct.toFixed(0)}%;background:${hpCol}"></div></div>
+        ${slotOpen}
+          ${renderCaptureBallBackdrop(visibleCaptureBall)}
+          ${s.canShowIdentity && s.spriteUrl ? `<img class="sb-poke-sprite" src="${escapeAttr(s.spriteUrl)}" loading="lazy" onerror="this.style.display='none'" />` : ""}
+        ${slotClose}
+        <div class="sb-poke-hp"><div class="sb-poke-hp-fill" style="width:${s.canShowIdentity ? hpPct.toFixed(0) : 0}%;background:${hpCol}"></div></div>
       </div>`;
     }
 
@@ -768,7 +1048,61 @@ function render() {
 }
 
 // ── Event delegation for Place Trainer button ──
-sbRoot.addEventListener("click", (ev) => {
+sbRoot.addEventListener("click", async (ev) => {
+  const pokemonBtn = ev.target.closest("[data-action='toggle-pokemon']");
+  if (pokemonBtn) {
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    const as = window.appState;
+    const by = safeStr(as?.by);
+    if (!as || !as.connected || !as.rid || !by) return;
+
+    const pid = safeStr(pokemonBtn.dataset.pid);
+    const entryId = safeStr(pokemonBtn.dataset.entryId);
+    const partySlot = normalizePartySlot(pokemonBtn.dataset.partySlot, null, { numericAsSlot: true });
+    const identity = { pid, entry_id: entryId, party_slot: partySlot || "" };
+    const pieceId = safeStr(pokemonBtn.dataset.pieceId);
+    if (!pid) return;
+
+    if (pieceId && typeof window.removePieceFromBoard === "function") {
+      await window.removePieceFromBoard(pieceId);
+      _prevHash = "";
+      render();
+      return;
+    }
+
+    const activePieceId = typeof window.getActivePieceIdForPokemon === "function"
+      ? safeStr(window.getActivePieceIdForPokemon(by, identity))
+      : "";
+    if (activePieceId && typeof window.removePieceFromBoard === "function") {
+      await window.removePieceFromBoard(activePieceId);
+      _prevHash = "";
+      render();
+      return;
+    }
+
+    const placingSlot = safeStr(window.getPlacingPokemonPartySlot?.() || "");
+    const placingPid = safeStr(window.getPlacingPokemonPid?.() || "");
+    const sameArmed = (partySlot && placingSlot === partySlot) || (!partySlot && placingPid && normalizePartyPid(placingPid) === normalizePartyPid(pid));
+    if (sameArmed) {
+      window.clearPokemonPlacingMode?.();
+      window.updateSidePanels?.();
+      window.setPvpStatus?.("ok", "posicionamento cancelado");
+      _prevHash = "";
+      render();
+      return;
+    }
+
+    if (typeof window.startPlacePokemon === "function") {
+      window.startPlacePokemon(identity);
+      window.updateSidePanels?.();
+      _prevHash = "";
+      render();
+    }
+    return;
+  }
+
   const btn = ev.target.closest("[data-action='place-trainer']");
   if (!btn) return;
   ev.stopPropagation();
@@ -784,6 +1118,7 @@ sbRoot.addEventListener("click", (ev) => {
   } else {
     as.placingTrainer = tn;
     as.placingPid = null;
+    window.clearPokemonPlacingMode?.();
   }
   renderIfChanged();
   _prevHash = "";
