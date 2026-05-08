@@ -3399,16 +3399,44 @@ connectBtn?.addEventListener("click", async () => {
   let playersFromRoom = [];
   const commitPlayers = () => {
     // merge por (role+trainer_name)
-    const seen = new Set();
-    const merged = [];
+    const byKey = new Map();
+    const mergePlayer = (p) => {
+      const role = safeStr(p?.role) || "player";
+      const trainer_name = safeStr(p?.trainer_name);
+      if (!trainer_name) return;
+      const key = `${role}::${trainer_name}`;
+      const cur = byKey.get(key) || { role, trainer_name, id: "", uid: "", avatar: null, party_snapshot: [] };
+      const nextParty = Array.isArray(p?.party_snapshot) ? p.party_snapshot : [];
+      const curParty = Array.isArray(cur.party_snapshot) ? cur.party_snapshot : [];
+      byKey.set(key, {
+        ...cur,
+        ...p,
+        role,
+        trainer_name,
+        id: safeStr(p?.id || cur.id),
+        uid: safeStr(p?.uid || cur.uid || p?.id || cur.id),
+        avatar: p?.avatar || cur.avatar || null,
+        party_snapshot: nextParty.length >= curParty.length ? nextParty : curParty,
+      });
+    };
     for (const arr of [playersFromRoom, playersFromCol]) {
       for (const p of arr) {
-        const key = `${safeStr(p.role)}::${safeStr(p.trainer_name)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        merged.push(p);
+        mergePlayer(p);
       }
     }
+    const merged = Array.from(byKey.values()).map((p) => {
+      const publicEntry = getPublicPlayerEntryByTrainer(p.trainer_name);
+      const publicParty = Array.isArray(publicEntry?.party_snapshot) ? publicEntry.party_snapshot : [];
+      const party = Array.isArray(p.party_snapshot) ? p.party_snapshot : [];
+      if (!publicParty.length || party.length >= publicParty.length) return p;
+      return {
+        ...p,
+        uid: safeStr(p.uid || publicEntry?.uid || publicEntry?.id || publicEntry?.trainer_id),
+        id: safeStr(p.id || publicEntry?.id || publicEntry?.uid || publicEntry?.trainer_id),
+        avatar: p.avatar || publicEntry?.avatar || null,
+        party_snapshot: publicParty,
+      };
+    });
     merged.sort(
       (a, b) => (a.role || "").localeCompare(b.role || "") || (a.trainer_name || "").localeCompare(b.trainer_name || "")
     );
@@ -3535,6 +3563,7 @@ unsub.push(
     playersDoc,
     (snap) => {
       appState.publicPlayers = snap.exists() ? snap.data() : null;
+      commitPlayers();
       const resolvedPieces = _refreshResolvedRoomPieces();
       scheduleRoomPiecePartySlotRepair(appState.piecesRaw, resolvedPieces);
       const pp = $("players_preview");
@@ -4802,6 +4831,12 @@ function _trainerLookupKey(name) {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+}
+
+function sameTrainerName(a, b) {
+  const aa = _trainerLookupKey(a);
+  const bb = _trainerLookupKey(b);
+  return !!aa && !!bb && aa === bb;
 }
 
 function _pushPartyLookupValue(out, value) {
