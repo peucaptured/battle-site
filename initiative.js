@@ -1,12 +1,19 @@
 import {
+  addDoc,
+  collection,
   doc,
   onSnapshot,
+  serverTimestamp,
   updateDoc,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
 function safeInt(x, fallback = 0) {
   const n = parseInt(x, 10);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function safeStr(x) {
+  return String(x ?? "").trim();
 }
 
 function esc(s) {
@@ -541,6 +548,50 @@ export class InitiativeUI {
     return doc(this._db, "rooms", this._rid, "public_state", "party_states");
   }
 
+  async _publishRoll(value, label = "d20") {
+    const rollValue = safeInt(value, 0);
+    const rollLabel = safeStr(label) || "d20";
+    const by = safeStr(this._by) || "Anon";
+    if (!this._db || !this._rid || rollValue < 1 || rollValue > 20) return null;
+
+    try {
+      if (typeof window !== "undefined" && typeof window.publishPublicD20Roll === "function") {
+        const ref = await window.publishPublicD20Roll({
+          by,
+          value: rollValue,
+          rawValue: rollValue,
+          label: rollLabel,
+          animationLabel: rollLabel,
+          final: true,
+        });
+        if (ref) return ref;
+      }
+
+      const requestId = `initiative_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const ref = await addDoc(collection(this._db, "rooms", this._rid, "rolls"), {
+        by,
+        trainer: by,
+        value: rollValue,
+        rawValue: rollValue,
+        label: rollLabel,
+        animationLabel: rollLabel,
+        requestId,
+        final: true,
+        kind: "dice",
+        die: "d20",
+        clientCreatedAt: Date.now(),
+        createdAt: serverTimestamp(),
+      });
+      if (typeof window !== "undefined" && typeof window.waitForSharedRollAnimation === "function") {
+        await window.waitForSharedRollAnimation(requestId, { label: rollLabel, value: rollValue });
+      }
+      return ref;
+    } catch (err) {
+      console.warn("[initiative] falha ao publicar rolagem:", err);
+      return null;
+    }
+  }
+
   _subscribe() {
     this._unsubBattle = onSnapshot(this._battleRef(), (snap) => {
       this._battleData = snap.exists() ? (snap.data() || {}) : {};
@@ -634,7 +685,7 @@ export class InitiativeUI {
       const out = { ...this._initStore };
       for (const rec of pokemon) {
         const roll = d20();
-        await playDiceRollAnimation(`Iniciativa - ${rec.display || "Pokemon"}`, roll);
+        await this._publishRoll(roll, `Iniciativa - ${rec.display || "Pokemon"}`);
         const bonus = safeInt(this._bonusEdits[rec.key] ?? out[rec.key]?.bonus_input, 0);
         out[rec.key] = {
           d20_roll: roll,
@@ -662,7 +713,7 @@ export class InitiativeUI {
       }
 
       const roll = d20();
-      await playDiceRollAnimation(`Iniciativa - ${rec.display || "Pokemon"}`, roll);
+      await this._publishRoll(roll, `Iniciativa - ${rec.display || "Pokemon"}`);
       const out = { ...this._initStore };
       const bonus = safeInt(this._bonusEdits[rec.key] ?? out[rec.key]?.bonus_input, 0);
       out[rec.key] = {

@@ -8,7 +8,7 @@
  *  4. Reinicia sempre que rid/by mudar
  */
 
-import { InitiativeUI } from "./initiative.js?v=20260505rollfx1";
+import { InitiativeUI } from "./initiative.js?v=20260507rollfx2";
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
 import {
   getFirestore,

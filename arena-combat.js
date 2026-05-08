@@ -1309,7 +1309,7 @@ const CSS_TEXT = `
   animation: acCoinFlip 1s steps(15) 2;
 }
 .ac-d20-sprite.ac-rolling {
-  animation: acD20Roll 1s steps(19) 2;
+  animation: acD20Roll 1s steps(19);
 }
 @keyframes acCoinFlip {
   from { background-position: 0 0; }
@@ -1742,10 +1742,39 @@ export class ArenaCombatUI {
     const by = safeStr(this.getBy()) || "—";
     if (!db || !rid) return;
     try {
-      await addDoc(collection(db, "rooms", rid, "rolls"), {
-        by, value: safeInt(value, 0), label: safeStr(label) || "d20",
+      const rollValue = safeInt(value, 0);
+      const rollLabel = safeStr(label) || "d20";
+      if (typeof window !== "undefined" && typeof window.publishPublicD20Roll === "function") {
+        const ref = await window.publishPublicD20Roll({
+          by,
+          value: rollValue,
+          rawValue: rollValue,
+          label: rollLabel,
+          animationLabel: rollLabel,
+          final: true,
+        });
+        if (ref) return ref;
+      }
+
+      const requestId = `arena_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const ref = await addDoc(collection(db, "rooms", rid, "rolls"), {
+        by,
+        trainer: by,
+        value: rollValue,
+        rawValue: rollValue,
+        label: rollLabel,
+        animationLabel: rollLabel,
+        requestId,
+        final: true,
+        kind: "dice",
+        die: "d20",
+        clientCreatedAt: Date.now(),
         createdAt: serverTimestamp(),
       });
+      if (typeof window !== "undefined" && typeof window.waitForSharedRollAnimation === "function") {
+        await window.waitForSharedRollAnimation(requestId, { label: rollLabel, value: rollValue });
+      }
+      return ref;
     } catch (err) {}
   }
 
@@ -3467,40 +3496,7 @@ export class ArenaCombatUI {
   }
 
   async _rollD20Animated(label = "d20") {
-    const roll = d20Roll();
-    const frameByRoll = {
-      1: 0, 7: 1, 13: 2, 4: 3, 18: 4,
-      2: 5, 9: 6, 15: 7, 5: 8, 20: 9,
-      3: 10, 11: 11, 6: 12, 17: 13, 8: 14,
-      14: 15, 10: 16, 16: 17, 12: 18, 19: 19,
-    };
-    try { this._currentRollAnimation?.remove?.(); } catch {}
-    const layer = document.createElement("div");
-    layer.className = "ac-roll-layer";
-    layer.innerHTML = `
-      <div class="ac-roll-panel">
-        <div class="ac-roll-title">${escHtml(label)}</div>
-        <div class="ac-roll-sprite ac-d20-sprite ac-rolling" data-d20-sprite></div>
-        <div class="ac-roll-value" data-d20-value></div>
-      </div>
-    `;
-    (this._overlayRoot || document.body).appendChild(layer);
-    this._currentRollAnimation = layer;
-
-    await this._sleep(2000);
-    const sprite = layer.querySelector("[data-d20-sprite]");
-    const valueEl = layer.querySelector("[data-d20-value]");
-    const frame = frameByRoll[roll] ?? Math.max(0, Math.min(19, roll - 1));
-    if (sprite) {
-      sprite.classList.remove("ac-rolling");
-      sprite.style.animation = "none";
-      sprite.style.backgroundPosition = `-${frame * 96}px 0`;
-    }
-    if (valueEl) valueEl.textContent = roll;
-    await this._sleep(520);
-    try { layer.remove(); } catch {}
-    if (this._currentRollAnimation === layer) this._currentRollAnimation = null;
-    return roll;
+    return d20Roll();
   }
 
   _reactionLogLine(reaction, resolution, choiceLabel) {
@@ -4122,7 +4118,7 @@ export class ArenaCombatUI {
     const unreliableLog = this._formatUnreliableGateLog(unreliableGate);
 
     const roll = await this._rollD20Animated(`Ataque - ${displayName(atkPid)}`);
-    this._publishRoll(roll, `Ataque • ${displayName(atkPid)}`);
+    await this._publishRoll(roll, `Ataque • ${displayName(atkPid)}`);
 
     const totalAtk = atkMod + aceiroBonus + roll;
     const attackOutcome = resolveAttackHitAndCritical({ roll, totalAtk, needed, powerRule, attackerStats: atkStats });
@@ -5014,7 +5010,7 @@ export class ArenaCombatUI {
     el.querySelector('[data-act="accept"]')?.addEventListener("click", async () => {
       el.querySelectorAll("button").forEach((btn) => { btn.disabled = true; });
       const roll = await this._rollD20Animated(`Reacao - ${safeStr(reaction.powerName || "Power")}`);
-      this._publishRoll(roll, `Reacao • ${safeStr(reaction.powerName || "Power")}`);
+      await this._publishRoll(roll, `Reacao • ${safeStr(reaction.powerName || "Power")}`);
       const resolution = resolveCombatEvent({
         type: "reactionDecision",
         reaction,
@@ -5183,7 +5179,7 @@ export class ArenaCombatUI {
         const statVal = safeInt(tStats[defType]);
 
         const roll = await this._rollD20Animated(`Defesa - ${defType.toUpperCase()}`);
-        this._publishRoll(roll, `Defesa • ${defType.toUpperCase()}`);
+        await this._publishRoll(roll, `Defesa • ${defType.toUpperCase()}`);
         const checkTotal = roll + statVal;
 
         if (isAoe) {
@@ -5413,7 +5409,7 @@ export class ArenaCombatUI {
     if (!battle) return;
 
     const roll = await this._rollD20Animated("Re-roll");
-    this._publishRoll(roll, "Re-roll");
+    await this._publishRoll(roll, "Re-roll");
 
     const atkMod = safeInt(battle.atk_mod);
     const aceiroBonus = safeInt(battle.aceiro_bonus);

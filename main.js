@@ -2626,7 +2626,7 @@ document.getElementById("log_subtabs")?.addEventListener("click", (ev) => {
 // Expor no console (compatibilidade com debug antigo)
 window.sendAddLog = async (by, text) => sendAction("ADD_LOG", by || "Anon", { text: text || "teste" });
 
-const ROLL_FX_D20_MS = 2000;
+const ROLL_FX_D20_MS = 1000;
 const ROLL_FX_D20_FRAME_BY_VALUE = Object.freeze({
   1: 0, 7: 1, 13: 2, 4: 3, 18: 4,
   2: 5, 9: 6, 15: 7, 5: 8, 20: 9,
@@ -2717,7 +2717,7 @@ function ensureRollFxStyles() {
   background-size: 1920px 96px;
 }
 .roll-fx-d20.roll-fx-rolling {
-  animation: rollFxD20 1s steps(19) 2;
+  animation: rollFxD20 1s steps(19);
 }
 .roll-fx-value {
   min-height: 38px;
@@ -2850,7 +2850,8 @@ function waitForSharedRollAnimation(key, fallback = {}) {
     const timeout = setTimeout(async () => {
       rollFxAnimationWaiters.delete(waitKey);
       try {
-        await playDiceRollAnimation(fallback);
+        rollFxPlayedKeys.add(waitKey);
+        await playDiceRollAnimation({ ...fallback, shared: true });
       } finally {
         rollFxCompletedKeys.add(waitKey);
         resolve();
@@ -2998,24 +2999,69 @@ function showRollHeroPointPrompt(rawValue) {
   });
 }
 
-async function publishRoomRoll({ by, value, rawValue = value, label = "d20", animationLabel = "Dado", requestId = "", rollRound = 1, sourceRollId = "", final = false, heroPoint = false } = {}) {
+async function publishRoomRoll({
+  by,
+  value,
+  rawValue = value,
+  label = "d20",
+  animationLabel = "Dado",
+  requestId = "",
+  rollRound = 1,
+  sourceRollId = "",
+  final = false,
+  heroPoint = false,
+  kind = "dice",
+  die = "d20",
+  ...extra
+} = {}) {
+  const trainer = safeStr(by || extra.trainer || appState.by || byInput?.value || "Anon") || "Anon";
+  const naturalValue = safeInt(value, 0);
   return addDoc(collection(currentDb, "rooms", currentRid, "rolls"), {
-    by,
-    trainer: by,
-    value,
-    rawValue,
-    label,
-    animationLabel,
-    requestId,
-    rollRound,
-    sourceRollId,
-    final,
-    heroPoint,
-    kind: "dice",
+    ...extra,
+    by: trainer,
+    trainer,
+    value: naturalValue,
+    rawValue: safeInt(rawValue, naturalValue),
+    label: safeStr(label) || "d20",
+    animationLabel: safeStr(animationLabel || label || "Dado") || "Dado",
+    requestId: safeStr(requestId),
+    rollRound: safeInt(rollRound, 1),
+    sourceRollId: safeStr(sourceRollId),
+    final: !!final,
+    heroPoint: !!heroPoint,
+    kind: safeStr(kind) || "dice",
+    die: safeStr(die) || "d20",
     clientCreatedAt: Date.now(),
     createdAt: serverTimestamp(),
   });
 }
+
+async function publishPublicD20Roll(options = {}) {
+  const value = safeInt(options?.value, 0);
+  if (!currentDb || !currentRid || !appState.connected || value < 1 || value > 20) return null;
+
+  const label = safeStr(options?.label) || "d20";
+  const animationLabel = safeStr(options?.animationLabel || label || "Dado") || "Dado";
+  const requestId = safeStr(options?.requestId) || makeRollRequestId("d20");
+  const ref = await publishRoomRoll({
+    ...options,
+    value,
+    rawValue: options?.rawValue ?? value,
+    label,
+    animationLabel,
+    requestId,
+    final: options?.final ?? true,
+    die: "d20",
+  });
+
+  if (options?.waitForAnimation !== false) {
+    await waitForSharedRollAnimation(requestId, { label: animationLabel, value });
+  }
+  return ref;
+}
+
+window.publishPublicD20Roll = publishPublicD20Roll;
+window.waitForSharedRollAnimation = waitForSharedRollAnimation;
 
 async function finishTopRollResult(finalValue) {
   const battleRef = getBattleDocRef();
@@ -3071,7 +3117,7 @@ topRollBtn?.addEventListener("click", async () => {
       rollRound: 1,
       final: true,
     });
-    await playLocalSharedRollAnimation(firstRequestId, { label: "Dado", value });
+    await waitForSharedRollAnimation(firstRequestId, { label: "Dado", value });
 
     let finalValue = value;
     const shouldReroll = await showRollRerollPrompt(value);
@@ -3091,7 +3137,7 @@ topRollBtn?.addEventListener("click", async () => {
         sourceRollId: firstRef.id,
         final: false,
       });
-      await playLocalSharedRollAnimation(secondRequestId, { label: "Rejogar Dado", value: rerollValue });
+      await waitForSharedRollAnimation(secondRequestId, { label: "Rejogar Dado", value: rerollValue });
 
       const phDecision = await showRollHeroPointPrompt(rerollValue);
       finalValue = safeInt(phDecision?.finalValue, rerollValue);
@@ -3556,10 +3602,12 @@ const rollPillText = $("roll_pill_text"); // (vamos criar no HTML já já)
 if (rollsBanner) {
   try {
     const rollsCol = collection(db, "rooms", rid, "rolls");
-    const rollsQ = query(rollsCol, orderBy("createdAt", "desc"), limit(1));
+    const rollsQ = query(rollsCol, orderBy("createdAt", "desc"), limit(12));
     let rollBannerTimer = null;
     let rollsSnapshotReady = false;
     let latestRollDocId = "";
+    let rollAnimationQueue = Promise.resolve();
+    const seenRollDocIds = new Set();
     const rollsListenerStartedAt = Date.now();
     const hideRollBanner = () => {
       if (rollBannerTimer) {
@@ -3596,6 +3644,45 @@ if (rollsBanner) {
       }, 8000);
     };
 
+    const rememberSeenRollDocId = (docId) => {
+      const key = safeStr(docId);
+      if (!key) return;
+      seenRollDocIds.add(key);
+      if (seenRollDocIds.size <= 80) return;
+      for (const oldKey of seenRollDocIds) {
+        seenRollDocIds.delete(oldKey);
+        if (seenRollDocIds.size <= 60) break;
+      }
+    };
+
+    const isD20RollDoc = (roll) => {
+      const die = safeStr(roll?.die || roll?.dice || roll?.diceType).toLowerCase();
+      if (die) return die === "d20";
+      const value = safeInt(roll?.rawValue != null ? roll.rawValue : roll?.value, 0);
+      if (value < 1 || value > 20) return false;
+      const label = safeStr(`${roll?.label || ""} ${roll?.animationLabel || ""}`).toLowerCase();
+      if (/\bd100\b|\bd%|\bcoin\b|\bmoeda\b/.test(label)) return false;
+      const kind = safeStr(roll?.kind).toLowerCase();
+      return !kind || kind === "dice" || kind === "roll" || kind === "test" || label.includes("d20");
+    };
+
+    const queueRollAnimations = (items) => {
+      if (!items.length) return;
+      hideRollBanner();
+      rollAnimationQueue = rollAnimationQueue
+        .catch(() => {})
+        .then(async () => {
+          let lastRoll = null;
+          for (const item of items) {
+            lastRoll = item.roll;
+            try {
+              await playSharedRollAnimationFromDoc(item.docId, item.roll);
+            } catch {}
+          }
+          if (lastRoll) renderRollBanner(lastRoll);
+        });
+    };
+
     unsub.push(
       onSnapshot(
         rollsQ,
@@ -3608,23 +3695,30 @@ if (rollsBanner) {
             return;
           }
 
-          const latestDoc = qs.docs[0];
-          const latestRoll = latestDoc.data();
-          const docId = safeStr(latestDoc.id);
-          const clientCreatedAt = Number(latestRoll.clientCreatedAt) || 0;
-          const freshInitialRoll = !latestRollDocId
-            && !wasRollsSnapshotReady
-            && clientCreatedAt >= rollsListenerStartedAt - 2000;
-          const shouldAnimateRoll = !!(docId && (latestRollDocId ? docId !== latestRollDocId : (wasRollsSnapshotReady || freshInitialRoll)));
-          if (shouldAnimateRoll) {
-            hideRollBanner();
-            void Promise.resolve(playSharedRollAnimationFromDoc(docId, latestRoll))
-              .then(() => renderRollBanner(latestRoll))
-              .catch(() => renderRollBanner(latestRoll));
-          } else {
-            renderRollBanner(latestRoll);
+          const rollDocs = qs.docs
+            .map((docSnap) => ({ docId: safeStr(docSnap.id), roll: docSnap.data() || {} }))
+            .filter((item) => item.docId);
+          const latestItem = rollDocs[0] || null;
+          if (!latestItem) return;
+
+          const freshInitialRolls = !wasRollsSnapshotReady
+            ? rollDocs.filter((item) => {
+                const clientCreatedAt = Number(item.roll?.clientCreatedAt) || 0;
+                return clientCreatedAt >= rollsListenerStartedAt - 2000 && isD20RollDoc(item.roll);
+              })
+            : [];
+          const newRolls = wasRollsSnapshotReady
+            ? rollDocs.filter((item) => !seenRollDocIds.has(item.docId) && isD20RollDoc(item.roll))
+            : freshInitialRolls;
+
+          for (const item of rollDocs) rememberSeenRollDocId(item.docId);
+
+          if (newRolls.length) {
+            queueRollAnimations(newRolls.slice().reverse());
+          } else if (latestItem.docId !== latestRollDocId) {
+            renderRollBanner(latestItem.roll);
           }
-          latestRollDocId = docId;
+          latestRollDocId = latestItem.docId;
         },
         (err) => {
           console.warn("rolls onSnapshot error:", err);
@@ -7921,12 +8015,14 @@ async function rollPieceTest(pieceId, choiceKey) {
     sheetId: state.sheetId,
   };
 
-  await playDiceRollAnimation({ label: `Teste - ${choice.label}`, value: natural });
-
-  await addDoc(collection(currentDb, "rooms", currentRid, "rolls"), {
+  const requestId = makeRollRequestId("test");
+  await publishRoomRoll({
     ...result,
     kind: "test",
-    createdAt: serverTimestamp(),
+    die: "d20",
+    animationLabel: `Teste - ${choice.label}`,
+    requestId,
+    final: true,
     audit: {
       flow: "Rolar Teste",
       catalogVersion: state.catalogVersion,
@@ -7936,6 +8032,7 @@ async function rollPieceTest(pieceId, choiceKey) {
       boost: safeInt(choice.boost, 0),
     },
   });
+  await waitForSharedRollAnimation(requestId, { label: `Teste - ${choice.label}`, value: natural });
 
   const logText = `${state.name} rolou teste de ${choice.label}: d20 ${natural} ${signedRollTestValue(modifier)} = ${total}.`;
   try {

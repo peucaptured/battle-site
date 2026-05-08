@@ -808,12 +808,39 @@ export class CombatUI {
     const by = safeStr(this.getBy()) || "—";
     if (!db || !rid) return;
     try {
-      await addDoc(collection(db, "rooms", rid, "rolls"), {
+      const rollValue = safeInt(value, 0);
+      const rollLabel = safeStr(label) || "d20";
+      if (typeof window !== "undefined" && typeof window.publishPublicD20Roll === "function") {
+        const ref = await window.publishPublicD20Roll({
+          by,
+          value: rollValue,
+          rawValue: rollValue,
+          label: rollLabel,
+          animationLabel: rollLabel,
+          final: true,
+        });
+        if (ref) return ref;
+      }
+
+      const requestId = `combat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const ref = await addDoc(collection(db, "rooms", rid, "rolls"), {
         by,
-        value: safeInt(value, 0),
-        label: safeStr(label) || "d20",
+        trainer: by,
+        value: rollValue,
+        rawValue: rollValue,
+        label: rollLabel,
+        animationLabel: rollLabel,
+        requestId,
+        final: true,
+        kind: "dice",
+        die: "d20",
+        clientCreatedAt: Date.now(),
         createdAt: serverTimestamp(),
       });
+      if (typeof window !== "undefined" && typeof window.waitForSharedRollAnimation === "function") {
+        await window.waitForSharedRollAnimation(requestId, { label: rollLabel, value: rollValue });
+      }
+      return ref;
     } catch (err) {
       console.warn("[CombatUI] falha ao publicar rolagem no HUD:", err);
     }
@@ -825,12 +852,39 @@ export class CombatUI {
     const by = safeStr(this.getBy()) || "—";
     if (!db || !rid) return;
     try {
-      await addDoc(collection(db, "rooms", rid, "rolls"), {
+      const rollValue = safeInt(value, 0);
+      const rollLabel = safeStr(label) || "d20";
+      if (typeof window !== "undefined" && typeof window.publishPublicD20Roll === "function") {
+        const ref = await window.publishPublicD20Roll({
+          by,
+          value: rollValue,
+          rawValue: rollValue,
+          label: rollLabel,
+          animationLabel: rollLabel,
+          final: true,
+        });
+        if (ref) return ref;
+      }
+
+      const requestId = `combat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const ref = await addDoc(collection(db, "rooms", rid, "rolls"), {
         by,
-        value: safeInt(value, 0),
-        label: safeStr(label) || "d20",
+        trainer: by,
+        value: rollValue,
+        rawValue: rollValue,
+        label: rollLabel,
+        animationLabel: rollLabel,
+        requestId,
+        final: true,
+        kind: "dice",
+        die: "d20",
+        clientCreatedAt: Date.now(),
         createdAt: serverTimestamp(),
       });
+      if (typeof window !== "undefined" && typeof window.waitForSharedRollAnimation === "function") {
+        await window.waitForSharedRollAnimation(requestId, { label: rollLabel, value: rollValue });
+      }
+      return ref;
     } catch (err) {
       console.warn("[CombatUI] falha ao publicar rolagem no HUD:", err);
     }
@@ -2074,8 +2128,7 @@ export class CombatUI {
 
       // roll
       const roll = d20Roll();
-      await playDiceRollAnimation(`Ataque - ${attackerPid || "Pokemon"}`, roll);
-      this._publishRoll(roll, `Ataque • ${attackerPid || "—"}`);
+      await this._publishRoll(roll, `Ataque • ${attackerPid || "—"}`);
       const totalAtk = atkMod + aceiroBonus + roll;
       let hit, critBonus;
       if (roll === 1) { hit = false; critBonus = 0; }
@@ -2245,8 +2298,7 @@ export class CombatUI {
           const statVal = safeInt(tStats[defType]);
 
           const roll = d20Roll();
-          await playDiceRollAnimation(`Defesa area - ${defType.toUpperCase()}`, roll);
-          this._publishRoll(roll, `Defesa área • ${defType.toUpperCase()}`);
+          await this._publishRoll(roll, `Defesa área • ${defType.toUpperCase()}`);
           const totalRoll = roll + statVal;
           const dc = safeInt(battle.aoe_dc, 10);
           const baseRank = safeInt(battle.dmg_base);
@@ -2433,8 +2485,7 @@ export class CombatUI {
           const statVal = safeInt(tStats[defType]);
 
           const roll = d20Roll();
-          await playDiceRollAnimation(`Defesa - ${defType.toUpperCase()}`, roll);
-          this._publishRoll(roll, `Defesa • ${defType.toUpperCase()}`);
+          await this._publishRoll(roll, `Defesa • ${defType.toUpperCase()}`);
           const checkTotal = roll + statVal;
           const diff = dcTotal - checkTotal;
 
