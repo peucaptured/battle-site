@@ -626,21 +626,52 @@ function clampPartyHp(rawHp, fallback = 6) {
   return Math.max(0, Math.min(6, Math.trunc(value)));
 }
 
+function _buildPartyEntriesFromUserData(userData) {
+  const data = (userData && typeof userData === "object" && !Array.isArray(userData)) ? userData : {};
+  const partyRaw = Array.isArray(data.party) ? data.party : [];
+  const hubPartyEntryIds = Array.isArray(data.hub_party_entries)
+    ? data.hub_party_entries.map((x) => safeStr(x)).filter(Boolean)
+    : [];
+  const captureRegistry = (data.hub_capture_registry && typeof data.hub_capture_registry === "object" && !Array.isArray(data.hub_capture_registry))
+    ? data.hub_capture_registry
+    : {};
+  const entryMeta = (data.hub_entry_meta && typeof data.hub_entry_meta === "object" && !Array.isArray(data.hub_entry_meta))
+    ? data.hub_entry_meta
+    : {};
+
+  if (hubPartyEntryIds.length) {
+    return hubPartyEntryIds.map((entryId, index) => {
+      const captureEntry = (entryId.startsWith("cap:") && captureRegistry?.[entryId] && typeof captureRegistry[entryId] === "object")
+        ? captureRegistry[entryId]
+        : {};
+      const rawEntry = partyRaw[index];
+      const pid = normalizePartyPid(
+        captureEntry?.pid
+        ?? captureEntry?.pokemon?.id
+        ?? rawEntry?.pid
+        ?? rawEntry?.pokemon?.id
+        ?? rawEntry
+      );
+      if (!pid) return null;
+      return _normalizePartyEntry({
+        ...(captureEntry || {}),
+        ...(rawEntry && typeof rawEntry === "object" && !Array.isArray(rawEntry) ? rawEntry : {}),
+        pid,
+        entry_id: entryId,
+        party_slot: `slot_${index}`,
+        hp: clampPartyHp(entryMeta?.[entryId]?.hp, rawEntry?.hp ?? captureEntry?.hp ?? 6),
+      }, index);
+    }).filter(Boolean);
+  }
+
+  return _normalizePartyList(partyRaw);
+}
+
 async function buildPartySnapshotFromFirestore(db, trainerName, userData, limitSheets = 120) {
   const tn = safeStr(trainerName);
   if (!tn || !db) return [];
 
-  const partyRaw = (userData && Array.isArray(userData.party)) ? userData.party : [];
-  const hubPartyEntryIds = (userData && Array.isArray(userData.hub_party_entries))
-    ? userData.hub_party_entries.map((x) => safeStr(x)).filter(Boolean)
-    : [];
-  const captureRegistry = (userData && userData.hub_capture_registry && typeof userData.hub_capture_registry === "object")
-    ? userData.hub_capture_registry
-    : {};
-  const entryMeta = (userData && userData.hub_entry_meta && typeof userData.hub_entry_meta === "object")
-    ? userData.hub_entry_meta
-    : {};
-  let partyEntries = _normalizePartyList(partyRaw);
+  const partyEntries = _buildPartyEntriesFromUserData(userData);
   const hubMeta = (userData && typeof userData.hub_pokemon_meta === "object" && userData.hub_pokemon_meta)
     ? userData.hub_pokemon_meta
     : {};
@@ -648,49 +679,59 @@ async function buildPartySnapshotFromFirestore(db, trainerName, userData, limitS
   // replica app.py: pega fichas mais recentes e casa por pokemon.id (primeira ocorrência, pois já está order desc)
   const byPid = new Map();
   const byEntryId = new Map();
-  try {
-    const trainerId = safeStr(appState.selfTrainerId) || safeDocId(tn);
-    const q = query(
-      collection(db, "trainers", trainerId, "sheets"),
-      orderBy("updated_at", "desc"),
-      limit(Number(limitSheets) || 120),
-    );
+  const trainerIds = Array.from(new Set([
+    safeDocId(tn),
+    safeIdLower(tn),
+    ...getTrainerCandidateIds(tn),
+    safeStr(appState.selfTrainerId),
+    safeStr(appState.selfAuthUid),
+  ].filter(Boolean)));
 
-    const snap = await getDocs(q);
-    snap.forEach((d) => {
-      const sh = d.data() || {};
-      const p = sh.pokemon || {};
-      const pid = safeStr(p.id);
-      if (!pid) return;
-      const sheetEntry = {
-        sheet_id: d.id,
-        pokemon: { id: p.id, name: p.name, types: p.types },
-        np: sh.np,
-        updated_at: sh.updated_at,
-      };
-      if (!byPid.has(pid)) byPid.set(pid, sheetEntry);
-      byEntryId.set(`sheet:${d.id}`, sheetEntry);
-    });
-  } catch {}
+  for (const trainerId of trainerIds) {
+    try {
+      const q = query(
+        collection(db, "trainers", trainerId, "sheets"),
+        orderBy("updated_at", "desc"),
+        limit(Number(limitSheets) || 120),
+      );
 
-  if (hubPartyEntryIds.length) {
-    partyEntries = hubPartyEntryIds.map((entryId, index) => {
-      let pid = "";
-      if (entryId.startsWith("cap:")) {
-        pid = normalizePartyPid(captureRegistry?.[entryId]?.pid || partyRaw[index]);
-      } else if (entryId.startsWith("sheet:")) {
-        pid = normalizePartyPid(byEntryId.get(entryId)?.pokemon?.id || partyRaw[index]);
-      } else {
-        pid = normalizePartyPid(partyRaw[index]);
-      }
-      if (!pid) return null;
-      return _normalizePartyEntry({
-        pid,
-        entry_id: entryId,
-        party_slot: `slot_${index}`,
-        hp: clampPartyHp(entryMeta?.[entryId]?.hp, 6),
-      }, index);
-    }).filter(Boolean);
+      const snap = await getDocs(q);
+      snap.forEach((d) => {
+        const sh = d.data() || {};
+        const p = sh.pokemon || {};
+        const pidKeys = Array.from(new Set([
+          normalizePartyPid(p.id),
+          normalizePartyPid(sh.linked_pid),
+        ].filter(Boolean)));
+        if (!pidKeys.length) return;
+        const resolvedTypes = _coerceResolvedTypes(p.types);
+        const resolvedAbilities = _coerceResolvedAbilities(p.abilities);
+        const formSlug = _normalizePokemonFormSlug(p.api_name || p.apiName || p.name);
+        const displayName = safeStr(p.name || p.display_name || p.displayName);
+        const sheetEntry = {
+          sheet_id: d.id,
+          linked_pid: sh.linked_pid,
+          pokemon: {
+            ...(p && typeof p === "object" && !Array.isArray(p) ? p : {}),
+            id: p.id,
+            name: p.name,
+            api_name: p.api_name || p.apiName,
+            types: p.types,
+            abilities: p.abilities,
+          },
+          form_slug: formSlug,
+          display_name: displayName,
+          resolved_types: resolvedTypes,
+          resolved_abilities: resolvedAbilities,
+          np: sh.np,
+          updated_at: sh.updated_at,
+        };
+        for (const pid of pidKeys) {
+          if (!byPid.has(pid)) byPid.set(pid, sheetEntry);
+        }
+        byEntryId.set(`sheet:${d.id}`, sheetEntry);
+      });
+    } catch {}
   }
 
   return partyEntries.map((entry) => {
@@ -706,12 +747,13 @@ async function buildPartySnapshotFromFirestore(db, trainerName, userData, limitS
       base.resolved_types = resolvedTypes;
       if (!base.type_override && !base.typeOverride) base.type_override = resolvedTypes;
     }
-    const extra = byPid.get(pid);
+    const extra = byEntryId.get(_getEntryId(base)) || byPid.get(pid);
     const merged = extra ? Object.assign(base, extra) : base;
-    if (resolvedTypes.length) {
+    const mergedTypes = resolvedTypes.length ? resolvedTypes : _coerceResolvedTypes(merged?.pokemon?.types);
+    if (mergedTypes.length) {
       merged.pokemon = Object.assign({}, merged?.pokemon || {}, {
         id: merged?.pokemon?.id || pid,
-        types: resolvedTypes,
+        types: mergedTypes,
       });
     }
     return merged;
@@ -1307,7 +1349,7 @@ function displayNameFromPiece(piece, opts = {}) {
   if (!opts.allowHiddenIdentity && !mine && !revealed) return "???";
   const owner = safeStr(opts.owner || p?.owner);
   if (isTrainerPiece(p)) return owner || displayNameFromPid(p?.pid, { owner });
-  return displayNameFromPid({ pid: p?.pid, entry_id: _getEntryId(p), party_slot: _getPartySlot(p) }, { owner });
+  return displayNameFromPid({ ...p, pid: p?.pid, entry_id: _getEntryId(p), party_slot: _getPartySlot(p) }, { owner });
 }
 
 function pieceTypeLabel(piece) {
@@ -1375,7 +1417,7 @@ function getPublicPlayerEntryByTrainer(trainerName) {
   for (const entry of Object.values(byId)) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
     const entryName = safeStr(entry.trainer_name || entry.name || entry.by || entry.owner);
-    if (entryName === tn) return entry;
+    if (sameTrainerName(entryName, tn)) return entry;
   }
   return null;
 }
@@ -1393,7 +1435,7 @@ function getTrainerCandidateIds(trainerName) {
     ids.add(safeStr(appState.selfAuthUid));
   }
 
-  const player = (appState.players || []).find((p) => safeStr(p?.trainer_name) === tn);
+  const player = (appState.players || []).find((p) => sameTrainerName(p?.trainer_name, tn));
   if (player) {
     ids.add(safeStr(player.uid));
     ids.add(safeStr(player.id));
@@ -4678,6 +4720,73 @@ function _getPublicStatePartyForTrainer(trainerName) {
   return [];
 }
 
+function _getUserRawPartyForTrainer(trainerName) {
+  const tn = safeStr(trainerName);
+  if (!tn) return [];
+
+  const direct = _buildPartyEntriesFromUserData(_getUserDataForTrainer(tn));
+  if (direct.length) return direct;
+
+  for (const uid of getTrainerCandidateIds(tn)) {
+    const entry = appState.userProfiles?.get?.(uid);
+    if (!entry) continue;
+    for (const source of [entry?.raw?.data, entry?.raw, entry?.profile, entry]) {
+      const built = _buildPartyEntriesFromUserData(source);
+      if (built.length) return built;
+    }
+  }
+
+  return [];
+}
+
+function _findSupplementalPartyDetail(authoritativeEntry, supplemental, used) {
+  const entryId = _getEntryId(authoritativeEntry);
+  const partySlot = _getPartySlot(authoritativeEntry);
+  const pid = normalizePartyPid(authoritativeEntry);
+
+  let index = -1;
+  if (entryId) {
+    index = supplemental.findIndex((candidate, i) => !used.has(i) && _getEntryId(candidate) === entryId);
+  }
+  if (index < 0 && partySlot) {
+    index = supplemental.findIndex((candidate, i) => {
+      if (used.has(i) || _getPartySlot(candidate) !== partySlot) return false;
+      const candidatePid = normalizePartyPid(candidate);
+      return !(pid && candidatePid && pid !== candidatePid);
+    });
+  }
+  if (index < 0 && pid) {
+    index = supplemental.findIndex((candidate, i) => !used.has(i) && normalizePartyPid(candidate) === pid);
+  }
+  if (index < 0) return null;
+  used.add(index);
+  return supplemental[index];
+}
+
+function _mergePartyDetailsIntoAuthoritativeParty(authoritativeList, supplementalList) {
+  const authoritative = _normalizePartyList(authoritativeList);
+  const supplemental = _normalizePartyList(supplementalList);
+  if (!authoritative.length) return supplemental.slice(0, 8);
+  if (!supplemental.length) return authoritative.slice(0, 8);
+
+  const usedSupplemental = new Set();
+  return authoritative.map((entry, index) => {
+    const detail = _findSupplementalPartyDetail(entry, supplemental, usedSupplemental);
+    const merged = detail ? { ...detail, ...entry } : { ...entry };
+    const pid = normalizePartyPid(entry) || normalizePartyPid(detail);
+    const entryId = _getEntryId(entry) || _getEntryId(detail);
+    const partySlot = _getPartySlot(entry, index) || _getPartySlot(detail, index) || `slot_${index}`;
+    return {
+      ...merged,
+      pid,
+      entry_id: entryId,
+      party_slot: partySlot,
+      _party_slot: partySlot,
+      _party_slot_index: _getPartySlotIndex(partySlot, index),
+    };
+  }).filter((entry) => entry?.pid).slice(0, 8);
+}
+
 function _mergePartyListsPreserveDetails(primaryList, supplementalList) {
   const primary = _normalizePartyList(primaryList);
   const supplemental = _normalizePartyList(supplementalList);
@@ -4742,14 +4851,14 @@ function getPartyForTrainer(trainerName) {
   if (!tn) return [];
 
   // 0) Se este é o usuário logado via planilha, usa o dado direto do login
-  if (safeStr(appState.by) && tn === safeStr(appState.by) && appState.selfUserData) {
-    const partyRaw = Array.isArray(appState.selfUserData?.party) ? appState.selfUserData.party : [];
-    if (partyRaw.length) {
+  if (safeStr(appState.by) && sameTrainerName(tn, appState.by) && appState.selfUserData) {
+    const liveParty = _buildPartyEntriesFromUserData(appState.selfUserData);
+    if (liveParty.length) {
       // se já montou snapshot com fichas, melhor
       const detailed = (Array.isArray(appState.selfPartySnapshot) && appState.selfPartySnapshot.length)
         ? appState.selfPartySnapshot
-        : _normalizePartyList(partyRaw);
-      return _normalizePartyList(detailed).slice(0, 8);
+        : liveParty;
+      return _mergePartyDetailsIntoAuthoritativeParty(liveParty, detailed).slice(0, 8);
     }
   }
     // 0.5) ✅ public_state/players (arrays de pid por treinador)
@@ -4780,15 +4889,16 @@ function getPartyForTrainer(trainerName) {
 
   // 1) party_snapshot vindo da sala
   const snapParty = _getPartySnapshotForTrainer(tn);
+  const publicParty = _getPublicStatePartyForTrainer(tn);
 
   // 2) users_raw/users (espelhado pelo Streamlit ou por outro processo)
-  const player = (appState.players || []).find(x => safeStr(x?.trainer_name) === tn);
-  const uidCandidates = [
+  let rawParty = _getUserRawPartyForTrainer(tn);
+  const player = (appState.players || []).find(x => sameTrainerName(x?.trainer_name, tn));
+  const uidCandidates = rawParty.length ? [] : [
     safeStr(player?.uid),
     safeStr(player?.id),
     safeDocId(tn),
   ].filter(Boolean);
-  let rawParty = [];
   for (const uid of uidCandidates) {
     const entry = appState.userProfiles?.get?.(uid);
     const raw = entry?.raw;
@@ -4802,11 +4912,12 @@ function getPartyForTrainer(trainerName) {
 
   // ✅ se users_raw tem party, ela manda (fonte de verdade)
   if (rawParty.length) {
-    return _normalizePartyList(rawParty);
+    return _mergePartyDetailsIntoAuthoritativeParty(rawParty, snapParty.length ? snapParty : publicParty);
   }
 
   // fallback: usa party_snapshot (caso users_raw não tenha)
-  if (snapParty.length) return snapParty;
+  if (snapParty.length) return _mergePartyDetailsIntoAuthoritativeParty(snapParty, publicParty);
+  if (publicParty.length) return publicParty.slice(0, 8);
 
   return [];
 }
@@ -5062,6 +5173,7 @@ function _resolveRoomPiecesPartySlots(rawPieces = appState.piecesRaw) {
       piece._party_slot = explicitSlot;
       piece._party_slot_inferred = false;
       piece._party_slot_ambiguous = false;
+      if (slotEntry) _applyPartyIdentityToPiece(piece, slotEntry);
     });
 
     ownerEntries
@@ -5089,6 +5201,8 @@ function _resolveRoomPiecesPartySlots(rawPieces = appState.piecesRaw) {
         piece._party_slot = pickedSlot;
         piece._party_slot_inferred = !!pickedSlot;
         piece._party_slot_ambiguous = !pickedSlot;
+        const slotEntry = pickedSlot ? partyBySlot.get(pickedSlot) : null;
+        if (slotEntry) _applyPartyIdentityToPiece(piece, slotEntry);
       });
   }
 
@@ -5098,13 +5212,50 @@ function _resolveRoomPiecesPartySlots(rawPieces = appState.piecesRaw) {
 let _piecePartySlotRepairTimer = null;
 let _piecePartySlotRepairSignature = "";
 
-function _cleanPersistedPieceSlotFields(piece, partySlot) {
+function _pieceIdentityFieldsFromSource(source) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return {};
+  const out = {};
+  const entryId = _getEntryId(source);
+  const pokemon = (source.pokemon && typeof source.pokemon === "object" && !Array.isArray(source.pokemon))
+    ? source.pokemon
+    : null;
+  const formSlug = _extractPokemonFormSlugFromSource(source);
+  const displayName = _extractPokemonDisplayNameFromSource(source);
+  const resolvedTypes = _extractResolvedTypesFromSource(source);
+  const resolvedAbilities = _extractResolvedAbilitiesFromSource(source);
+  const captureBall = source.capture_ball || source.captureBall;
+  const heldItem = source.held_item || source.heldItem;
+  if (entryId) out.entry_id = entryId;
+  if (pokemon && (pokemon.name || pokemon.id || pokemon.api_name || pokemon.apiName)) out.pokemon = { ...pokemon };
+  if (formSlug) out.form_slug = formSlug;
+  if (displayName) out.display_name = displayName;
+  if (resolvedTypes.length) out.resolved_types = resolvedTypes;
+  if (resolvedAbilities.length) out.resolved_abilities = resolvedAbilities;
+  if (captureBall) out.capture_ball = captureBall;
+  if (heldItem) out.held_item = heldItem;
+  return out;
+}
+
+function _applyPartyIdentityToPiece(piece, partyEntry) {
+  if (!piece || typeof piece !== "object" || !partyEntry) return piece;
+  const fields = _pieceIdentityFieldsFromSource(partyEntry);
+  Object.assign(piece, fields);
+  return piece;
+}
+
+function _identityFieldDiffers(left, right) {
+  return JSON.stringify(left ?? null) !== JSON.stringify(right ?? null);
+}
+
+function _cleanPersistedPieceSlotFields(piece, partySlot, resolvedPiece = null) {
   const next = { ...(piece || {}) };
   next.party_slot = partySlot || null;
   if (Object.prototype.hasOwnProperty.call(next, "_party_slot")) next._party_slot = partySlot || "";
   delete next._party_slot_invalid;
   delete next._party_slot_inferred;
   delete next._party_slot_ambiguous;
+  const identityFields = _pieceIdentityFieldsFromSource(resolvedPiece);
+  Object.assign(next, identityFields);
   return next;
 }
 
@@ -5130,11 +5281,13 @@ function _buildRoomPiecePartySlotRepair(rawPieces, resolvedPieces) {
       safeStr(piece._party_slot_invalid) ||
       safeStr(piece._party_slot_inferred) ||
       safeStr(piece._party_slot_ambiguous);
-    const needsRepair = invalidSlot || inferredSlot || hasStaleDebugSlot || currentSlot !== nextSlot;
+    const identityFields = _pieceIdentityFieldsFromSource(fixed);
+    const needsIdentityRepair = Object.entries(identityFields).some(([key, value]) => _identityFieldDiffers(piece?.[key], value));
+    const needsRepair = invalidSlot || inferredSlot || hasStaleDebugSlot || currentSlot !== nextSlot || needsIdentityRepair;
     if (!needsRepair) return piece;
 
     changed = true;
-    return _cleanPersistedPieceSlotFields(piece, nextSlot);
+    return _cleanPersistedPieceSlotFields(piece, nextSlot, fixed);
   });
 
   return changed ? nextPieces : null;
@@ -5146,7 +5299,16 @@ function scheduleRoomPiecePartySlotRepair(rawPieces = appState.piecesRaw, resolv
 
   const signature = JSON.stringify(nextPieces.map((piece) => {
     if (!piece || typeof piece !== "object") return null;
-    return [safeStr(piece.id), safeStr(piece.owner), safeStr(piece.pid), safeStr(piece.party_slot)];
+    return [
+      safeStr(piece.id),
+      safeStr(piece.owner),
+      safeStr(piece.pid),
+      safeStr(piece.party_slot),
+      safeStr(piece.entry_id),
+      safeStr(piece.form_slug),
+      safeStr(piece.display_name),
+      safeStr(piece.pokemon?.name),
+    ];
   }));
   if (signature && signature === _piecePartySlotRepairSignature) return;
   _piecePartySlotRepairSignature = signature;
@@ -5201,7 +5363,7 @@ function _getUserDataForTrainer(trainerName) {
     uidCandidates.add(safeStr(appState.selfAuthUid));
   }
   for (const player of (appState.players || [])) {
-    if (_trainerLookupKey(player?.trainer_name) !== _trainerLookupKey(tn)) continue;
+    if (!sameTrainerName(player?.trainer_name, tn)) continue;
     uidCandidates.add(safeStr(player?.uid));
     uidCandidates.add(safeStr(player?.id));
   }
@@ -5520,7 +5682,9 @@ function _extractResolvedTypesFromSource(source) {
   if (!source || typeof source !== "object" || Array.isArray(source)) return [];
   const fromResolved = _coerceResolvedTypes(source?.resolved_types ?? source?.resolvedTypes);
   if (fromResolved.length) return fromResolved;
-  return _coerceResolvedTypes(source?.type_override ?? source?.typeOverride);
+  const fromOverride = _coerceResolvedTypes(source?.type_override ?? source?.typeOverride);
+  if (fromOverride.length) return fromOverride;
+  return _coerceResolvedTypes(source?.pokemon?.types ?? source?.types);
 }
 
 function _getResolvedTypesFromHubMeta(hubMeta, pidLike) {
@@ -5603,7 +5767,7 @@ function _extractResolvedAbilitiesFromSource(source) {
   if (!source || typeof source !== "object" || Array.isArray(source)) return [];
   const fromResolved = _coerceResolvedAbilities(source?.resolved_abilities ?? source?.resolvedAbilities);
   if (fromResolved.length) return fromResolved;
-  return _coerceResolvedAbilities(source?.ability_override ?? source?.abilityOverride ?? source?.abilities);
+  return _coerceResolvedAbilities(source?.ability_override ?? source?.abilityOverride ?? source?.pokemon?.abilities ?? source?.abilities);
 }
 
 function _extractPokemonFormSlugFromSource(source) {
@@ -5614,6 +5778,10 @@ function _extractPokemonFormSlugFromSource(source) {
   return _normalizePokemonFormSlug(
     source?.form_slug
     ?? source?.formSlug
+    ?? source?.pokemon_api_name
+    ?? source?.pokemonApiName
+    ?? source?.api_name
+    ?? source?.apiName
     ?? source?.selected_form
     ?? source?.selectedForm
     ?? nestedForm?.slug
@@ -5622,6 +5790,10 @@ function _extractPokemonFormSlugFromSource(source) {
     ?? nestedForm?.pokemonApiName
     ?? nestedForm?.species_api_name
     ?? nestedForm?.speciesApiName
+    ?? source?.pokemon?.api_name
+    ?? source?.pokemon?.apiName
+    ?? source?.pokemon?.name
+    ?? source?.name
     ?? (nestedForm ? "" : source?.form)
   );
 }
@@ -5635,6 +5807,8 @@ function _extractPokemonDisplayNameFromSource(source) {
     ?? source?.formDisplayName
     ?? source?.resolved_name
     ?? source?.resolvedName
+    ?? source?.pokemon?.name
+    ?? source?.name
   );
 }
 
@@ -5798,9 +5972,11 @@ function _canShowGmaxForTrainerPid(trainerName, pidLike, options = {}) {
 
 function _getPreferredPokemonFormSource(trainerName, pidLike) {
   const owner = safeStr(trainerName);
+  const explicitSource = (pidLike && typeof pidLike === "object" && !Array.isArray(pidLike)) ? pidLike : null;
   const userFormSource = _getUserFormSourceForTrainerPid(owner, pidLike);
   for (const [kind, source] of [
     ["room", _getPokemonFormEntry(owner, pidLike)],
+    ["piece", explicitSource],
     ["snapshot", getPartySnapshotEntryForTrainerPid(owner, pidLike)],
     ["party", _getPartyEntryForTrainerPid(owner, pidLike)],
     ["user", userFormSource?.raw],
@@ -8090,6 +8266,7 @@ function openPieceRollTestModal(piece) {
   const refs = ensurePieceActionModal();
   const state = buildPieceRollTestState(piece);
   const firstKey = state.choices[0]?.key || "";
+  refs.backdrop.dataset.pieceModal = "roll-test";
   refs.title.textContent = `Rolar Teste - ${state.name}`;
   refs.content.innerHTML = `
     <div class="inspector roll-test-panel" data-roll-test-piece="${escapeAttr(state.pieceId)}">
@@ -8169,6 +8346,7 @@ async function openPieceConditionsModal(piece) {
   const refs = ensurePieceActionModal();
   const isMine = isPieceMine(piece);
   const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
+  refs.backdrop.dataset.pieceModal = "conditions";
   refs.title.textContent = `Condições • ${name}`;
   refs.content.innerHTML = `<div class="inspector">${renderInspectorConditionsPanelHTML(piece, { isMine })}</div>`;
   refs.backdrop.style.display = "";
@@ -8180,10 +8358,38 @@ function ensurePieceVitalCss() {
   const style = document.createElement("style");
   style.id = "piece-vital-css";
   style.textContent = `
+#piece_action_modal_backdrop[data-piece-modal="vital"] {
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+#piece_action_modal_backdrop[data-piece-modal="vital"] .modal-box {
+  width: min(96vw, 1180px) !important;
+  max-width: min(96vw, 1180px) !important;
+  max-height: min(92dvh, 900px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 16px;
+}
+#piece_action_modal_backdrop[data-piece-modal="vital"] .modal-header {
+  flex: 0 0 auto;
+  margin-bottom: 12px;
+}
+#piece_action_modal_backdrop[data-piece-modal="vital"] .modal-body {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+#piece_action_modal_backdrop[data-piece-modal="vital"] #piece_action_modal_content {
+  min-width: 0;
+}
 .piece-vital-shell {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
 }
 .piece-vital-card {
   border: 1px solid rgba(56,189,248,.24);
@@ -8191,9 +8397,11 @@ function ensurePieceVitalCss() {
   border-radius: 14px;
   padding: 14px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+  position: sticky;
+  top: 0;
 }
 .piece-vital-media {
-  height: 150px;
+  height: 132px;
   display: grid;
   place-items: center;
   border-radius: 12px;
@@ -8201,8 +8409,8 @@ function ensurePieceVitalCss() {
   background: radial-gradient(circle at 50% 42%, rgba(45,212,191,.18), rgba(15,23,42,.62) 58%, rgba(2,6,23,.86));
 }
 .piece-vital-media img {
-  max-width: 142px;
-  max-height: 142px;
+  max-width: 124px;
+  max-height: 124px;
   object-fit: contain;
   image-rendering: pixelated;
   filter: drop-shadow(0 12px 16px rgba(0,0,0,.42));
@@ -8210,13 +8418,16 @@ function ensurePieceVitalCss() {
 .piece-vital-name {
   font-weight: 950;
   color: rgba(226,232,240,.96);
-  font-size: 18px;
+  font-size: 17px;
   margin-top: 12px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 .piece-vital-sub {
   color: rgba(148,163,184,.82);
   font-size: 12px;
   margin-top: 3px;
+  overflow-wrap: anywhere;
 }
 .piece-vital-hp-head {
   display: flex;
@@ -8249,7 +8460,7 @@ function ensurePieceVitalCss() {
 }
 .piece-vital-hp-controls button,
 .piece-vital-hp-controls input {
-  height: 36px;
+  height: 38px;
   border-radius: 9px;
   border: 1px solid rgba(148,163,184,.22);
   background: rgba(2,6,23,.44);
@@ -8271,8 +8482,116 @@ function ensurePieceVitalCss() {
 .piece-vital-conditions {
   min-width: 0;
 }
-@media (max-width: 760px) {
-  .piece-vital-shell { grid-template-columns: 1fr; }
+.piece-vital-section-title {
+  margin: 1px 0 10px;
+  color: rgba(226,232,240,.96);
+  font-size: .92rem;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+.piece-vital-conditions .ins-conds {
+  gap: 12px;
+}
+.piece-vital-conditions .ins-conds-hero {
+  display: none;
+}
+.piece-vital-conditions .ins-conds-shell {
+  grid-template-columns: minmax(0, 1.25fr) minmax(230px, .7fr);
+  gap: 12px;
+}
+.piece-vital-conditions .ins-conds-groups {
+  gap: 10px;
+}
+.piece-vital-conditions .ins-conds-card,
+.piece-vital-conditions .ins-conds-side-block {
+  border-radius: 14px;
+  padding: 10px;
+}
+.piece-vital-conditions .ins-conds-card.is-wide {
+  grid-column: auto;
+}
+.piece-vital-conditions .custom-cond-list.cond-grid {
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  max-height: min(28vh, 230px);
+  gap: 7px;
+}
+.piece-vital-conditions .custom-cond-list.pkm-list.cond-grid {
+  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+}
+.piece-vital-conditions .cond-item {
+  border-radius: 12px;
+  padding: 9px 10px;
+}
+@media (max-width: 900px) {
+  #piece_action_modal_backdrop[data-piece-modal="vital"] .modal-box {
+    width: min(96vw, 760px) !important;
+    max-width: min(96vw, 760px) !important;
+  }
+  .piece-vital-shell {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .piece-vital-card {
+    position: static;
+  }
+  .piece-vital-conditions .ins-conds-shell,
+  .piece-vital-conditions .ins-conds-groups {
+    grid-template-columns: 1fr;
+  }
+  .piece-vital-conditions .ins-conds-side {
+    position: static;
+  }
+  .piece-vital-conditions .custom-cond-list.cond-grid {
+    max-height: 190px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  #piece_action_modal_backdrop[data-piece-modal="vital"] {
+    align-items: stretch;
+    padding: 8px;
+  }
+  #piece_action_modal_backdrop[data-piece-modal="vital"] .modal-box {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100dvh - 16px);
+    padding: 12px;
+    border-radius: 12px;
+  }
+  #piece_action_modal_backdrop[data-piece-modal="vital"] .modal-body {
+    padding-right: 0;
+  }
+  .piece-vital-card {
+    display: block;
+  }
+  .piece-vital-media {
+    height: 88px;
+    border-radius: 10px;
+  }
+  .piece-vital-media img {
+    max-width: 80px;
+    max-height: 80px;
+  }
+  .piece-vital-name {
+    margin-top: 8px;
+    font-size: 15px;
+  }
+  .piece-vital-hp-head {
+    margin-top: 6px;
+  }
+  .piece-vital-hp-controls {
+    grid-template-columns: 36px minmax(0, 1fr) 36px;
+    gap: 6px;
+  }
+  .piece-vital-hp-controls button,
+  .piece-vital-hp-controls input {
+    height: 34px;
+  }
+  .piece-vital-conditions .custom-cond-list.cond-grid,
+  .piece-vital-conditions .custom-cond-list.pkm-list.cond-grid {
+    grid-template-columns: 1fr;
+    max-height: 180px;
+  }
 }
 `;
   document.head.appendChild(style);
@@ -8303,12 +8622,13 @@ function renderPieceVitalPanelHTML(piece, { isMine }) {
           <div class="piece-vital-hpfill" data-vital-hp-fill style="width:${hpPct.toFixed(0)}%;background:${hpColor}"></div>
         </div>
         <div class="piece-vital-hp-controls">
-          <button type="button" data-vital-hp-step="-1" ${isMine ? "" : "disabled"}>-</button>
+          <button type="button" data-vital-hp-step="-1" aria-label="Diminuir HP" ${isMine ? "" : "disabled"}>-</button>
           <input type="number" min="0" max="6" step="1" value="${escapeAttr(hp)}" data-vital-hp-input ${isMine ? "" : "disabled"}>
-          <button type="button" data-vital-hp-step="1" ${isMine ? "" : "disabled"}>+</button>
+          <button type="button" data-vital-hp-step="1" aria-label="Aumentar HP" ${isMine ? "" : "disabled"}>+</button>
         </div>
       </section>
       <section class="piece-vital-conditions">
+        <div class="piece-vital-section-title">Condições</div>
         <div class="inspector">${renderInspectorConditionsPanelHTML(piece, { isMine })}</div>
       </section>
     </div>
@@ -8356,6 +8676,7 @@ async function openPieceVitalModal(piece) {
   ensurePieceVitalCss();
   const isMine = isPieceMine(piece);
   const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine });
+  refs.backdrop.dataset.pieceModal = "vital";
   refs.title.textContent = `Vital • ${name}`;
   refs.content.innerHTML = renderPieceVitalPanelHTML(piece, { isMine });
   refs.backdrop.style.display = "";
@@ -8385,6 +8706,7 @@ function openPieceMegaModal(piece) {
     return;
   }
   const refs = ensurePieceActionModal();
+  refs.backdrop.dataset.pieceModal = "mega";
   refs.title.textContent = `Mega Evolução • ${displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine: true })}`;
   refs.content.innerHTML = `<div class="inspector">${_renderMegaControlsHtml(megaState.owner, megaState.pid, megaState.entry, { title: "Mega Evolução" })}</div>`;
   refs.backdrop.style.display = "";
@@ -10382,7 +10704,10 @@ function getEffectiveSpriteUrlForTrainerPid(ownerName, pidLike, options = {}) {
   const owner = safeStr(ownerName);
   const pid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
   if (!pid) return "";
-  return getSpriteUrlForPiece({ owner, pid, party_slot: _getPartySlot(pidLike) }, options);
+  const identity = (pidLike && typeof pidLike === "object" && !Array.isArray(pidLike))
+    ? { ...pidLike, owner, pid, party_slot: _getPartySlot(pidLike) }
+    : { owner, pid };
+  return getSpriteUrlForPiece(identity, options);
 }
 
 function readSpeedFromStats(statsObj) {
@@ -10906,12 +11231,22 @@ async function placePokemonOnBoardAt(pidLike, row, col) {
     }
 
     const newId = makePieceId();
+    const presentation = getEffectivePokemonPresentationForTrainerPid(by, identity, { type: "battle" });
+    const identityFields = _pieceIdentityFieldsFromSource({
+      ...identity,
+      pokemon: presentation?.effective_sheet?.pokemon || null,
+      form_slug: presentation?.form_slug,
+      display_name: presentation?.display_name,
+      resolved_types: presentation?.resolved_types,
+      resolved_abilities: presentation?.resolved_abilities,
+    });
     const newPiece = {
       id: newId,
       owner: by,
       pid: monPid,
       entry_id: entryId || null,
       party_slot: partySlot || null,
+      ...identityFields,
       row: r,
       col: c,
       status: "active",
@@ -11026,6 +11361,98 @@ function getArenaAttackTargetModeState() {
   return mode;
 }
 
+function getPieceGridDistance(a, b) {
+  if (!a || !b) return null;
+  const cellsFor = (piece) => {
+    const row = Number(piece?.row);
+    const col = Number(piece?.col);
+    if (!Number.isFinite(row) || !Number.isFinite(col)) return [];
+    try {
+      const sizeCategory = getPieceSizeCategory(piece);
+      const cells = getPieceFootprint({ ...piece, row, col, sizeCategory });
+      if (Array.isArray(cells) && cells.length) return cells;
+    } catch {}
+    return [{ row, col }];
+  };
+  const aCells = cellsFor(a);
+  const bCells = cellsFor(b);
+  if (!aCells.length || !bCells.length) return null;
+  let best = Infinity;
+  for (const ac of aCells) {
+    for (const bc of bCells) {
+      const d = Math.max(Math.abs(Number(ac.row) - Number(bc.row)), Math.abs(Number(ac.col) - Number(bc.col)));
+      if (Number.isFinite(d) && d < best) best = d;
+    }
+  }
+  return Number.isFinite(best) ? best : null;
+}
+
+function getArenaAttackModeRangeLimit(mode = getArenaAttackTargetModeState()) {
+  if (!mode) return null;
+  const explicit = Number(mode.rangeLimitSquares ?? mode.range_limit_squares ?? mode.maxRangeSquares ?? mode.max_range_squares);
+  if (Number.isFinite(explicit) && explicit > 0) return Math.max(1, Math.floor(explicit));
+  const kind = safeStr(mode.kind).toLowerCase();
+  const rangeStr = safeStr(mode.rangeStr || mode.range_str).toLowerCase();
+  if (kind === "melee" || rangeStr === "melee") return 1;
+  return null;
+}
+
+function getArenaAttackTargetRangeState(piece, mode = getArenaAttackTargetModeState()) {
+  const limit = getArenaAttackModeRangeLimit(mode);
+  if (!mode || limit == null) return { inRange: true, distance: null, limit: null, hasLimit: false };
+  const attackerId = safeStr(mode.attackerPieceId || mode.attacker_piece_id);
+  const attacker = (appState.pieces || []).find((p) => safeStr(p?.id) === attackerId) || null;
+  const distance = getPieceGridDistance(attacker, piece);
+  if (distance == null) return { inRange: true, distance, limit, hasLimit: true };
+  return { inRange: distance <= limit, distance, limit, hasLimit: true };
+}
+
+function getArenaAttackTileRangeState(row, col, mode = getArenaAttackTargetModeState()) {
+  const limit = getArenaAttackModeRangeLimit(mode);
+  if (!mode || limit == null) return { inRange: true, distance: null, limit: null, hasLimit: false };
+  const attackerId = safeStr(mode.attackerPieceId || mode.attacker_piece_id);
+  const attacker = (appState.pieces || []).find((p) => safeStr(p?.id) === attackerId) || null;
+  const distance = getPieceGridDistance(attacker, { row, col, sizeCategory: SIZE_CATEGORIES.medium });
+  if (distance == null) return { inRange: false, distance, limit, hasLimit: true };
+  return { inRange: distance <= limit, distance, limit, hasLimit: true };
+}
+
+function drawArenaAttackRangeOverlay(ctx, ox, oy, gs, tile, mode = getArenaAttackTargetModeState()) {
+  if (!ctx || !mode || getArenaAttackModeRangeLimit(mode) == null) return;
+  const attackerId = safeStr(mode.attackerPieceId || mode.attacker_piece_id);
+  const attacker = (appState.pieces || []).find((p) => safeStr(p?.id) === attackerId) || null;
+  ctx.save();
+  for (let r = 0; r < gs; r++) {
+    for (let c = 0; c < gs; c++) {
+      const rangeState = getArenaAttackTileRangeState(r, c, mode);
+      if (!rangeState?.inRange) continue;
+      const xh = ox + c * tile;
+      const yh = oy + r * tile;
+      ctx.fillStyle = "rgba(248,113,113,0.11)";
+      ctx.fillRect(xh + 1, yh + 1, tile - 2, tile - 2);
+      ctx.strokeStyle = "rgba(248,113,113,0.24)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(xh + 2, yh + 2, tile - 4, tile - 4);
+    }
+  }
+  if (attacker) {
+    const sizeCategory = getPieceSizeCategory(attacker);
+    for (const cell of getPieceFootprint({ ...attacker, sizeCategory })) {
+      const r = Number(cell.row);
+      const c = Number(cell.col);
+      if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
+      const xh = ox + c * tile;
+      const yh = oy + r * tile;
+      ctx.fillStyle = "rgba(251,191,36,0.14)";
+      ctx.fillRect(xh + 2, yh + 2, tile - 4, tile - 4);
+      ctx.strokeStyle = "rgba(251,191,36,0.42)";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(xh + 3, yh + 3, tile - 6, tile - 6);
+    }
+  }
+  ctx.restore();
+}
+
 function isArenaAttackTargetCandidate(piece, mode = getArenaAttackTargetModeState()) {
   if (!mode || !piece) return false;
   if (safeStr(piece?.status || "active") !== "active") return false;
@@ -11035,6 +11462,40 @@ function isArenaAttackTargetCandidate(piece, mode = getArenaAttackTargetModeStat
   try {
     if (!isPieceVisibleToMe(piece)) return false;
   } catch {}
+  const rangeState = getArenaAttackTargetRangeState(piece, mode);
+  if (rangeState?.hasLimit && rangeState.inRange === false) return false;
+  return true;
+}
+
+function handleArenaAttackTargetClick(piecesOnTile, clientX, clientY) {
+  const mode = getArenaAttackTargetModeState();
+  if (!mode) return false;
+  const pieces = (Array.isArray(piecesOnTile) ? piecesOnTile : []).filter(Boolean);
+  const targetable = pieces.filter((piece) => isArenaAttackTargetCandidate(piece, mode));
+  if (!targetable.length) {
+    const visibleEnemy = pieces.find((piece) => {
+      if (isPieceMine(piece) || isTrainerPiece(piece)) return false;
+      try { return isPieceVisibleToMe(piece); } catch { return true; }
+    }) || null;
+    const rangeState = visibleEnemy ? getArenaAttackTargetRangeState(visibleEnemy, mode) : null;
+    if (rangeState?.hasLimit && rangeState.inRange === false) {
+      setStatus("warn", `alvo fora do alcance (${rangeState.distance}/${rangeState.limit}q)`);
+    } else {
+      setStatus("warn", "clique em um alvo inimigo valido");
+    }
+    return true;
+  }
+  const ui = window._arenaCombatUI;
+  if (targetable.length > 1 && typeof ui?._showPieceChoiceMenu === "function") {
+    ui._showPieceChoiceMenu(targetable, clientX, clientY, {
+      title: "Escolha o alvo do golpe",
+      onSelect: (piece) => ui?._executeAttackTargetMode?.(piece),
+    });
+    return true;
+  }
+  if (typeof ui?._executeAttackTargetMode === "function") {
+    ui._executeAttackTargetMode(targetable[0]);
+  }
   return true;
 }
 
@@ -12567,6 +13028,12 @@ function bindArenaInteractionsDom() {
       return;
     }
 
+    if (getArenaAttackTargetModeState()) {
+      handleArenaAttackTargetClick(getPiecesAt(row, col), ev.clientX, ev.clientY);
+      requestArenaRefresh(true);
+      return;
+    }
+
     const clickedPiece = getDomClickedPiece(ev);
     if (clickedPiece) {
       if (isPieceMine(clickedPiece) && !isTrainerPiece(clickedPiece)) previewPieceWithoutMovement(clickedPiece);
@@ -12741,6 +13208,8 @@ function renderArenaDom() {
     cell.classList.remove("place-ok");
     cell.classList.remove("move-ok");
     cell.classList.remove("move-no");
+    cell.classList.remove("attack-range-ok");
+    cell.classList.remove("attack-range-origin");
     cell.classList.remove("attack-targetable");
     cell.classList.remove("attack-target-hover");
     // remove todos os tokens (stacking pode ter múltiplos)
@@ -12770,7 +13239,23 @@ function renderArenaDom() {
   const hoveredPieceId = safeStr(appState.hoveredPieceId || "");
   updatePieceFieldFx(activePieces, frameNow);
   const selPiece = (appState.pieces || []).find((p) => safeStr(p?.id) === safeStr(appState.selectedPieceId)) || null;
-  if (!placingPid && selPiece && canCurrentPlayerMovePiece(selPiece.id)) {
+  if (!placingPid && attackTargetMode && getArenaAttackModeRangeLimit(attackTargetMode) != null) {
+    const attackerId = safeStr(attackTargetMode.attackerPieceId || attackTargetMode.attacker_piece_id);
+    for (let r = 0; r < gs; r++) {
+      for (let c = 0; c < gs; c++) {
+        const cell = domCells[r * gs + c];
+        if (!cell) continue;
+        const rangeState = getArenaAttackTileRangeState(r, c, attackTargetMode);
+        if (rangeState?.inRange) cell.classList.add("attack-range-ok");
+      }
+    }
+    const attacker = (appState.pieces || []).find((p) => safeStr(p?.id) === attackerId) || null;
+    for (const cellInfo of getPieceFootprint({ ...(attacker || {}), sizeCategory: getPieceSizeCategory(attacker) })) {
+      const cell = domCells[Number(cellInfo.row) * gs + Number(cellInfo.col)];
+      if (cell) cell.classList.add("attack-range-origin");
+    }
+  }
+  if (!placingPid && !attackTargetMode && selPiece && canCurrentPlayerMovePiece(selPiece.id)) {
     const reach = getReachableTileMap(selPiece);
     for (let r = 0; r < gs; r++) {
       for (let c = 0; c < gs; c++) {
@@ -14890,6 +15375,9 @@ function draw() {
     }
   }
 
+  const attackTargetMode = getArenaAttackTargetModeState();
+  if (!placingPid) drawArenaAttackRangeOverlay(ctx, ox, oy, gs, tile, attackTargetMode);
+
   // hover highlight
   if (appState.hover.row != null) {
     const x = ox + appState.hover.col * tile;
@@ -14903,7 +15391,7 @@ function draw() {
 
   updateMovementTurnState();
   const selPiece = (appState.pieces || []).find((p) => safeStr(p?.id) === safeStr(appState.selectedPieceId)) || null;
-  if (!placingPid && selPiece && canCurrentPlayerMovePiece(selPiece.id)) {
+  if (!placingPid && !attackTargetMode && selPiece && canCurrentPlayerMovePiece(selPiece.id)) {
     const reach = getReachableTileMap(selPiece);
     for (let r = 0; r < gs; r++) {
       for (let c = 0; c < gs; c++) {
@@ -14969,7 +15457,6 @@ drawTraps(ctx, ox, oy, tile);
   const _myColor = { border: "rgba(34,197,94,0.65)", fill: "rgba(34,197,94,0.08)", glow: "rgba(34,197,94,0.20)" };
   const _selColor = { border: "rgba(56,189,248,0.85)", fill: "rgba(56,189,248,0.18)", glow: "rgba(56,189,248,0.35)" };
   const _defaultColor = { border: "rgba(148,163,184,0.22)", fill: "rgba(0,0,0,0.18)", glow: "transparent" };
-  const attackTargetMode = getArenaAttackTargetModeState();
   const hoveredPieceId = safeStr(appState.hoveredPieceId);
 
   // Map unique opponent names to colors (stable ordering)
@@ -16974,6 +17461,235 @@ function _moveMetaBool(value, fallback = null) {
   if (["false", "0", "no", "nao", "não", "n"].includes(raw)) return false;
   return fallback;
 }
+function _rangeText(value) {
+  return safeStr(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+function _rangeFieldKey(key) {
+  return _rangeText(key).replace(/[^a-z0-9]/g, "");
+}
+function _feetToGridSquares(feet) {
+  const n = Number(feet);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.max(1, Math.ceil(n / 5));
+}
+function _metersToGridSquares(meters) {
+  const n = Number(meters);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return _feetToGridSquares(n * 3.28084);
+}
+function _mmRankNumber(value) {
+  if (value == null || value === false || value === true) return 0;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return _mmRankNumber(value.value ?? value.rank ?? value.fixed ?? value.fixedValue ?? value.base);
+  }
+  const n = Number(String(value).replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+function _maxMmExtendedRangeRank(...values) {
+  const text = _rangeText(values.filter((value) => value != null).join(" "));
+  let best = 0;
+  for (const match of text.matchAll(/\bextended\s+range\s*:?\s*(\d+)/g)) {
+    const n = Number(match[1]);
+    if (Number.isFinite(n) && n > best) best = n;
+  }
+  return Math.max(0, Math.min(12, Math.floor(best)));
+}
+function _parseRangeSquaresValue(value) {
+  if (value == null || value === false || value === true) return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value > 0 ? Math.max(1, Math.floor(value)) : null;
+  }
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const nestedKeys = [
+      "squares", "square", "tiles", "tile", "cells", "cell",
+      "quadrados", "quadrado", "casas", "casa",
+      "value", "max", "maximum", "limit", "range", "distance", "alcance",
+      "rangeSquares", "range_squares", "maxRangeSquares", "max_range_squares",
+      "fixedRangeSquares", "fixed_range_squares", "fixedDistanceSquares", "fixed_distance_squares",
+    ];
+    for (const key of nestedKeys) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+      const parsed = _parseRangeSquaresValue(value[key]);
+      if (parsed != null) return parsed;
+    }
+    return null;
+  }
+
+  const text = _rangeText(value);
+  if (!text) return null;
+  if (/^(?:close|melee|adjacent|adjacente|corpo a corpo|contato)$/.test(text)) return 1;
+  if (/^\d+(?:[.,]\d+)?$/.test(text)) return Math.max(1, Math.floor(Number(text.replace(",", "."))));
+  const feetOnly = text.match(/^(\d+(?:[.,]\d+)?)\s*(?:ft|feet|foot|pes?)$/);
+  if (feetOnly) return _feetToGridSquares(Number(feetOnly[1].replace(",", ".")));
+  const metersOnly = text.match(/^(\d+(?:[.,]\d+)?)\s*(?:m|metro|metros)$/);
+  if (metersOnly) return _metersToGridSquares(Number(metersOnly[1].replace(",", ".")));
+
+  let best = 0;
+  const squareRe = /(\d+(?:[.,]\d+)?)\s*(?:q\b|quadrad[oa]s?|quadros?|casas?|tiles?|squares?)/g;
+  for (const match of text.matchAll(squareRe)) {
+    const n = Number(match[1].replace(",", "."));
+    if (Number.isFinite(n) && n > best) best = n;
+  }
+  if (/\b(?:um|uma)\s+(?:quadrad[oa]|quadro|casa|tile|square)\b/.test(text)) best = Math.max(best, 1);
+  return best > 0 ? Math.max(1, Math.floor(best)) : null;
+}
+function _parseRangeSquaresFromText(value) {
+  const text = _rangeText(value);
+  if (!text) return null;
+  let best = _parseRangeSquaresValue(text) || 0;
+
+  const rangedTripletRe = /(?:standard\s*[-;]\s*ranged|ranged)[^()]{0,90}?(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)\s*(?:ft|feet)\b/g;
+  for (const match of text.matchAll(rangedTripletRe)) {
+    const squares = _feetToGridSquares(Number(match[3]));
+    if (squares && squares > best) best = squares;
+  }
+  const directTripletRe = /\b(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)\s*(?:ft|feet)\b/g;
+  for (const match of text.matchAll(directTripletRe)) {
+    const squares = _feetToGridSquares(Number(match[3]));
+    if (squares && squares > best) best = squares;
+  }
+
+  const areaFeetRe = /\b(\d+)\s*(?:ft|feet)\s*(?:wide\s*by\s*)?(\d+)?\s*(?:ft|feet)?\s*(?:long|line|cone|radius|sphere|cylinder)\b/g;
+  for (const match of text.matchAll(areaFeetRe)) {
+    const feet = Number(match[2] || match[1]);
+    const squares = _feetToGridSquares(feet);
+    if (squares && squares > best) best = squares;
+  }
+
+  return best > 0 ? best : null;
+}
+function _getMmRangedRangeLimitInfo(mv, powerRule = null) {
+  const effects = Array.isArray(powerRule?.effects) ? powerRule.effects : [];
+  const text = [
+    mv?.build,
+    mv?.buildText,
+    mv?.meta?.build_base,
+    mv?.meta?.buildBase,
+    powerRule?.buildText,
+    powerRule?.rulesText,
+    powerRule?.audit?.build,
+    powerRule?.audit?.notes,
+  ].map(safeStr).join(" ");
+  const normalizedText = _rangeText(text);
+  const rangedEffect = effects.find((effect) => {
+    const range = _rangeText(effect?.range);
+    const raw = _rangeText(effect?.raw);
+    if (range === "perception" || raw.includes("perception ranged")) return false;
+    return range === "ranged" || raw.includes("[ranged]") || /\branged\b/.test(raw);
+  }) || null;
+  const hasRangedText = /\branged\b/.test(normalizedText) || _rangeText(powerRule?.range || powerRule?.targeting?.range) === "ranged";
+  if (!rangedEffect && !hasRangedText) return null;
+  if (!rangedEffect && /\bperception\s+ranged\b/.test(normalizedText)) return null;
+  const rank = _mmRankNumber(rangedEffect?.rank)
+    || _mmRankNumber(powerRule?.rank)
+    || _mmRankNumber(mv?.rank ?? mv?.damage ?? mv?.power);
+  if (!rank) return null;
+  const extended = _maxMmExtendedRangeRank(
+    rangedEffect?.raw,
+    Array.isArray(rangedEffect?.extras) ? rangedEffect.extras.join(" ") : "",
+    normalizedText,
+  );
+  const feet = rank * 100 * (2 ** extended);
+  const squares = _feetToGridSquares(feet);
+  if (!squares) return null;
+  const normalized = { squares, source: extended ? `mm_ranged_rank_extended_${extended}` : "mm_ranged_rank" };
+  normalized.label = _rangeLimitLabel(normalized);
+  return normalized;
+}
+function _collectRangeCandidatesFromObject(obj, source, out, depth = 0) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj) || depth > 4) return;
+  const directKeys = new Set([
+    "rangesquares", "maxrangesquares", "fixedrangesquares", "distancesquares",
+    "maxdistancesquares", "fixeddistancesquares", "rangetiles", "maxrangetiles",
+    "fixedrangetiles", "distancetiles", "maxdistancetiles", "rangegrid",
+    "maxrangegrid", "attackrangesquares", "targetrangesquares", "rangecells",
+    "maxrangecells", "range", "maxrange", "fixedrange", "distance",
+    "maxdistance", "fixeddistance", "targetdistance", "alcance", "alcancemax",
+    "alcancemaximo", "limitedrange", "rangelimit", "rangefixed",
+  ]);
+  const nestedKeys = new Set(["meta", "targeting", "parameters", "params", "rangeinfo", "range", "distance", "power_model_v2", "powermodelv2"]);
+  for (const [key, value] of Object.entries(obj)) {
+    const nk = _rangeFieldKey(key);
+    const keyLooksRelevant = directKeys.has(nk)
+      || (/(?:range|distance|distancia|alcance)/.test(nk) && /(?:square|tile|cell|quad|casa|max|fixed|fix|limit)/.test(nk));
+    if (keyLooksRelevant) {
+      const parsed = _parseRangeSquaresValue(value);
+      if (parsed != null) out.push({ squares: parsed, source: `${source}.${key}` });
+      if (typeof value === "string") {
+        const fromText = _parseRangeSquaresFromText(value);
+        if (fromText != null) out.push({ squares: fromText, source: `${source}.${key}` });
+      }
+    }
+    if (nestedKeys.has(nk) || nk === "effects" || nk === "extras") {
+      _collectRangeCandidatesFromObject(value, `${source}.${key}`, out, depth + 1);
+    }
+  }
+
+  const effects = Array.isArray(obj.effects) ? obj.effects : [];
+  effects.forEach((effect, i) => {
+    _collectRangeCandidatesFromObject(effect?.parameters, `${source}.effects[${i}].parameters`, out, depth + 1);
+    _collectRangeCandidatesFromObject(effect?.targeting, `${source}.effects[${i}].targeting`, out, depth + 1);
+    const extras = Array.isArray(effect?.extras) ? effect.extras : [];
+    extras.forEach((extra, j) => {
+      if (extra && typeof extra === "object") {
+        const key = _rangeFieldKey(extra.key || extra.name || extra.label || "");
+        const desc = `${safeStr(extra.description)} ${safeStr(extra.desc)} ${safeStr(extra.value)}`;
+        const parsedDesc = _parseRangeSquaresFromText(desc);
+        if (parsedDesc != null) out.push({ squares: parsedDesc, source: `${source}.effects[${i}].extras[${j}]` });
+        if (/(?:fixed|limit|max|square|tile|quad|casa)/.test(key) && /(?:range|distance|distancia|alcance)/.test(key)) {
+          const parsed = _parseRangeSquaresValue(extra.ranks ?? extra.rank ?? extra.value);
+          if (parsed != null) out.push({ squares: parsed, source: `${source}.effects[${i}].extras[${j}].${extra.key || "range"}` });
+        }
+      }
+    });
+  });
+}
+function _rangeLimitLabel(info) {
+  const squares = Number(info?.squares);
+  if (!Number.isFinite(squares) || squares <= 0) return "";
+  return `Alcance ${Math.floor(squares)}q`;
+}
+function _getMoveRangeLimitInfo(mv, powerRule = null) {
+  const candidates = [];
+  _collectRangeCandidatesFromObject(mv, "move", candidates);
+  _collectRangeCandidatesFromObject(mv?.meta, "move.meta", candidates);
+  _collectRangeCandidatesFromObject(powerRule, "powerRule", candidates);
+
+  for (const item of candidates) {
+    const squares = Number(item?.squares);
+    if (Number.isFinite(squares) && squares > 0) {
+      const normalized = { squares: Math.max(1, Math.floor(squares)), source: safeStr(item.source) || "metadata" };
+      normalized.label = _rangeLimitLabel(normalized);
+      return normalized;
+    }
+  }
+
+  const textSources = [
+    ["move.notes", mv?.notes],
+    ["move.notas", mv?.notas],
+    ["move.description", mv?.description ?? mv?.descricao ?? mv?.descrição ?? mv?.desc],
+    ["move.build", mv?.build ?? mv?.buildText],
+    ["move.meta.description", mv?.meta?.description ?? mv?.meta?.description_pt ?? mv?.meta?.descricao],
+    ["move.meta.build_base", mv?.meta?.build_base ?? mv?.meta?.buildBase],
+    ["powerRule.buildText", powerRule?.buildText],
+    ["powerRule.rulesText", powerRule?.rulesText],
+    ["powerRule.audit.build", powerRule?.audit?.build],
+    ["powerRule.audit.notes", powerRule?.audit?.notes],
+  ];
+  for (const [source, value] of textSources) {
+    const squares = _parseRangeSquaresFromText(value);
+    if (squares != null) {
+      const normalized = { squares, source };
+      normalized.label = _rangeLimitLabel(normalized);
+      return normalized;
+    }
+  }
+
+  return _getMmRangedRangeLimitInfo(mv, powerRule);
+}
 function _formatMoveAreaLabel(areaInfo, { compact = false } = {}) {
   const info = areaInfo || {};
   if (!info.isArea) return compact ? "Acerto" : "Acerto";
@@ -17021,6 +17737,21 @@ function _getMoveModeInfoLegacy(mv) {
 function _getMoveTargetingInfo(mv, powerRule = null) {
   const meta = (mv && typeof mv === "object" && mv.meta && typeof mv.meta === "object") ? mv.meta : {};
   const targetingMode = safeStr(powerRule?.targeting?.mode || powerRule?.mode || "").toLowerCase();
+  const explicitRangeLimit = _getMoveRangeLimitInfo(mv, powerRule);
+  const withRangeLimit = (info, fallbackSquares = null, fallbackSource = "") => {
+    const limit = explicitRangeLimit || (
+      fallbackSquares != null
+        ? { squares: fallbackSquares, source: fallbackSource || "default", label: _rangeLimitLabel({ squares: fallbackSquares }) }
+        : null
+    );
+    if (!limit?.squares) return info;
+    return {
+      ...info,
+      rangeLimitSquares: limit.squares,
+      rangeLimitLabel: limit.label || _rangeLimitLabel(limit),
+      rangeLimitSource: limit.source || "metadata",
+    };
+  };
   if (_moveMetaBool(meta.affects_user, false) || targetingMode === "self" || targetingMode === "user") {
     return {
       kind: "self",
@@ -17042,7 +17773,7 @@ function _getMoveTargetingInfo(mv, powerRule = null) {
   if (areaInfo.isArea || ruleArea) {
     const effectiveArea = areaInfo.isArea ? areaInfo : { isArea: true, areaType: "", areaExtended: false, perceptionArea: false };
     const label = _formatMoveAreaLabel(effectiveArea);
-    return {
+    return withRangeLimit({
       kind: "area",
       rangeStr: "area",
       defense: "Dodge",
@@ -17055,7 +17786,7 @@ function _getMoveTargetingInfo(mv, powerRule = null) {
       style: "",
       value: label,
       areaInfo: effectiveArea,
-    };
+    });
   }
 
   const rangedMeta = _moveMetaBool(meta.ranged, null);
@@ -17076,7 +17807,7 @@ function _getMoveTargetingInfo(mv, powerRule = null) {
   const isMelee = rangedMeta === false || meleeWords.some((word) => distanceType.includes(word));
   const isRanged = rangedMeta === true || rangedWords.some((word) => distanceType.includes(word));
   if (isMelee && !isRanged) {
-    return {
+    return withRangeLimit({
       kind: "melee",
       rangeStr: "melee",
       defense: "Parry",
@@ -17089,9 +17820,9 @@ function _getMoveTargetingInfo(mv, powerRule = null) {
       style: "background:rgba(251,146,60,.14);border:1px solid rgba(251,146,60,.36);color:#fdba74;",
       value: "melee",
       distanceType: distanceType || "melee",
-    };
+    }, 1, "melee");
   }
-  return {
+  return withRangeLimit({
     kind: "ranged",
     rangeStr: "distance",
     defense: "Dodge",
@@ -17104,13 +17835,19 @@ function _getMoveTargetingInfo(mv, powerRule = null) {
     style: "background:rgba(14,165,233,.14);border:1px solid rgba(14,165,233,.36);color:#7dd3fc;",
     value: "ranged",
     distanceType: distanceType || "ranged",
-  };
+  });
 }
 
 function _getMoveModeInfo(mv, powerRule = null) {
   const targetInfo = _getMoveTargetingInfo(mv, powerRule);
   const acc = _moveRawAccuracy(mv);
   if (targetInfo?.kind === "ranged") {
+    const rangeLabel = targetInfo.rangeLimitLabel ? ` - ${targetInfo.rangeLimitLabel}` : "";
+    if (rangeLabel) {
+      const compactBase = targetInfo.compactLabel || targetInfo.label;
+      targetInfo.label = `${targetInfo.label}${rangeLabel}`;
+      targetInfo.compactLabel = `${compactBase}${rangeLabel}`;
+    }
     return {
       ...targetInfo,
       label: `${targetInfo.label} â€¢ Acerto ${acc}`,
@@ -17792,8 +18529,12 @@ window.renderHeldItemSummaryHtml = renderHeldItemSummaryHtml;
 window.getSheetMoveTempModifiers = getSheetMoveTempModifiers;
 window.getFavoriteMoveNamesForTrainerPid = _getFavoriteMoveNamesForTrainerPid;
 window.getPreferredMovesForTrainerPid = _getPreferredMovesForTrainerPid;
+window.getMoveRangeLimitInfo = _getMoveRangeLimitInfo;
 window.getMoveTargetingInfo = _getMoveTargetingInfo;
 window.getMoveModeInfo = _getMoveModeInfo;
+window.getPieceGridDistance = getPieceGridDistance;
+window.getArenaAttackTargetRangeState = getArenaAttackTargetRangeState;
+window.isArenaAttackTargetCandidate = isArenaAttackTargetCandidate;
 window.selectPiece        = selectPiece;
 window.togglePieceRevealed = togglePieceRevealed;
 window.removePieceFromBoard = removePieceFromBoard;

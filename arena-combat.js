@@ -2103,6 +2103,7 @@ export class ArenaCombatUI {
         <div class="ac-move-chips">
           ${moveType ? `<span class="ac-move-chip ac-type-chip" style="${escHtml(typeChipStyle)}">Tipo: ${escHtml(normalizeType(moveType).toUpperCase())}</span>` : ""}
           ${showAccuracy ? `<span class="ac-move-chip">Acerto ${finalAccuracy >= 0 ? "+" : ""}${escHtml(finalAccuracy)}</span>` : ""}
+          ${target.rangeLimitLabel ? `<span class="ac-move-chip">${escHtml(target.rangeLimitLabel)}</span>` : ""}
           <span class="ac-move-chip ac-chip-${chipKind}">${target.kind === "self" ? "" : targetIconHtml(chipKind)}${escHtml(targetLabel)}</span>
         </div>
       </div>
@@ -2259,6 +2260,8 @@ export class ArenaCombatUI {
         moveName: safeStr(mode.move?.name),
         kind: safeStr(mode.targeting?.kind),
         rangeStr: safeStr(mode.targeting?.rangeStr),
+        rangeLimitSquares: safeInt(mode.targeting?.rangeLimitSquares, 0) || null,
+        rangeLimitLabel: safeStr(mode.targeting?.rangeLimitLabel),
       };
       window.requestArenaRefresh?.(true);
     } catch {}
@@ -2282,6 +2285,7 @@ export class ArenaCombatUI {
       <div style="font-size:12px;color:rgba(226,232,240,.86);line-height:1.35;margin-bottom:10px">
         ${targetIconHtml(targeting.kind === "area" ? "area" : targeting.kind === "melee" ? "melee" : "ranged")}
         ${escHtml(safeStr(this._attackTargetMode.move?.name) || "Golpe")} - ${escHtml(targeting.label || "")}
+        ${targeting.rangeLimitLabel ? `<br><span style="color:rgba(248,113,113,.92)">Alcance max.: ${escHtml(targeting.rangeLimitLabel.replace(/^Alcance\s*/i, ""))}</span>` : ""}
         ${targeting.defenseLabel ? `<br><span style="color:rgba(148,163,184,.9)">${escHtml(targeting.defenseLabel)}</span>` : ""}
       </div>
       <button class="ac-quick-btn" id="ac-cancel-target-mode" style="width:100%">Cancelar</button>
@@ -2296,6 +2300,43 @@ export class ArenaCombatUI {
     this._showFloat(this._attackTargetMode.attackerPiece, "Escolha o alvo", "pending");
   }
 
+  _targetRangeState(attackerPiece, targetPiece, targeting = null, rangeStr = "") {
+    const limit = safeInt(
+      targeting?.rangeLimitSquares
+      ?? (safeStr(rangeStr) === "melee" || safeStr(targeting?.kind) === "melee" ? 1 : 0),
+      0,
+    );
+    if (!limit) return { inRange: true, hasLimit: false, distance: null, limit: null };
+    const mode = {
+      active: true,
+      attackerPieceId: safeStr(attackerPiece?.id),
+      kind: safeStr(targeting?.kind),
+      rangeStr: safeStr(rangeStr || targeting?.rangeStr),
+      rangeLimitSquares: limit,
+    };
+    try {
+      const state = window.getArenaAttackTargetRangeState?.(targetPiece, mode);
+      if (state && typeof state === "object") return state;
+    } catch {}
+    const ar = Number(attackerPiece?.row);
+    const ac = Number(attackerPiece?.col);
+    const tr = Number(targetPiece?.row);
+    const tc = Number(targetPiece?.col);
+    const distance = [ar, ac, tr, tc].every(Number.isFinite)
+      ? Math.max(Math.abs(ar - tr), Math.abs(ac - tc))
+      : null;
+    return { inRange: distance == null || distance <= limit, hasLimit: true, distance, limit };
+  }
+
+  _rangeMissText(rangeState) {
+    const distance = rangeState?.distance;
+    const limit = rangeState?.limit;
+    if (Number.isFinite(Number(distance)) && Number.isFinite(Number(limit))) {
+      return `Fora do alcance (${distance}/${limit}q)`;
+    }
+    return "Fora do alcance";
+  }
+
   async _executeAttackTargetMode(targetPiece) {
     const mode = this._attackTargetMode;
     if (!mode || !targetPiece) return;
@@ -2303,10 +2344,15 @@ export class ArenaCombatUI {
       this._showFloat(targetPiece, "Alvo invalido", "miss");
       return;
     }
+    const targeting = mode.targeting || this._moveTargetingInfo(mode.move, mode.powerRule);
+    const rangeState = this._targetRangeState(mode.attackerPiece, targetPiece, targeting, targeting.rangeStr || "distance");
+    if (rangeState?.hasLimit && rangeState.inRange === false) {
+      this._showFloat(mode.attackerPiece, this._rangeMissText(rangeState), "miss");
+      return;
+    }
     this._attackTargetMode = null;
     this._publishAttackTargetModeState();
     this._closePrompt();
-    const targeting = mode.targeting || this._moveTargetingInfo(mode.move, mode.powerRule);
     if (targeting.kind === "area" || targeting.rangeStr === "area") {
       await this._launchAreaAttack(mode.atkPid, targetPiece, mode.move, mode.stats, {
         moveIdx: mode.moveIdx,
@@ -2318,6 +2364,7 @@ export class ArenaCombatUI {
       sneakAttack: false,
       moveIdx: mode.moveIdx,
       powerRule: mode.powerRule,
+      targeting,
     });
   }
 
@@ -2364,7 +2411,7 @@ export class ArenaCombatUI {
         ev.preventDefault();
         ev.stopImmediatePropagation();
         const by = safeStr(this.getBy?.()).toLowerCase();
-        const enemies = piecesOnTile.filter((piece) => {
+        const rawEnemies = piecesOnTile.filter((piece) => {
           const owner = safeStr(piece?.owner).toLowerCase();
           if (!owner || owner === by) return false;
           if (safeStr(piece?.status || "active") !== "active") return false;
@@ -2373,8 +2420,23 @@ export class ArenaCombatUI {
           } catch {}
           return true;
         });
+        const enemies = rawEnemies.filter((piece) => {
+          try {
+            if (typeof window.isArenaAttackTargetCandidate === "function") {
+              return window.isArenaAttackTargetCandidate(piece);
+            }
+          } catch {}
+          return true;
+        });
         if (!enemies.length) {
-          this._showFloat(this._attackTargetMode.attackerPiece, "Clique em um alvo inimigo", "miss");
+          const rangeState = rawEnemies[0]
+            ? this._targetRangeState(this._attackTargetMode.attackerPiece, rawEnemies[0], this._attackTargetMode.targeting, this._attackTargetMode.targeting?.rangeStr || "distance")
+            : null;
+          this._showFloat(
+            this._attackTargetMode.attackerPiece,
+            rangeState?.hasLimit && rangeState.inRange === false ? this._rangeMissText(rangeState) : "Clique em um alvo inimigo",
+            "miss",
+          );
           return;
         }
         if (enemies.length === 1) {
@@ -4057,6 +4119,15 @@ export class ArenaCombatUI {
   }
 
   async _executeAttack(atkPid, targetPiece, move, stats, rangeStr, opts = {}) {
+    const by = this.getBy();
+    const actorPieceForRange = this._findPieceByOwnerPid(by, atkPid);
+    const targetingForRange = opts.targeting || this._moveTargetingInfo(move, opts.powerRule || null);
+    const rangeState = this._targetRangeState(actorPieceForRange, targetPiece, targetingForRange, rangeStr);
+    if (rangeState?.hasLimit && rangeState.inRange === false) {
+      this._showFloat(actorPieceForRange || targetPiece, this._rangeMissText(rangeState), "miss");
+      return;
+    }
+
     const extraAttackMods = opts.askExtraMods === false
       ? { acc: 0, dmg: 0 }
       : (opts.extraAttackMods || await this._promptExtraAttackModifiers(move));
@@ -4064,7 +4135,6 @@ export class ArenaCombatUI {
 
     this._closeAll();
 
-    const by = this.getBy();
     const tId = safeStr(targetPiece.id);
     const tOwner = safeStr(targetPiece.owner);
     const tPid = safeStr(targetPiece.pid);
