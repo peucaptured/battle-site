@@ -249,6 +249,7 @@ _pieceFxOverlay.id = "piece_fx_overlay";
 _pieceFxOverlay.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:4;border-radius:var(--radius);";
 if (canvasWrap) canvasWrap.appendChild(_pieceFxOverlay);
 const _spritePool = new Map(); // pieceId -> {el, url}
+const _targetMarkerPool = new Map(); // pieceId -> HTMLElement
 const PIECE_FIELD_FX_MS = 420;
 const PIECE_ENTRY_PARTICLE_MS = 860;
 let _pieceScreenBounds = new Map(); // pieceId -> { left, top, width, height, hitZIndex }
@@ -491,6 +492,38 @@ function getActiveMapTerrainUrl() {
   const storagePath = safeStr(b.mapTerrainStoragePath || b.map_terrain_storage_path);
   if (storagePath) pushUniqueString(urls, storageMediaUrl(storagePath));
   return urls[0] || "";
+}
+
+function getCompositedMapImageCandidates() {
+  const b = appState.board || {};
+  const urls = [];
+  pushUniqueString(urls, mapUrlOverride);
+  pushUniqueString(urls, b.mapTokenUrl);
+  pushUniqueString(urls, b.map_token_url);
+  pushUniqueString(urls, b.mapUrl);
+  pushUniqueString(urls, b.map_url);
+  pushUniqueString(urls, b.backgroundTokenUrl);
+  pushUniqueString(urls, b.background_token_url);
+  pushUniqueString(urls, b.backgroundUrl);
+  pushUniqueString(urls, b.background_url);
+  const storagePath = safeStr(
+    b.mapStoragePath || b.map_storage_path || b.backgroundStoragePath || b.background_storage_path
+  );
+  if (storagePath) pushUniqueString(urls, storageMediaUrl(storagePath));
+  return urls;
+}
+
+function isActiveMapBackgroundTerrainImage() {
+  const activeUrl = safeStr(mapCache.bgUrl);
+  if (!activeUrl) return false;
+  return getActiveMapImageCandidates({ preferTerrain: true }).some((url) => safeStr(url) === activeUrl);
+}
+
+function shouldRenderMapObjectSprites() {
+  if (mapLayersState.version !== 2) return false;
+  if (shouldUseMapTerrainPreview()) return true;
+  if (isActiveMapBackgroundTerrainImage()) return true;
+  return !getCompositedMapImageCandidates().length && !safeStr(mapCache.bgUrl);
 }
 
 function getActiveMapBaseDataUrl() {
@@ -11462,6 +11495,11 @@ function isArenaAttackTargetCandidate(piece, mode = getArenaAttackTargetModeStat
   try {
     if (!isPieceVisibleToMe(piece)) return false;
   } catch {}
+  return true;
+}
+
+function isArenaAttackTargetVisualCandidate(piece, mode = getArenaAttackTargetModeState()) {
+  if (!isArenaAttackTargetCandidate(piece, mode)) return false;
   const rangeState = getArenaAttackTargetRangeState(piece, mode);
   if (rangeState?.hasLimit && rangeState.inRange === false) return false;
   return true;
@@ -11473,16 +11511,7 @@ function handleArenaAttackTargetClick(piecesOnTile, clientX, clientY) {
   const pieces = (Array.isArray(piecesOnTile) ? piecesOnTile : []).filter(Boolean);
   const targetable = pieces.filter((piece) => isArenaAttackTargetCandidate(piece, mode));
   if (!targetable.length) {
-    const visibleEnemy = pieces.find((piece) => {
-      if (isPieceMine(piece) || isTrainerPiece(piece)) return false;
-      try { return isPieceVisibleToMe(piece); } catch { return true; }
-    }) || null;
-    const rangeState = visibleEnemy ? getArenaAttackTargetRangeState(visibleEnemy, mode) : null;
-    if (rangeState?.hasLimit && rangeState.inRange === false) {
-      setStatus("warn", `alvo fora do alcance (${rangeState.distance}/${rangeState.limit}q)`);
-    } else {
-      setStatus("warn", "clique em um alvo inimigo valido");
-    }
+    setStatus("warn", "clique em um alvo inimigo valido");
     return true;
   }
   const ui = window._arenaCombatUI;
@@ -13188,6 +13217,8 @@ function renderArenaDom() {
   arenaDom.style.width = `${board.side}px`;
   arenaDom.style.height = `${board.side}px`;
   syncSpriteOverlayVisibility();
+  for (const [, marker] of _targetMarkerPool) marker.remove();
+  _targetMarkerPool.clear();
   const bgCandidates = getActiveMapImageCandidates({ preferTerrain: shouldUseMapTerrainPreview() });
   const bgImageCss = bgCandidates
     .map((url) => `url("${String(url).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}")`)
@@ -13333,7 +13364,7 @@ function renderArenaDom() {
     }, frameNow);
     const tokenHpValue = safeStr(p?.kind) !== "trainer" ? getPartyHp(safeStr(p?.owner), p) : 6;
     if (tokenHpValue <= 0) token.classList.add("hp-ko");
-    const isAttackTarget = isArenaAttackTargetCandidate(p, attackTargetMode);
+    const isAttackTarget = isArenaAttackTargetVisualCandidate(p, attackTargetMode);
     const isAttackTargetHover = isAttackTarget && hoveredPieceId && hoveredPieceId === safeStr(p?.id);
     if (isAttackTarget) {
       token.classList.add("attack-targetable");
@@ -13391,7 +13422,7 @@ function renderArenaDom() {
     }
   }
 
-  if (shouldUseMapTerrainPreview() && mapLayersState.version === 2) {
+  if (shouldRenderMapObjectSprites()) {
     syncMapObjectOverlays(board.left, board.top, board.tile);
   } else {
     _cleanObjSpritePool();
@@ -14109,21 +14140,8 @@ function mulberry32(a) {
 function getActiveMapImageCandidates(options = {}) {
   const preferTerrain = !!options.preferTerrain;
   const urls = [];
-  const b = appState.board || {};
   if (!preferTerrain) {
-    pushUniqueString(urls, mapUrlOverride);
-    pushUniqueString(urls, b.mapTokenUrl);
-    pushUniqueString(urls, b.map_token_url);
-    pushUniqueString(urls, b.mapUrl);
-    pushUniqueString(urls, b.map_url);
-    pushUniqueString(urls, b.backgroundTokenUrl);
-    pushUniqueString(urls, b.background_token_url);
-    pushUniqueString(urls, b.backgroundUrl);
-    pushUniqueString(urls, b.background_url);
-    const storagePath = safeStr(
-      b.mapStoragePath || b.map_storage_path || b.backgroundStoragePath || b.background_storage_path
-    );
-    if (storagePath) pushUniqueString(urls, storageMediaUrl(storagePath));
+    for (const url of getCompositedMapImageCandidates()) pushUniqueString(urls, url);
   }
   pushUniqueString(urls, getActiveMapTerrainUrl());
   if (!preferTerrain) {
@@ -15471,6 +15489,7 @@ drawTraps(ctx, ox, oy, tile);
 
   // Track which sprite overlay elements are used this frame
   const _usedSpriteIds = new Set();
+  const _usedTargetMarkerIds = new Set();
 
   // ── Pass 3: Y-sort stack (v2 map objects + entities) ─────────────────────
   // sortY = grid row of the item's "foot" (drawn last = visually in front).
@@ -15485,8 +15504,9 @@ drawTraps(ctx, ox, oy, tile);
     _yStack.push({ _isObj: false, piece: p, sortY: r + tileH });
   }
 
-  // v2: interleave map objects in the draw stack for proper depth ordering
-  if (mapLayersState.version === 2) {
+  // v2: interleave visual map objects in the draw stack for proper depth ordering.
+  const renderMapObjects = shouldRenderMapObjectSprites();
+  if (renderMapObjects) {
     for (const obj of mapLayersState.objects) {
       const sortY = Number(obj.y ?? 0)
         + (obj.anchor?.ay ?? 1.0) * (obj.footprint?.h ?? 1);
@@ -15505,11 +15525,10 @@ drawTraps(ctx, ox, oy, tile);
     // ── v2 map object ───────────────────────────────────────────────────────
     if (_item._isObj) {
       const obj = _item.obj;
-      // Draw on canvas (fallback / shadow; also shown if HTML sprite not yet loaded)
-      _drawMapObject(ctx, obj, ox, oy, tile);
-      // HTML overlay for CSS z-index stacking with entity sprites
-      if (obj._spriteUrl) {
+      if (obj._spriteUrl && _spriteOverlay) {
         renderMapObjectOverlay(obj, _spriteOverlay, ox, oy, tile);
+      } else {
+        _drawMapObject(ctx, obj, ox, oy, tile);
       }
       continue;
     }
@@ -15523,7 +15542,7 @@ drawTraps(ctx, ox, oy, tile);
     const owner = safeStr(p?.owner);
     const isSel = safeStr(appState.selectedPieceId) && safeStr(appState.selectedPieceId) === id;
     const isMine = _by && owner === _by;
-    const isAttackTarget = isArenaAttackTargetCandidate(p, attackTargetMode);
+    const isAttackTarget = isArenaAttackTargetVisualCandidate(p, attackTargetMode);
     const isAttackTargetHover = isAttackTarget && hoveredPieceId && hoveredPieceId === id;
     const megaFx = getMegaEvolutionFxState(owner, p?.pid);
     const pieceHpValue = safeStr(p?.kind) !== "trainer" ? getPartyHp(owner, p) : 6;
@@ -15637,6 +15656,24 @@ drawTraps(ctx, ox, oy, tile);
       entry.el.classList.toggle("hp-ko", pieceHpValue <= 0);
       entry.el.classList.toggle("attack-targetable", !!isAttackTarget);
       entry.el.classList.toggle("attack-target-hover", !!isAttackTargetHover);
+      if (isAttackTarget) {
+        _usedTargetMarkerIds.add(id);
+        let marker = _targetMarkerPool.get(id);
+        if (!marker) {
+          marker = document.createElement("div");
+          marker.className = "spr-target-marker";
+          marker.setAttribute("aria-hidden", "true");
+          _spriteOverlay.appendChild(marker);
+          _targetMarkerPool.set(id, marker);
+        }
+        const markerSize = Math.max(18, Math.min(30, Math.round(Math.min(spriteW, spriteH) * 0.38)));
+        marker.classList.toggle("attack-target-hover", !!isAttackTargetHover);
+        marker.style.left = `${spriteX + spriteW / 2}px`;
+        marker.style.top = `${spriteY + Math.max(markerSize / 2 + 3, Math.min(spriteH * 0.26, spriteH - markerSize / 2))}px`;
+        marker.style.width = `${markerSize}px`;
+        marker.style.height = `${markerSize}px`;
+        marker.style.zIndex = String(hitZIndex + 1);
+      }
     } else {
       // fallback glyph
       ctx.fillStyle = "rgba(226,232,240,0.85)";
@@ -15745,6 +15782,12 @@ drawTraps(ctx, ox, oy, tile);
     if (!_usedSpriteIds.has(pid)) {
       entry.el.remove();
       _spritePool.delete(pid);
+    }
+  }
+  for (const [pid, marker] of _targetMarkerPool) {
+    if (!_usedTargetMarkerIds.has(pid)) {
+      marker.remove();
+      _targetMarkerPool.delete(pid);
     }
   }
 
@@ -18535,6 +18578,7 @@ window.getMoveModeInfo = _getMoveModeInfo;
 window.getPieceGridDistance = getPieceGridDistance;
 window.getArenaAttackTargetRangeState = getArenaAttackTargetRangeState;
 window.isArenaAttackTargetCandidate = isArenaAttackTargetCandidate;
+window.isArenaAttackTargetVisualCandidate = isArenaAttackTargetVisualCandidate;
 window.selectPiece        = selectPiece;
 window.togglePieceRevealed = togglePieceRevealed;
 window.removePieceFromBoard = removePieceFromBoard;

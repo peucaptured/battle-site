@@ -2345,11 +2345,6 @@ export class ArenaCombatUI {
       return;
     }
     const targeting = mode.targeting || this._moveTargetingInfo(mode.move, mode.powerRule);
-    const rangeState = this._targetRangeState(mode.attackerPiece, targetPiece, targeting, targeting.rangeStr || "distance");
-    if (rangeState?.hasLimit && rangeState.inRange === false) {
-      this._showFloat(mode.attackerPiece, this._rangeMissText(rangeState), "miss");
-      return;
-    }
     this._attackTargetMode = null;
     this._publishAttackTargetModeState();
     this._closePrompt();
@@ -2429,12 +2424,9 @@ export class ArenaCombatUI {
           return true;
         });
         if (!enemies.length) {
-          const rangeState = rawEnemies[0]
-            ? this._targetRangeState(this._attackTargetMode.attackerPiece, rawEnemies[0], this._attackTargetMode.targeting, this._attackTargetMode.targeting?.rangeStr || "distance")
-            : null;
           this._showFloat(
             this._attackTargetMode.attackerPiece,
-            rangeState?.hasLimit && rangeState.inRange === false ? this._rangeMissText(rangeState) : "Clique em um alvo inimigo",
+            "Clique em um alvo inimigo",
             "miss",
           );
           return;
@@ -4123,7 +4115,8 @@ export class ArenaCombatUI {
     const actorPieceForRange = this._findPieceByOwnerPid(by, atkPid);
     const targetingForRange = opts.targeting || this._moveTargetingInfo(move, opts.powerRule || null);
     const rangeState = this._targetRangeState(actorPieceForRange, targetPiece, targetingForRange, rangeStr);
-    if (rangeState?.hasLimit && rangeState.inRange === false) {
+    const isMeleeRange = safeStr(targetingForRange?.kind) === "melee" || safeStr(rangeStr) === "melee";
+    if (isMeleeRange && rangeState?.hasLimit && rangeState.inRange === false) {
       this._showFloat(actorPieceForRange || targetPiece, this._rangeMissText(rangeState), "miss");
       return;
     }
