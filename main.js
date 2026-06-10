@@ -4635,20 +4635,23 @@ function _inferPokemonSpeciesSlug(trainerName, pidLike, options = {}) {
   const piece = options?.piece || null;
   const sheet = options?.sheet || null;
   const rawPid = safeStr(pidLike?.pid ?? pidLike?.pokemon?.id ?? pidLike);
-  const fromDex = dexNameFromPid(rawPid) || resolvePokemonNameFromPid(rawPid);
-  const normalizedDex = _normalizePokemonFormSlug(fromDex);
-  if (normalizedDex) return _inferCanonicalFormRoot(normalizedDex);
 
   const fromBaseSheet = _normalizePokemonFormSlug(
     sheet?.base_pokemon_name
     || sheet?.basePokemonName
+    || sheet?.pokemon?.api_name
+    || sheet?.pokemon?.apiName
+    || sheet?.pokemon?.name
     || sheet?.base_pokemon_id
-    || sheet?.pokemon?.id
   );
   if (fromBaseSheet) return _inferCanonicalFormRoot(fromBaseSheet);
 
   const inferredForm = _inferBasePokemonFormSlug(owner, piece || pidLike, { piece, sheet, source: options?.source });
   if (inferredForm) return _inferCanonicalFormRoot(inferredForm);
+
+  const fromDex = dexNameFromPid(rawPid) || resolvePokemonNameFromPid(rawPid);
+  const normalizedDex = _normalizePokemonFormSlug(fromDex);
+  if (normalizedDex) return _inferCanonicalFormRoot(normalizedDex);
 
   return _inferCanonicalFormRoot(_normalizePokemonFormSlug(rawPid));
 }
@@ -12047,6 +12050,7 @@ function openPieceRadialMenu(piece, clientX, clientY) {
   const owner = safeStr(piece?.owner);
   const sprite = getEffectiveSpriteUrlForTrainerPid(owner, piece, { type: "battle" }) || getSpriteUrlFromPid(piece?.pid);
   const name = displayNameFromPiece(piece, { allowHiddenIdentity: true, isMine: true });
+  const formState = _getPieceFormPickerState(piece);
   el.innerHTML = `
     <div class="pr-orbit" aria-hidden="true"></div>
     <div class="pr-center" title="${escapeAttr(name)}">
@@ -12055,7 +12059,7 @@ function openPieceRadialMenu(piece, clientX, clientY) {
     <button type="button" class="pr-action pr-attack" data-radial-act="attack" title="Atacar">${_pieceRadialIcon("attack")}<span class="pr-label">Atacar</span></button>
     <button type="button" class="pr-action pr-move" data-radial-act="move" title="Mover">${_pieceRadialIcon("move")}<span class="pr-label">Mover</span></button>
     <button type="button" class="pr-action pr-vital" data-radial-act="vital" title="HP e condições">${_pieceRadialIcon("vital")}<span class="pr-label">Vital</span></button>
-    <button type="button" class="pr-action pr-form" data-radial-act="form" title="Trocar forma">${_pieceRadialIcon("form")}<span class="pr-label">Forma</span></button>
+    <button type="button" class="pr-action pr-form" data-radial-act="form" title="Trocar forma"${formState.canShow ? "" : " hidden disabled"}>${_pieceRadialIcon("form")}<span class="pr-label">Forma</span></button>
   `;
   const wrapRect = canvasWrap.getBoundingClientRect();
   const localX = Math.max(96, Math.min(wrapRect.width - 96, pt.clientX - wrapRect.left));
